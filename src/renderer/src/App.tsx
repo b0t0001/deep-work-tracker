@@ -163,6 +163,19 @@ export default function App(): React.JSX.Element {
       }`}
       onMouseDown={releaseFocus}
     >
+      {/* The dial is rendered first and reordered visually with flexbox.
+          Electron supports no-drag nested inside drag, but not the reverse, and
+          it resolves overlapping regions by document order rather than z-index.
+          Declaring the chrome after the dial is therefore what lets it receive
+          hover, while the card stays draggable by the dial itself. */}
+      <TimerDial
+        progress={fraction}
+        clock={formatClock(clockMs)}
+        caption={caption}
+        variant={variant}
+        dimmed={snapshot.status === 'paused'}
+      />
+
       <header className="card__head">
         <div className="tools">
           <button
@@ -237,20 +250,6 @@ export default function App(): React.JSX.Element {
           ))}
         </div>
       )}
-
-      <TimerDial
-        progress={fraction}
-        clock={formatClock(clockMs)}
-        caption={caption}
-        variant={variant}
-        dimmed={snapshot.status === 'paused'}
-      />
-
-      {/* Ring mode drags by its middle only, so nothing draggable overlaps the
-          floating chrome. This sits after the dial deliberately: Electron
-          resolves overlapping drag regions by document order, not z-index, so
-          placing it earlier let the dial override it and dragging stopped. */}
-      {variant === 'ring' && <div className="drag-zone" />}
 
       <footer className="card__foot">
         {idle ? (

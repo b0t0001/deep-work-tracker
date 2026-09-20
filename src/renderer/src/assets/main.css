@@ -564,34 +564,50 @@ input {
 
 /* ---------- Electron drag-region workarounds ---------- */
 
-/* A drag region consumes mouse events at the OS level: no hover, no clicks.
+/* Electron supports no-drag nested inside drag, but NOT drag nested inside
+   no-drag, and it resolves overlapping regions by document order rather than
+   z-index. Both rules had to be satisfied at once.
 
-   Marking the floating chrome no-drag was not enough on its own. The dial
-   spans the entire card, so the draggable SVG still covered the strip beneath
-   the header, and Electron resolves that overlap in favour of dragging
-   regardless of z-index - the pointer never reached the header at all.
-
-   So ring mode inverts the arrangement: the card is no-drag, and a single
-   drag zone covers only the middle band, stopping short of both chrome
-   strips. Nothing draggable overlaps the chrome, so hover works at the top
-   and bottom edges while the circle can still move the window. */
-.card.is-ring {
+   So the card stays draggable, the chrome is no-drag, and the dial is declared
+   before the chrome in the markup - reordered visually with flexbox. The
+   chrome's no-drag therefore wins the overlap in ring mode, where it floats
+   over the dial, and dragging still works anywhere the dial is exposed. */
+.card__head,
+.card__foot,
+.palette {
   -webkit-app-region: no-drag;
 }
 
-.card.is-ring .drag-zone {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(var(--pad) + 34px);
-  bottom: calc(var(--pad) + 34px);
-  z-index: 1;
-  -webkit-app-region: drag;
+/* Visual order stays header, palette, dial, footer regardless of markup order. */
+.card__head {
+  order: -2;
 }
 
-/* Second, clicking the card body to dismiss the palette or leave the label did
-   nothing, since mousedown never arrived. While either is open the card stops
-   being draggable, so the click lands and the handler commits and closes. */
+.palette {
+  order: -1;
+}
+
+.dial {
+  order: 0;
+}
+
+.card__foot {
+  order: 1;
+}
+
+/* Bar mode hides its controls until hover, the way Hourglass does. They keep
+   their space in the layout, so nothing shifts when they appear. */
+.card:not(.is-ring) .tools,
+.card:not(.is-ring) .card__foot {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.card:not(.is-ring):hover .tools,
+.card:not(.is-ring):hover .card__foot {
+  opacity: 1;
+}
+
 .card.is-editing {
   -webkit-app-region: no-drag;
 }
