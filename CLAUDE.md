@@ -130,12 +130,21 @@ countdown readings cannot be converted to clock times. Queries must handle this.
 ## Commands
 
 ```
-npm run dev      # dev with hot reload
-npm run build    # typecheck + bundle
-npm run dist     # package a Windows installer
+npm run dev        # dev with hot reload
+npm run build      # typecheck + bundle all three processes
+npm run typecheck  # typecheck only (node + web configs)
+npm run dist       # package a Windows installer
 npm run lint
-npm run test
+npm run format
 ```
+
+No test runner yet — Vitest arrives in Phase 2, alongside the first real
+logic worth testing. Do not reference `npm run test` until it exists.
+
+`package.json` carries an `allowScripts` field. npm 11 blocks install scripts
+by default, and Electron's postinstall is what downloads the 246 MB binary —
+without the approval a fresh `npm install` silently yields an app that cannot
+start. If that happens, run `node node_modules/electron/install.js`.
 
 ## Conventions
 

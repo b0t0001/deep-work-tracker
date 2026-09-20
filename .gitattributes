@@ -1,0 +1,6 @@
+# Normalise line endings; keeps Windows checkouts from churning the repo
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary
+*.svg text
