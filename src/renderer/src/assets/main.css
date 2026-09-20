@@ -785,3 +785,23 @@ input {
   width: clamp(11px, 7vmin, 28px);
   height: clamp(11px, 7vmin, 28px);
 }
+
+/* ---------- title centring ---------- */
+
+/* The label sat between two tool clusters of different widths - three icons on
+   the left, two on the right - so centring it inside the leftover space put it
+   left of the window's centre. Giving both clusters an equal share makes the
+   remaining space symmetrical, so the title centres on the window itself. */
+.card__head .tools {
+  flex: 1 1 0;
+  min-width: min-content;
+}
+
+.card__head .tools:last-of-type {
+  justify-content: flex-end;
+}
+
+.label {
+  flex: 0 1 auto;
+  min-width: 0;
+}
