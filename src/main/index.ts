@@ -13,10 +13,10 @@ const PAUSE_ACCELERATOR = 'CommandOrControl+Shift+Space'
  * that eats a quarter of the screen will not get used. Everything scales with
  * the window, so the same layout works from here up to a projector.
  */
-const COMPACT = { width: 300, height: 168 }
-const MINIMUM = { width: 210, height: 118 }
+const COMPACT = { width: 310, height: 196 }
+const MINIMUM = { width: 250, height: 160 }
 /** The ring wants a square window; in a wide one it floats in dead space. */
-const SQUARE = { width: 260, height: 300 }
+const SQUARE = { width: 290, height: 340 }
 
 const timer = new TimerEngine()
 let compactWindow: BrowserWindow | null = null

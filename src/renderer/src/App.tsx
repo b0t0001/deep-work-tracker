@@ -12,14 +12,15 @@ import Icon from './components/Icon'
 
 const MINUTE_MS = 60_000
 
-/** Muted by default: the timer is meant to be glanced at, not looked at. */
+/** Windows blue by default: familiar, and calm enough not to pull focus. */
 const ACCENTS = [
-  { name: 'Slate', value: '#94a3b8' },
-  { name: 'Bone', value: '#d8d2c6' },
-  { name: 'Sage', value: '#8faa8b' },
-  { name: 'Steel', value: '#7f9cc0' },
-  { name: 'Amber', value: '#d6a052' },
-  { name: 'Teal', value: '#5eead4' }
+  { name: 'Blue', value: '#0a84ff' },
+  { name: 'Ruby', value: '#d92b4b' },
+  { name: 'Purple', value: '#7c4dff' },
+  { name: 'Teal', value: '#14b8a6' },
+  { name: 'Green', value: '#2eb85c' },
+  { name: 'Orange', value: '#f28c28' },
+  { name: 'Graphite', value: '#9aa0a6' }
 ] as const
 
 const ACCENT_KEY = 'dwt.accent'
@@ -93,7 +94,10 @@ function useFullScreen(): [boolean, (value: boolean) => void] {
 function useAccent(): [string, (value: string) => void] {
   const [accent, setAccent] = useState<string>(() => {
     try {
-      return localStorage.getItem(ACCENT_KEY) ?? ACCENTS[0].value
+      const stored = localStorage.getItem(ACCENT_KEY)
+      // A colour saved before the palette changed is no longer selectable, so
+      // it would apply with no swatch shown as active. Fall back instead.
+      return ACCENTS.some((option) => option.value === stored) ? stored! : ACCENTS[0].value
     } catch {
       return ACCENTS[0].value
     }
