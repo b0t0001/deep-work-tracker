@@ -14,7 +14,7 @@ const PAUSE_ACCELERATOR = 'CommandOrControl+Shift+Space'
  * the window, so the same layout works from here up to a projector.
  */
 const COMPACT = { width: 310, height: 196 }
-const MINIMUM = { width: 190, height: 124 }
+const MINIMUM = { width: 216, height: 146 }
 /** The ring wants a square window; in a wide one it floats in dead space. */
 const SQUARE = { width: 290, height: 340 }
 
