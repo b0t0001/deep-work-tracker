@@ -12,7 +12,7 @@ it, then hand-type the start and stop times into a spreadsheet that computed
 durations and weekly trends. Two problems: manual transcription, and analytics
 that were hard to change once written as formulas.
 
-The app must be *at least as good as the old timer* at the timer part, or the
+The app must be _at least as good as the old timer_ at the timer part, or the
 user will stop using it. Two non-negotiables carried over from the old tool:
 
 1. **Always-on-top compact window.** The timer must stay visible above other
@@ -39,7 +39,7 @@ a SQLite file on the same disk as the UI.
 Running Next.js inside Electron has two forms, both worse here:
 
 - **Static export** disables middleware, Server Actions and API routes, and
-  Server Components execute at *build time*, so they cannot read live session
+  Server Components execute at _build time_, so they cannot read live session
   data. All of Next.js's weight, none of its benefits.
 - **Standalone mode** boots a real HTTP server inside the desktop app: slower
   startup, port and lifecycle management, harder packaging, and a network hop
@@ -48,7 +48,7 @@ Running Next.js inside Electron has two forms, both worse here:
 Structurally, Electron needs three builds with different targets (`main` = Node,
 `preload` = sandboxed bridge, `renderer` = browser). electron-vite handles all
 three; Next.js has no concept of a main or preload process, so it would have to
-run *alongside* another bundler rather than replace one.
+run _alongside_ another bundler rather than replace one.
 
 Next.js would be the right call for a future web or mobile client reading this
 data over a network. That is a separate application, and the React components
@@ -138,7 +138,7 @@ toward looking good — the user can open the dashboard for detail.
 hours, 2,336 timer runs, 889 active days** (2023-03-27 to 2026-09-19), plus 376
 days explicitly marked `N/A` as deliberate rest.
 
-The old timer is **Hourglass** for Windows — a *countdown* timer with loop and
+The old timer is **Hourglass** for Windows — a _countdown_ timer with loop and
 always-on-top. `Start` and `End` in the CSV are **time remaining on the
 countdown, not wall-clock time**. Every one of the 2,336 rows has `end < start`,
 and `|start - end|` matches the recorded hours exactly.
@@ -153,7 +153,7 @@ Each CSV row is an independent timer set to a round duration and usually stopped
 before it expired. Verified:
 
 - **97% of 2025-2026 rows start at a round duration** (a multiple of 5 minutes)
-  — that value is what the timer was *set to*.
+  — that value is what the timer was _set to_.
 - **72-84% of recent runs were stopped early.** Only 16-28% reached 0:00:00.
   `planned` vs `actual` duration is therefore a real and interesting signal, not
   bookkeeping.
@@ -170,7 +170,7 @@ task. **Do not build a "switch task without stopping the clock" feature.**
 carries no meaning — several consecutive timers in one sitting often share a
 single label. **Only the category matters.** Do not store `block_index`.
 
-Grouping consecutive runs into a working stretch is a *derived* analytic,
+Grouping consecutive runs into a working stretch is a _derived_ analytic,
 computed from wall-clock gaps between sessions. It is never something the user
 labels by hand.
 
@@ -314,7 +314,7 @@ start. If that happens, run `node node_modules/electron/install.js`.
 The user is new to agentic programming but technically capable (Arduino, KiCad,
 LabVIEW, a CS course). So:
 
-- Explain *why* a choice is made, not just what changed. Skip basic programming
+- Explain _why_ a choice is made, not just what changed. Skip basic programming
   explanations; do explain Electron/React-specific reasoning.
 - Prefer small, runnable increments. Each phase should end with something the
   user can actually launch and click, not scaffolding that only works later.

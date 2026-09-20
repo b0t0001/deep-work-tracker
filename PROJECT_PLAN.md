@@ -6,12 +6,12 @@ easy to extend.
 
 **Decisions locked in:**
 
-| Decision | Choice | Why |
-|---|---|---|
-| Platform | Electron desktop app | Only option that supports always-on-top and accurate background timing |
-| Storage | Local SQLite file | Private, no signup, already backed up via OneDrive |
-| Spreadsheet history | Import it | Keeps trends meaningful from day one |
-| LLM insights | Deferred | Prove the data layer first; schema is designed to support it later |
+| Decision            | Choice               | Why                                                                    |
+| ------------------- | -------------------- | ---------------------------------------------------------------------- |
+| Platform            | Electron desktop app | Only option that supports always-on-top and accurate background timing |
+| Storage             | Local SQLite file    | Private, no signup, already backed up via OneDrive                     |
+| Spreadsheet history | Import it            | Keeps trends meaningful from day one                                   |
+| LLM insights        | Deferred             | Prove the data layer first; schema is designed to support it later     |
 
 **Success test:** after two weeks, the spreadsheet has not been opened once.
 
@@ -107,7 +107,7 @@ Now make it worth more than the old timer.
   editable**, reachable from settings and from history — this data informs real
   decisions, so it has to be correctable.
 - **Retroactive session entry** for untimed work (a six-hour club meeting
-  entered from memory). Marked `source = 'manual'`, and deliberately *not* the
+  entered from memory). Marked `source = 'manual'`, and deliberately _not_ the
   default surface when the app opens — the timer is the primary path.
 
 **Done when:** a full day of work is captured with zero manual transcription.
@@ -119,18 +119,18 @@ Now make it worth more than the old timer.
 The CSV has been analyzed; the mapping is known. 2,336 segments across 1,782
 blocks, 2,545 hours, 2023-03-27 to 2026-09-19.
 
-| CSV column | Destination |
-|---|---|
-| `Date` | `sessions` date (M/D/YY). No clock time exists, so `started_at` stays null. |
-| `Block` | strip the trailing number, map to `projects.name` (`HW 2` -> HW). The ordinal is discarded — it carries no meaning. |
-| `Tasks` | `sessions.task` |
-| `Start` | `planned_duration_s` — what the timer was set to |
-| `End` | remaining when stopped; `actual_duration_s = start - end`, `completed = (end == 0)` |
-| `Total Time (hours)` | verification only — recompute, then assert it matches |
-| `Work Done` | parse into `work_quantity` + `work_unit`; `unquantifiable` -> flag |
-| `Efficiency` | discard — recomputed from quantity and duration |
-| `Notes` | `sessions.notes` (253 rows) |
-| `Task List` | discard — a one-off header note, not row data |
+| CSV column           | Destination                                                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `Date`               | `sessions` date (M/D/YY). No clock time exists, so `started_at` stays null.                                         |
+| `Block`              | strip the trailing number, map to `projects.name` (`HW 2` -> HW). The ordinal is discarded — it carries no meaning. |
+| `Tasks`              | `sessions.task`                                                                                                     |
+| `Start`              | `planned_duration_s` — what the timer was set to                                                                    |
+| `End`                | remaining when stopped; `actual_duration_s = start - end`, `completed = (end == 0)`                                 |
+| `Total Time (hours)` | verification only — recompute, then assert it matches                                                               |
+| `Work Done`          | parse into `work_quantity` + `work_unit`; `unquantifiable` -> flag                                                  |
+| `Efficiency`         | discard — recomputed from quantity and duration                                                                     |
+| `Notes`              | `sessions.notes` (253 rows)                                                                                         |
+| `Task List`          | discard — a one-off header note, not row data                                                                       |
 
 - Normalize unit plurals (question/questions, video/videos, component/components)
 - **Consolidate drifted category names** before import: `College Apps` /

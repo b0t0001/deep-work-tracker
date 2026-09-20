@@ -1,171 +1,237 @@
 @import './base.css';
 
-body {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background-image: url('./wavy-lines.svg');
-  background-size: cover;
-  user-select: none;
+:root {
+  /* Accent is a single variable so the settings colour picker has one thing to set. */
+  --accent: #5eead4;
+  --surface: #14161a;
+  --surface-raised: #1d2026;
+  --border: #ffffff14;
+  --text: #f2f4f7;
+  --text-dim: #8b919c;
+  --radius: 18px;
 }
 
-code {
-  font-weight: 600;
-  padding: 3px 5px;
-  border-radius: 2px;
-  background-color: var(--color-background-mute);
-  font-family:
-    ui-monospace,
-    SFMono-Regular,
-    SF Mono,
-    Menlo,
-    Consolas,
-    Liberation Mono,
-    monospace;
-  font-size: 85%;
-}
-
-#root {
+.card {
   display: flex;
-  align-items: center;
-  justify-content: center;
   flex-direction: column;
-  margin-bottom: 80px;
+  gap: 14px;
+  height: 100%;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  /* The whole card drags; interactive children opt out below. */
+  -webkit-app-region: drag;
 }
 
-.logo {
-  margin-bottom: 20px;
-  -webkit-user-drag: none;
-  height: 128px;
-  width: 128px;
-  will-change: filter;
-  transition: filter 300ms;
+button,
+input {
+  -webkit-app-region: no-drag;
+  font-family: inherit;
 }
 
-.logo:hover {
-  filter: drop-shadow(0 0 1.2em #6988e6aa);
-}
+/* ---------- header ---------- */
 
-.creator {
-  font-size: 14px;
-  line-height: 16px;
-  color: var(--ev-c-text-2);
-  font-weight: 600;
-  margin-bottom: 10px;
-}
-
-.text {
-  font-size: 28px;
-  color: var(--ev-c-text-1);
-  font-weight: 700;
-  line-height: 32px;
-  text-align: center;
-  margin: 0 10px;
-  padding: 16px 0;
-}
-
-.tip {
-  font-size: 16px;
-  line-height: 24px;
-  color: var(--ev-c-text-2);
-  font-weight: 600;
-}
-
-.react {
-  background: -webkit-linear-gradient(315deg, #087ea4 55%, #7c93ee);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-weight: 700;
-}
-
-.ts {
-  background: -webkit-linear-gradient(315deg, #3178c6 45%, #f0dc4e);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-weight: 700;
-}
-
-.actions {
+.card__head {
   display: flex;
-  padding-top: 32px;
-  margin: -6px;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-}
-
-.action {
-  flex-shrink: 0;
-  padding: 6px;
-}
-
-.action a {
-  cursor: pointer;
-  text-decoration: none;
-  display: inline-block;
-  border: 1px solid transparent;
-  text-align: center;
-  font-weight: 600;
-  white-space: nowrap;
-  border-radius: 20px;
-  padding: 0 20px;
-  line-height: 38px;
-  font-size: 14px;
-  border-color: var(--ev-button-alt-border);
-  color: var(--ev-button-alt-text);
-  background-color: var(--ev-button-alt-bg);
-}
-
-.action a:hover {
-  border-color: var(--ev-button-alt-hover-border);
-  color: var(--ev-button-alt-hover-text);
-  background-color: var(--ev-button-alt-hover-bg);
-}
-
-.versions {
-  position: absolute;
-  bottom: 30px;
-  margin: 0 auto;
-  padding: 15px 0;
-  font-family: 'Menlo', 'Lucida Console', monospace;
-  display: inline-flex;
-  overflow: hidden;
   align-items: center;
-  border-radius: 22px;
-  background-color: #202127;
-  backdrop-filter: blur(24px);
+  gap: 8px;
 }
 
-.versions li {
-  display: block;
-  float: left;
-  border-right: 1px solid var(--ev-c-gray-1);
-  padding: 0 20px;
+.label {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.label::placeholder {
+  color: var(--text-dim);
+}
+
+.label:hover {
+  background: var(--surface-raised);
+}
+
+.label:focus {
+  background: var(--surface-raised);
+  border-color: var(--accent);
+}
+
+/* ---------- dial ---------- */
+
+.dial {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 200ms ease;
+}
+
+.dial.is-dimmed {
+  opacity: 0.45;
+}
+
+.dial__inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.dial__clock {
+  font-size: 40px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  /* Stops the digits jittering as they change - important on camera. */
+  font-variant-numeric: tabular-nums;
+}
+
+.dial__caption {
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ring__track {
+  fill: none;
+  stroke: var(--surface-raised);
+}
+
+.ring__value {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+}
+
+.dial--bar {
+  flex-direction: column;
+  gap: 14px;
+}
+
+.bar {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-raised);
+}
+
+.bar__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transform-origin: left center;
+}
+
+/* ---------- footer ---------- */
+
+.card__foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.presets {
+  display: flex;
+  gap: 6px;
+}
+
+.chip {
+  flex: 1;
+  padding: 7px 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.chip:hover {
+  color: var(--text);
+  border-color: #ffffff2e;
+}
+
+.chip.is-active {
+  color: var(--surface);
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.chip--input {
+  flex: 0 0 52px;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+.chip--input::-webkit-outer-spin-button,
+.chip--input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+}
+
+.primary {
+  flex: 1;
+  padding: 11px 0;
+  border: none;
+  border-radius: 11px;
+  background: var(--accent);
+  color: var(--surface);
   font-size: 14px;
-  line-height: 14px;
-  opacity: 0.8;
-  &:last-child {
-    border: none;
-  }
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 120ms ease;
 }
 
-@media (max-width: 720px) {
-  .text {
-    font-size: 20px;
-  }
+.primary:hover {
+  filter: brightness(1.08);
 }
 
-@media (max-width: 620px) {
-  .versions {
-    display: none;
-  }
+.ghost {
+  padding: 11px 18px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease;
 }
 
-@media (max-width: 350px) {
-  .tip,
-  .actions {
-    display: none;
-  }
+.ghost:hover {
+  color: var(--text);
+  border-color: #ffffff2e;
+}
+
+.ghost--icon {
+  padding: 6px 9px;
+  font-size: 13px;
+  line-height: 1;
 }

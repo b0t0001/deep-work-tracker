@@ -1,12 +1,36 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { TimerSnapshot } from '../shared/timer'
 
-// Custom APIs for renderer
-const api = {}
+type Unsubscribe = () => void
 
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
+function subscribe(channel: string, handler: (snapshot: TimerSnapshot) => void): Unsubscribe {
+  const listener = (_event: unknown, snapshot: TimerSnapshot): void => handler(snapshot)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
+
+/**
+ * The entire surface between main and renderer. Components call this; they
+ * never touch ipcRenderer directly. See CLAUDE.md -> Architecture.
+ */
+const api = {
+  timer: {
+    get: (): Promise<TimerSnapshot> => ipcRenderer.invoke('timer:get'),
+    start: (plannedMs: number): Promise<TimerSnapshot> =>
+      ipcRenderer.invoke('timer:start', plannedMs),
+    pause: (): Promise<TimerSnapshot> => ipcRenderer.invoke('timer:pause'),
+    resume: (): Promise<TimerSnapshot> => ipcRenderer.invoke('timer:resume'),
+    stop: (): Promise<TimerSnapshot> => ipcRenderer.invoke('timer:stop'),
+    onUpdate: (handler: (snapshot: TimerSnapshot) => void): Unsubscribe =>
+      subscribe('timer:update', handler),
+    onExpired: (handler: (snapshot: TimerSnapshot) => void): Unsubscribe =>
+      subscribe('timer:expired', handler)
+  }
+}
+
+export type DeepWorkApi = typeof api
+
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
@@ -15,8 +39,8 @@ if (process.contextIsolated) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (define in dts)
+  // @ts-ignore (defined in index.d.ts)
   window.electron = electronAPI
-  // @ts-ignore (define in dts)
+  // @ts-ignore (defined in index.d.ts)
   window.api = api
 }
