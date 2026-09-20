@@ -31,6 +31,8 @@ const api = {
     isFullScreen: (): Promise<boolean> => ipcRenderer.invoke('window:isFullScreen'),
     setFullScreen: (value: boolean): Promise<boolean> =>
       ipcRenderer.invoke('window:setFullScreen', value),
+    setVariant: (variant: 'ring' | 'bar'): Promise<void> =>
+      ipcRenderer.invoke('window:setVariant', variant),
     minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
     close: (): Promise<void> => ipcRenderer.invoke('window:close'),
     onFullScreenChange: (handler: (value: boolean) => void): Unsubscribe => {

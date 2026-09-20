@@ -150,15 +150,16 @@ export default function App(): React.JSX.Element {
   }
 
   return (
-    <div
-      className={`card${full ? ' is-full' : ''}${variant === 'ring' ? ' is-ring' : ''}`}
-      onMouseDown={releaseFocus}
-    >
+    <div className={`card${full ? ' is-full' : ''}`} onMouseDown={releaseFocus}>
       <header className="card__head">
         <div className="tools">
           <button
             className="icon"
-            onClick={() => setVariant(variant === 'ring' ? 'bar' : 'ring')}
+            onClick={() => {
+              const next = variant === 'ring' ? 'bar' : 'ring'
+              setVariant(next)
+              void window.api.window.setVariant(next)
+            }}
             title="Switch ring / bar"
           >
             <Icon name={variant === 'ring' ? 'bar' : 'ring'} />

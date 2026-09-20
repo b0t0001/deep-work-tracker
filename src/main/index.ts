@@ -11,10 +11,15 @@ const PAUSE_ACCELERATOR = 'CommandOrControl+Shift+Space'
 /**
  * Opens at its smallest usable footprint. The comparison against Hourglass made
  * the point: a timer that eats a quarter of the screen will not get used.
- * Everything scales with the window, so the user resizes up when they want a
- * bigger dial, and the same layout holds from here up to a projector.
+ *
+ * The ring needs more room than the bar for the same legibility, since a circle
+ * is bounded by the shorter dimension while a bar is not. Each variant
+ * therefore carries its own minimum.
  */
-const WINDOW = { width: 216, height: 146 }
+const BAR_MIN = { width: 216, height: 146 }
+const RING_MIN = { width: 250, height: 220 }
+
+let currentMin = BAR_MIN
 
 const timer = new TimerEngine()
 let compactWindow: BrowserWindow | null = null
@@ -27,9 +32,9 @@ function broadcast(channel: string, payload: unknown): void {
 
 function createCompactWindow(): BrowserWindow {
   const window = new BrowserWindow({
-    ...WINDOW,
-    minWidth: WINDOW.width,
-    minHeight: WINDOW.height,
+    ...BAR_MIN,
+    minWidth: BAR_MIN.width,
+    minHeight: BAR_MIN.height,
     show: false,
     frame: false,
     transparent: true,
@@ -77,6 +82,25 @@ function registerIpc(): void {
   ipcMain.handle('window:setFullScreen', (_event, value: boolean) => {
     compactWindow?.setFullScreen(value)
     return value
+  })
+  /**
+   * Each dial has its own minimum. A window sitting at the old minimum follows
+   * the new one - which is what makes ring shrink back down on the way to bar -
+   * while a size the user chose deliberately is left alone unless it is now
+   * too small.
+   */
+  ipcMain.handle('window:setVariant', (_event, variant: 'ring' | 'bar') => {
+    if (!compactWindow || compactWindow.isFullScreen()) return
+    const next = variant === 'ring' ? RING_MIN : BAR_MIN
+    const [width, height] = compactWindow.getSize()
+    const wasAtMinimum = width <= currentMin.width + 2 && height <= currentMin.height + 2
+    compactWindow.setMinimumSize(next.width, next.height)
+    if (wasAtMinimum) {
+      compactWindow.setSize(next.width, next.height)
+    } else if (width < next.width || height < next.height) {
+      compactWindow.setSize(Math.max(width, next.width), Math.max(height, next.height))
+    }
+    currentMin = next
   })
   ipcMain.handle('window:minimize', () => compactWindow?.minimize())
   ipcMain.handle('window:close', () => compactWindow?.close())
