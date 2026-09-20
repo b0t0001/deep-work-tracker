@@ -238,11 +238,6 @@ export default function App(): React.JSX.Element {
         </div>
       )}
 
-      {/* Ring mode drags by its middle only. The dial spans the whole card, so
-          a draggable dial would sit over the floating chrome and Electron would
-          hand those pixels to the window drag before hover could reach them. */}
-      {variant === 'ring' && <div className="drag-zone" />}
-
       <TimerDial
         progress={fraction}
         clock={formatClock(clockMs)}
@@ -250,6 +245,12 @@ export default function App(): React.JSX.Element {
         variant={variant}
         dimmed={snapshot.status === 'paused'}
       />
+
+      {/* Ring mode drags by its middle only, so nothing draggable overlaps the
+          floating chrome. This sits after the dial deliberately: Electron
+          resolves overlapping drag regions by document order, not z-index, so
+          placing it earlier let the dial override it and dragging stopped. */}
+      {variant === 'ring' && <div className="drag-zone" />}
 
       <footer className="card__foot">
         {idle ? (
