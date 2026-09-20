@@ -26,6 +26,17 @@ const api = {
       subscribe('timer:update', handler),
     onExpired: (handler: (snapshot: TimerSnapshot) => void): Unsubscribe =>
       subscribe('timer:expired', handler)
+  },
+  window: {
+    isFullScreen: (): Promise<boolean> => ipcRenderer.invoke('window:isFullScreen'),
+    setFullScreen: (value: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('window:setFullScreen', value),
+    resetSize: (): Promise<void> => ipcRenderer.invoke('window:resetSize'),
+    onFullScreenChange: (handler: (value: boolean) => void): Unsubscribe => {
+      const listener = (_event: unknown, value: boolean): void => handler(value)
+      ipcRenderer.on('window:fullscreen', listener)
+      return () => ipcRenderer.removeListener('window:fullscreen', listener)
+    }
   }
 }
 

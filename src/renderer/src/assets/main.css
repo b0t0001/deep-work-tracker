@@ -4,19 +4,27 @@
   /* Accent is a single variable so the settings colour picker has one thing to set. */
   --accent: #5eead4;
   --surface: #14161a;
-  --surface-raised: #1d2026;
+  --surface-raised: #23262d;
   --border: #ffffff14;
   --text: #f2f4f7;
   --text-dim: #8b919c;
-  --radius: 18px;
+
+  /* Everything scales off the viewport, so one layout serves the compact
+     window, a hand-resized window, and a projector in full screen. */
+  --pad: clamp(8px, 4vmin, 40px);
+  --gap: clamp(5px, 2.5vmin, 26px);
+  --clock: clamp(22px, 17vmin, 280px);
+  --caption: clamp(8px, 4vmin, 26px);
+  --control: clamp(11px, 5.5vmin, 30px);
+  --radius: clamp(10px, 5vmin, 24px);
 }
 
 .card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--gap);
   height: 100%;
-  padding: 16px;
+  padding: var(--pad);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -36,18 +44,19 @@ input {
 .card__head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
+  flex: 0 0 auto;
 }
 
 .label {
   flex: 1;
   min-width: 0;
-  padding: 6px 8px;
+  padding: 2px 5px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--control);
   outline: none;
   transition:
     background 120ms ease,
@@ -67,12 +76,38 @@ input {
   border-color: var(--accent);
 }
 
+.head__tools {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.icon {
+  padding: 3px 5px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--caption);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.icon:hover {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
 /* ---------- dial ---------- */
 
 .dial {
   position: relative;
   display: flex;
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   align-items: center;
   justify-content: center;
   transition: opacity 200ms ease;
@@ -82,6 +117,12 @@ input {
   opacity: 0.45;
 }
 
+.dial svg {
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+}
+
 .dial__inner {
   position: absolute;
   inset: 0;
@@ -89,12 +130,12 @@ input {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
 }
 
 .dial__clock {
-  font-size: 40px;
+  font-size: var(--clock);
   font-weight: 300;
+  line-height: 1.05;
   letter-spacing: -0.02em;
   /* Stops the digits jittering as they change - important on camera. */
   font-variant-numeric: tabular-nums;
@@ -102,8 +143,8 @@ input {
 
 .dial__caption {
   color: var(--text-dim);
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: var(--caption);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
@@ -120,15 +161,17 @@ input {
 
 .dial--bar {
   flex-direction: column;
-  gap: 14px;
+  justify-content: center;
+  gap: calc(var(--gap) * 0.7);
 }
 
 .bar {
   width: 100%;
-  height: 8px;
+  height: clamp(4px, 1.6vmin, 16px);
   overflow: hidden;
   border-radius: 999px;
   background: var(--surface-raised);
+  flex: 0 0 auto;
 }
 
 .bar__fill {
@@ -143,22 +186,24 @@ input {
 .card__foot {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: calc(var(--gap) * 0.7);
+  flex: 0 0 auto;
 }
 
 .presets {
   display: flex;
-  gap: 6px;
+  gap: 4px;
 }
 
 .chip {
   flex: 1;
-  padding: 7px 0;
+  min-width: 0;
+  padding: clamp(2px, 1.2vmin, 10px) 0;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: var(--caption);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   transition:
@@ -179,7 +224,7 @@ input {
 }
 
 .chip--input {
-  flex: 0 0 52px;
+  flex: 0 0 clamp(34px, 16vmin, 90px);
   text-align: center;
   -moz-appearance: textfield;
 }
@@ -192,17 +237,17 @@ input {
 
 .controls {
   display: flex;
-  gap: 8px;
+  gap: 5px;
 }
 
 .primary {
   flex: 1;
-  padding: 11px 0;
+  padding: clamp(5px, 2.4vmin, 18px) 0;
   border: none;
-  border-radius: 11px;
+  border-radius: 9px;
   background: var(--accent);
   color: var(--surface);
-  font-size: 14px;
+  font-size: var(--control);
   font-weight: 600;
   cursor: pointer;
   transition: filter 120ms ease;
@@ -213,12 +258,12 @@ input {
 }
 
 .ghost {
-  padding: 11px 18px;
+  padding: clamp(5px, 2.4vmin, 18px) clamp(10px, 5vmin, 40px);
   border: 1px solid var(--border);
-  border-radius: 11px;
+  border-radius: 9px;
   background: transparent;
   color: var(--text-dim);
-  font-size: 14px;
+  font-size: var(--control);
   cursor: pointer;
   transition:
     color 120ms ease,
@@ -230,8 +275,32 @@ input {
   border-color: #ffffff2e;
 }
 
-.ghost--icon {
-  padding: 6px 9px;
-  font-size: 13px;
-  line-height: 1;
+/* ---------- full screen (projection / timelapse) ---------- */
+
+/* Chrome gets out of the way so the footage is just the clock, and returns
+   on hover when the user needs a control. */
+.card.is-full {
+  border: none;
+  border-radius: 0;
+  justify-content: center;
+}
+
+.card.is-full .head__tools,
+.card.is-full .card__foot {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.card.is-full:hover .head__tools,
+.card.is-full:hover .card__foot {
+  opacity: 1;
+}
+
+.card.is-full .label {
+  text-align: center;
+  font-size: clamp(14px, 5vmin, 56px);
+}
+
+.card.is-full .dial {
+  flex: 1 1 auto;
 }

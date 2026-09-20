@@ -15,8 +15,8 @@ const MINUTE_MS = 60_000
  * Mirrors the main process's timer and drives a repaint clock.
  *
  * `now` exists only so the view can recompute from timestamps every frame.
- * A dropped frame or a throttled tab cannot cause drift, because nothing here
- * accumulates - every value is derived from the snapshot plus the current time.
+ * A dropped frame cannot cause drift, because nothing here accumulates -
+ * every value is derived from the snapshot plus the current time.
  */
 function useTimer(): { snapshot: TimerSnapshot; now: number } {
   const [snapshot, setSnapshot] = useState<TimerSnapshot>(IDLE_TIMER)
@@ -53,6 +53,29 @@ function useTimer(): { snapshot: TimerSnapshot; now: number } {
   return { snapshot, now }
 }
 
+function useFullScreen(): [boolean, (value: boolean) => void] {
+  const [full, setFull] = useState(false)
+
+  useEffect(() => {
+    void window.api.window.isFullScreen().then(setFull)
+    return window.api.window.onFullScreenChange(setFull)
+  }, [])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') void window.api.window.setFullScreen(false)
+      if (event.key === 'F11') {
+        event.preventDefault()
+        void window.api.window.setFullScreen(!full)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [full])
+
+  return [full, (value) => void window.api.window.setFullScreen(value)]
+}
+
 const CAPTIONS: Record<TimerSnapshot['status'], string> = {
   idle: 'ready',
   running: 'running',
@@ -62,9 +85,10 @@ const CAPTIONS: Record<TimerSnapshot['status'], string> = {
 
 export default function App(): React.JSX.Element {
   const { snapshot, now } = useTimer()
+  const [full, setFullScreen] = useFullScreen()
   const [label, setLabel] = useState('')
   const [minutes, setMinutes] = useState(60)
-  const [variant, setVariant] = useState<'ring' | 'bar'>('ring')
+  const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
 
   const idle = snapshot.status === 'idle'
   const clockMs = idle ? minutes * MINUTE_MS : remainingMs(snapshot, now)
@@ -72,7 +96,7 @@ export default function App(): React.JSX.Element {
   const caption = idle ? `${minutes} min` : CAPTIONS[snapshot.status]
 
   return (
-    <div className="card">
+    <div className={`card${full ? ' is-full' : ''}`}>
       <header className="card__head">
         <input
           className="label"
@@ -81,13 +105,31 @@ export default function App(): React.JSX.Element {
           placeholder="What are you working on?"
           spellCheck={false}
         />
-        <button
-          className="ghost ghost--icon"
-          onClick={() => setVariant(variant === 'ring' ? 'bar' : 'ring')}
-          title={`Switch to ${variant === 'ring' ? 'bar' : 'ring'}`}
-        >
-          {variant === 'ring' ? '▭' : '◯'}
-        </button>
+        <div className="head__tools">
+          <button
+            className="icon"
+            onClick={() => setVariant(variant === 'ring' ? 'bar' : 'ring')}
+            title={`Switch to ${variant === 'ring' ? 'ring' : 'bar'}`}
+          >
+            {variant === 'ring' ? '▭' : '◯'}
+          </button>
+          <button
+            className="icon"
+            onClick={() => setFullScreen(!full)}
+            title={full ? 'Exit full screen (Esc)' : 'Full screen (F11)'}
+          >
+            {full ? '⤡' : '⤢'}
+          </button>
+          {!full && (
+            <button
+              className="icon"
+              onClick={() => void window.api.window.resetSize()}
+              title="Reset to compact size"
+            >
+              ⧉
+            </button>
+          )}
+        </div>
       </header>
 
       <TimerDial

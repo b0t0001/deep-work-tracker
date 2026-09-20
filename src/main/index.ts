@@ -8,10 +8,18 @@ import type { TimerSnapshot } from '../shared/timer'
 /** Global shortcut for pause/resume. Writing full-screen, the mouse breaks flow. */
 const PAUSE_ACCELERATOR = 'CommandOrControl+Shift+Space'
 
+/**
+ * Compact by default. The comparison against Hourglass made the point: a timer
+ * that eats a quarter of the screen will not get used. Everything scales with
+ * the window, so the same layout works from here up to a projector.
+ */
+const COMPACT = { width: 300, height: 168 }
+const MINIMUM = { width: 210, height: 118 }
+
 const timer = new TimerEngine()
 let compactWindow: BrowserWindow | null = null
 
-function broadcast(channel: string, payload: TimerSnapshot): void {
+function broadcast(channel: string, payload: unknown): void {
   if (compactWindow && !compactWindow.isDestroyed()) {
     compactWindow.webContents.send(channel, payload)
   }
@@ -19,14 +27,15 @@ function broadcast(channel: string, payload: TimerSnapshot): void {
 
 function createCompactWindow(): BrowserWindow {
   const window = new BrowserWindow({
-    width: 300,
-    height: 390,
+    ...COMPACT,
+    minWidth: MINIMUM.width,
+    minHeight: MINIMUM.height,
     show: false,
     frame: false,
     transparent: true,
-    resizable: false,
-    maximizable: false,
-    fullscreenable: false,
+    resizable: true,
+    maximizable: true,
+    fullscreenable: true,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
@@ -40,6 +49,8 @@ function createCompactWindow(): BrowserWindow {
   window.setAlwaysOnTop(true, 'screen-saver')
 
   window.on('ready-to-show', () => window.show())
+  window.on('enter-full-screen', () => broadcast('window:fullscreen', true))
+  window.on('leave-full-screen', () => broadcast('window:fullscreen', false))
 
   window.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -55,12 +66,24 @@ function createCompactWindow(): BrowserWindow {
   return window
 }
 
-function registerTimerIpc(): void {
+function registerIpc(): void {
   ipcMain.handle('timer:get', () => timer.snapshot())
   ipcMain.handle('timer:start', (_event, plannedMs: number) => timer.start(plannedMs))
   ipcMain.handle('timer:pause', () => timer.pause())
   ipcMain.handle('timer:resume', () => timer.resume())
   ipcMain.handle('timer:stop', () => timer.stop())
+
+  ipcMain.handle('window:isFullScreen', () => compactWindow?.isFullScreen() ?? false)
+  ipcMain.handle('window:setFullScreen', (_event, value: boolean) => {
+    compactWindow?.setFullScreen(value)
+    return value
+  })
+  /** Snaps back to the compact footprint after the window has been dragged large. */
+  ipcMain.handle('window:resetSize', () => {
+    if (!compactWindow) return
+    if (compactWindow.isFullScreen()) compactWindow.setFullScreen(false)
+    compactWindow.setSize(COMPACT.width, COMPACT.height)
+  })
 
   timer.on('update', (snapshot: TimerSnapshot) => broadcast('timer:update', snapshot))
   timer.on('expired', (snapshot: TimerSnapshot) => broadcast('timer:expired', snapshot))
@@ -79,7 +102,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  registerTimerIpc()
+  registerIpc()
   compactWindow = createCompactWindow()
 
   // Sleeping the machine is not working, so suspend pauses rather than letting
