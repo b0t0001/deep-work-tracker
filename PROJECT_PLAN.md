@@ -39,14 +39,21 @@ one, nothing else matters.
 - Start / pause / resume / stop
 - Timer authority lives in the main process, driven by a target end timestamp
   (never a decrementing counter — see CLAUDE.md)
-- **Looping presets:** duration, break duration, number of loops (or run until
-  stopped). Recreates Hourglass's loop behavior. Ship 60 and 90 min as defaults;
-  duration must be freely settable (the data shows 12+ distinct durations in use).
+- **Looping presets:** duration and number of loops (or run until stopped).
+  Ship 60 and 90 min as defaults; duration must be freely settable (the data
+  shows 12+ distinct durations in use).
+- **On reaching 0:00:00, notify and immediately start the next block** of the
+  same length, matching Hourglass's loop. No break interval in between — breaks
+  are not tracked (decided 2026-09-19). The new block increments `block_index`
+  for that day. Up to 11 blocks in a day appear in the history, so looping must
+  stay accurate over long unattended runs.
 - **Switch task without stopping the clock.** The single most important
   interaction in the app. A block is one countdown; the user changes task inside
   it several times. Each switch closes one segment and opens the next.
-- **Pace target (optional):** "100 words per 20 min". Shows live whether the
-  current rate is ahead or behind. This is the second looping timer described.
+- **Pace target (optional):** "100 words per 20 min". You set a target rate and
+  update your count as you go; the timer shows ahead or behind against it.
+  **Informational only — it must never interrupt, prompt, or alert**
+  (decided 2026-09-19). It is a readout, not a second timer.
 - Desktop notification + sound on each interval boundary
 - System tray icon showing remaining time; click to show/hide
 - Survives laptop sleep with correct elapsed time
@@ -153,15 +160,15 @@ focus ratings, completion state, and timestamps.
 ## Open questions
 
 Resolved: the CSV is mapped, presets are 60/90 min (plus many ad-hoc durations),
-and the old timer is Hourglass for Windows.
+and the old timer is Hourglass for Windows. Decided 2026-09-19: blocks auto-loop
+on expiry, breaks are not recorded, and the pace target is a passive readout.
 
 Still open:
 
-1. **Should breaks be tracked as rows?** The spreadsheet never recorded them.
-2. **Project seeding:** block categories suggest HW, College Apps,
+1. **Project seeding:** block categories suggest HW, College Apps,
    Entrepreneurship, SAT, Scioly, Startup, Internship, JPL, Boeing, Job,
    Sprocket. Which are still active?
-3. **1,398 distinct task labels** is too many to browse. Autocomplete from
+2. **1,398 distinct task labels** is too many to browse. Autocomplete from
    history is the likely answer; grouping rules may be wanted later.
 
 ## Note on OneDrive
