@@ -136,12 +136,6 @@ export default function App(): React.JSX.Element {
   const fraction = idle ? 0 : progressOf(snapshot, now)
   const caption = idle ? `${minutes} min` : CAPTIONS[snapshot.status]
 
-  function switchVariant(): void {
-    const next = variant === 'ring' ? 'bar' : 'ring'
-    setVariant(next)
-    void window.api.window.fitVariant(next)
-  }
-
   // Clicking anywhere that is not a field drops focus, so typing a label ends
   // by clicking the window rather than needing Tab or Enter.
   //
@@ -159,7 +153,11 @@ export default function App(): React.JSX.Element {
     <div className={`card${full ? ' is-full' : ''}`} onMouseDown={releaseFocus}>
       <header className="card__head">
         <div className="tools">
-          <button className="icon" onClick={switchVariant} title="Switch ring / bar">
+          <button
+            className="icon"
+            onClick={() => setVariant(variant === 'ring' ? 'bar' : 'ring')}
+            title="Switch ring / bar"
+          >
             <Icon name={variant === 'ring' ? 'bar' : 'ring'} />
           </button>
           <button

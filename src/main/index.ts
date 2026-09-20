@@ -9,14 +9,12 @@ import type { TimerSnapshot } from '../shared/timer'
 const PAUSE_ACCELERATOR = 'CommandOrControl+Shift+Space'
 
 /**
- * Compact by default. The comparison against Hourglass made the point: a timer
- * that eats a quarter of the screen will not get used. Everything scales with
- * the window, so the same layout works from here up to a projector.
+ * Opens at its smallest usable footprint. The comparison against Hourglass made
+ * the point: a timer that eats a quarter of the screen will not get used.
+ * Everything scales with the window, so the user resizes up when they want a
+ * bigger dial, and the same layout holds from here up to a projector.
  */
-const COMPACT = { width: 310, height: 196 }
-const MINIMUM = { width: 216, height: 146 }
-/** The ring wants a square window; in a wide one it floats in dead space. */
-const SQUARE = { width: 290, height: 340 }
+const WINDOW = { width: 216, height: 146 }
 
 const timer = new TimerEngine()
 let compactWindow: BrowserWindow | null = null
@@ -29,9 +27,9 @@ function broadcast(channel: string, payload: unknown): void {
 
 function createCompactWindow(): BrowserWindow {
   const window = new BrowserWindow({
-    ...COMPACT,
-    minWidth: MINIMUM.width,
-    minHeight: MINIMUM.height,
+    ...WINDOW,
+    minWidth: WINDOW.width,
+    minHeight: WINDOW.height,
     show: false,
     frame: false,
     transparent: true,
@@ -79,12 +77,6 @@ function registerIpc(): void {
   ipcMain.handle('window:setFullScreen', (_event, value: boolean) => {
     compactWindow?.setFullScreen(value)
     return value
-  })
-  /** Bar wants a short wide window; ring wants a square one. */
-  ipcMain.handle('window:fitVariant', (_event, variant: 'ring' | 'bar') => {
-    if (!compactWindow || compactWindow.isFullScreen()) return
-    const { width, height } = variant === 'ring' ? SQUARE : COMPACT
-    compactWindow.setSize(width, height)
   })
   ipcMain.handle('window:minimize', () => compactWindow?.minimize())
   ipcMain.handle('window:close', () => compactWindow?.close())
