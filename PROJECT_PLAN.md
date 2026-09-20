@@ -44,12 +44,15 @@ one, nothing else matters.
   shows 12+ distinct durations in use).
 - **On reaching 0:00:00, notify and immediately start the next block** of the
   same length, matching Hourglass's loop. No break interval in between — breaks
-  are not tracked (decided 2026-09-19). The new block increments `block_index`
-  for that day. Up to 11 blocks in a day appear in the history, so looping must
-  stay accurate over long unattended runs.
-- **Switch task without stopping the clock.** The single most important
-  interaction in the app. A block is one countdown; the user changes task inside
-  it several times. Each switch closes one segment and opens the next.
+  are not tracked (decided 2026-09-19). Each repeat is its own `sessions` row.
+  Looping must stay accurate over long unattended runs.
+- **Starting the next timer must be near-instant.** A typical sitting is three
+  or four separate timers (20 min writing, 30 min a small task, the rest on CS),
+  each its own run. Project and tag should carry over from the previous session
+  by default so a new timer is one keystroke, not a form.
+- **Stopping early is the normal case, not an exception.** 72-84% of recent runs
+  were stopped before expiry. Stopping must be one obvious control, and the run
+  records `planned` and `actual` separately.
 - **Pace target (optional):** "100 words per 20 min". You set a target rate and
   update your count as you go; the timer shows ahead or behind against it.
   **Informational only — it must never interrupt, prompt, or alert**
@@ -94,10 +97,11 @@ blocks, 2,545 hours, 2023-03-27 to 2026-09-19.
 
 | CSV column | Destination |
 |---|---|
-| `Date` | `blocks.started_at` (date only, M/D/YY) |
-| `Block` | split into `projects.name` + `blocks.block_index` (`HW 2` -> HW, 2) |
+| `Date` | `sessions` date (M/D/YY). No clock time exists, so `started_at` stays null. |
+| `Block` | strip the trailing number, map to `projects.name` (`HW 2` -> HW). The ordinal is discarded — it carries no meaning. |
 | `Tasks` | `sessions.task` |
-| `Start` / `End` | **countdown readings.** `duration_s = start - end`. Not clock times. |
+| `Start` | `planned_duration_s` — what the timer was set to |
+| `End` | remaining when stopped; `actual_duration_s = start - end`, `completed = (end == 0)` |
 | `Total Time (hours)` | verification only — recompute, then assert it matches |
 | `Work Done` | parse into `work_quantity` + `work_unit`; `unquantifiable` -> flag |
 | `Efficiency` | discard — recomputed from quantity and duration |
@@ -105,6 +109,10 @@ blocks, 2,545 hours, 2023-03-27 to 2026-09-19.
 | `Task List` | discard — a one-off header note, not row data |
 
 - Normalize unit plurals (question/questions, video/videos, component/components)
+- **Consolidate drifted category names** before import: `College Apps` /
+  `College Applications` / `College` / `Applications` are one project, as are
+  `Study for APs` / `Study AP` and `Internship` / `Internships`. 68 raw
+  categories should collapse to roughly 15. Confirm the mapping with the user.
 - Rows with `Block = N/A` (376) become `rest_days`, not zero-hour sessions
 - Skip the ~325 empty future-dated scaffold rows
 - Imported rows get `source = 'import'` and null wall-clock times
@@ -169,7 +177,8 @@ Still open:
    Entrepreneurship, SAT, Scioly, Startup, Internship, JPL, Boeing, Job,
    Sprocket. Which are still active?
 2. **1,398 distinct task labels** is too many to browse. Autocomplete from
-   history is the likely answer; grouping rules may be wanted later.
+   history is the answer; the `tags` table captures the stable part (course
+   codes) while `task` stays free text.
 
 ## Note on OneDrive
 

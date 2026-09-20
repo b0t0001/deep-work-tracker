@@ -93,65 +93,94 @@ at the display layer.
 ## Source data and its quirks
 
 3.5 years of history exists in a spreadsheet exported to CSV: **2,545 logged
-hours, 2,336 task segments, 1,782 blocks, 889 active days** (2023-03-27 to
-2026-09-19), plus 376 days explicitly marked `N/A` as deliberate rest.
+hours, 2,336 timer runs, 889 active days** (2023-03-27 to 2026-09-19), plus 376
+days explicitly marked `N/A` as deliberate rest.
 
 The old timer is **Hourglass** for Windows — a *countdown* timer with loop and
-always-on-top. This dictates the whole mental model:
+always-on-top. `Start` and `End` in the CSV are **time remaining on the
+countdown, not wall-clock time**. Every one of the 2,336 rows has `end < start`,
+and `|start - end|` matches the recorded hours exactly.
 
-- A **block** is one countdown from a preset duration down to 0:00:00.
-- Inside a block, the user switches tasks without stopping the clock. Each
-  segment's end reading becomes the next segment's start reading.
-- Therefore `Start` and `End` in the CSV are **time remaining on the countdown,
-  not wall-clock time**. Every one of the 2,336 rows has `end < start`, and
-  `|start - end|` matches the recorded hours exactly. Do not read them as clock
-  times.
-- **Consequence: the historical data contains no time-of-day information.**
-  Time-of-day analytics can only ever cover sessions recorded by this app.
-  Never present a time-of-day chart that silently includes imported rows.
+**Consequence: the historical data contains no time-of-day information.**
+Time-of-day analytics can only ever cover sessions recorded by this app. Never
+present a time-of-day chart that silently includes imported rows.
 
-Block labels are a category plus an ordinal for that day: `HW 1`, `HW 2`,
-`College Apps 3`. 2,117 of 2,336 rows follow this. The category is the project;
-the number is the block index within the day. Up to 11 blocks in a single day.
+### One row is one timer run
 
-Real preset durations, by frequency: 60 min (381), 90 (354), 120 (195), 30
-(169), 180 (145), 40 (85), 45 (76), 20 (67), 270 (31), 150 (26), 80 (24),
-240 (22). Ship 60 and 90 as defaults, but duration must be freely settable.
+Each CSV row is an independent timer set to a round duration and usually stopped
+before it expired. Verified:
+
+- **97% of 2025-2026 rows start at a round duration** (a multiple of 5 minutes)
+  — that value is what the timer was *set to*.
+- **72-84% of recent runs were stopped early.** Only 16-28% reached 0:00:00.
+  `planned` vs `actual` duration is therefore a real and interesting signal, not
+  bookkeeping.
+
+An earlier reading of this data — that a block is one long countdown subdivided
+by task switches — was **wrong for everything after early 2023**. That pattern
+appears in 22 of 22 multi-row blocks in 2023-H1 and in essentially none
+afterwards (0 in 2025, 1 in 2026). The user now starts a separate timer per
+task. **Do not build a "switch task without stopping the clock" feature.**
+
+### Block labels are a category; the number is noise
+
+`HW 1`, `HW 2`, `HW 3` are the same thing. The user has confirmed the ordinal
+carries no meaning — several consecutive timers in one sitting often share a
+single label. **Only the category matters.** Do not store `block_index`.
+
+Grouping consecutive runs into a working stretch is a *derived* analytic,
+computed from wall-clock gaps between sessions. It is never something the user
+labels by hand.
+
+Stripping the number leaves 68 categories across the full history, but 2026 use
+is concentrated: HW (153), College Apps (75), Startup (70), Entrepreneurship
+(49), Job (38), College (29), Scioly (20), Scholarships (20), Sprocket (17).
+Note the drift — `College Apps` / `College Applications` / `College` /
+`Applications` are one thing, as are `Study for APs` / `Study AP` and
+`Internship` / `Internships`. Free-text labels degraded over 3.5 years, which is
+the argument for projects being real rows rather than strings.
 
 ### Output tracking is a first-class feature, not a nice-to-have
 
-**2,262 of 2,336 segments (97%) record a quantity of work produced and a derived
+**2,262 of 2,336 runs (97%) record a quantity of work produced and a derived
 rate.** Examples: `19 problems` -> `0.613 problems/minute`, `126 words` ->
-`39.375 words/minute`. This is how the user drives pace targets ("100 words per
-20 minutes"). Any design that treats this as optional metadata is wrong.
+`39.375 words/minute`. This drives pace targets ("100 words per 20 minutes").
+Any design that treats it as optional metadata is wrong.
 
 212 distinct units appear, dominated by questions (707), words (509), slides
-(159), pages (57), cells (52). They need singular/plural normalization
-(question/questions, video/videos, component/components). Nine rows record the
-literal value `unquantifiable`, which must stay representable.
+(159), pages (57), cells (52). They need singular/plural normalization. Nine
+rows record the literal value `unquantifiable`, which must stay representable.
 
 ## Data model
 
-`sessions` is the append-only heart of the app. Everything else is derived.
-When in doubt, record more per session rather than aggregating early —
-aggregation can always be recomputed, lost detail cannot.
+`sessions` is the atomic unit: **one row per timer run**. Everything else is
+derived. Record more per session rather than aggregating early — aggregation can
+be recomputed, lost detail cannot.
 
-- `projects` — id, name, color, archived. Seeded from block categories (HW,
-  College Apps, Entrepreneurship, SAT, Scioly, Startup, Internship, ...).
-- `presets` — timer configs: duration, loop behavior, optional pace target
-- `blocks` — one countdown run: project_id, preset_id, planned_duration_s,
-  started_at, ended_at, block_index (ordinal within the day), completed
-- `sessions` — one task segment inside a block: id, block_id, task,
-  started_at, ended_at, duration_s, work_quantity, work_unit, unquantifiable,
-  focus_rating, notes, source (`app` | `import`)
-- `rest_days` — date, reason. Preserves the 376 `N/A` days; a logged rest day
-  is different from missing data and must not be averaged as a zero silently.
+- `projects` — id, name, color, archived. The category tag (`HW`, `Startup`,
+  `Job`). A real row, not a string, so renaming fixes history everywhere and the
+  drift above cannot recur.
+- `tags` — id, name, project_id (nullable). The optional second dimension,
+  chiefly course codes such as `WRIT 0580`. Stable enough to be an entity, which
+  makes "hours per course this semester" a real query.
+- `presets` — saved durations. Seed 60, 90, 30, 120, 20 min (the real top five).
+- `sessions` — id, project_id, tag_id (nullable), task (free text, autocompleted
+  from history), started_at, ended_at, planned_duration_s, actual_duration_s,
+  completed, work_quantity, work_unit, unquantifiable, focus_rating, notes,
+  pace_target_qty, pace_target_minutes, source (`app` | `import`)
+- `rest_days` — date, reason. Preserves the 376 `N/A` days; a logged rest day is
+  different from missing data and must not silently average as a zero.
 
-Derived, never stored: rate (`work_quantity / minutes`), totals, streaks.
+Derived, never stored: rate (`work_quantity / actual minutes`), completion rate,
+working stretches, totals, streaks.
+
+Three structured fields (project, tag, preset) plus one free-text field (task)
+is the deliberate balance. More structure means slower logging, and logging that
+feels like work will simply stop happening.
 
 Timestamps are ISO 8601 UTC strings. Durations are integer seconds. Imported
-rows have real `duration_s` but **null `started_at`/`ended_at`**, since the
-countdown readings cannot be converted to clock times. Queries must handle this.
+rows have real durations but **null `started_at`/`ended_at`**, since countdown
+readings cannot become clock times. Every query must handle that.
 
 ## Commands
 
