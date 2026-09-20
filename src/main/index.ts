@@ -15,6 +15,8 @@ const PAUSE_ACCELERATOR = 'CommandOrControl+Shift+Space'
  */
 const COMPACT = { width: 300, height: 168 }
 const MINIMUM = { width: 210, height: 118 }
+/** The ring wants a square window; in a wide one it floats in dead space. */
+const SQUARE = { width: 260, height: 300 }
 
 const timer = new TimerEngine()
 let compactWindow: BrowserWindow | null = null
@@ -78,12 +80,14 @@ function registerIpc(): void {
     compactWindow?.setFullScreen(value)
     return value
   })
-  /** Snaps back to the compact footprint after the window has been dragged large. */
-  ipcMain.handle('window:resetSize', () => {
-    if (!compactWindow) return
-    if (compactWindow.isFullScreen()) compactWindow.setFullScreen(false)
-    compactWindow.setSize(COMPACT.width, COMPACT.height)
+  /** Bar wants a short wide window; ring wants a square one. */
+  ipcMain.handle('window:fitVariant', (_event, variant: 'ring' | 'bar') => {
+    if (!compactWindow || compactWindow.isFullScreen()) return
+    const { width, height } = variant === 'ring' ? SQUARE : COMPACT
+    compactWindow.setSize(width, height)
   })
+  ipcMain.handle('window:minimize', () => compactWindow?.minimize())
+  ipcMain.handle('window:close', () => compactWindow?.close())
 
   timer.on('update', (snapshot: TimerSnapshot) => broadcast('timer:update', snapshot))
   timer.on('expired', (snapshot: TimerSnapshot) => broadcast('timer:expired', snapshot))

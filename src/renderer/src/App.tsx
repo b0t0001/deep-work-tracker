@@ -8,8 +8,21 @@ import {
   type TimerSnapshot
 } from '@shared/timer'
 import TimerDial from './components/TimerDial'
+import Icon from './components/Icon'
 
 const MINUTE_MS = 60_000
+
+/** Muted by default: the timer is meant to be glanced at, not looked at. */
+const ACCENTS = [
+  { name: 'Slate', value: '#94a3b8' },
+  { name: 'Bone', value: '#d8d2c6' },
+  { name: 'Sage', value: '#8faa8b' },
+  { name: 'Steel', value: '#7f9cc0' },
+  { name: 'Amber', value: '#d6a052' },
+  { name: 'Teal', value: '#5eead4' }
+] as const
+
+const ACCENT_KEY = 'dwt.accent'
 
 /**
  * Mirrors the main process's timer and drives a repaint clock.
@@ -76,61 +89,129 @@ function useFullScreen(): [boolean, (value: boolean) => void] {
   return [full, (value) => void window.api.window.setFullScreen(value)]
 }
 
+/** Browser storage can throw or come back empty, so every access is guarded. */
+function useAccent(): [string, (value: string) => void] {
+  const [accent, setAccent] = useState<string>(() => {
+    try {
+      return localStorage.getItem(ACCENT_KEY) ?? ACCENTS[0].value
+    } catch {
+      return ACCENTS[0].value
+    }
+  })
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--accent', accent)
+    try {
+      localStorage.setItem(ACCENT_KEY, accent)
+    } catch {
+      // Private window or blocked storage; the colour simply will not persist.
+    }
+  }, [accent])
+
+  return [accent, setAccent]
+}
+
 const CAPTIONS: Record<TimerSnapshot['status'], string> = {
   idle: 'ready',
   running: 'running',
   paused: 'paused',
-  expired: "time's up"
+  expired: 'time is up'
 }
 
 export default function App(): React.JSX.Element {
   const { snapshot, now } = useTimer()
   const [full, setFullScreen] = useFullScreen()
+  const [accent, setAccent] = useAccent()
   const [label, setLabel] = useState('')
   const [minutes, setMinutes] = useState(60)
   const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
+  const [palette, setPalette] = useState(false)
 
   const idle = snapshot.status === 'idle'
   const clockMs = idle ? minutes * MINUTE_MS : remainingMs(snapshot, now)
   const fraction = idle ? 0 : progressOf(snapshot, now)
   const caption = idle ? `${minutes} min` : CAPTIONS[snapshot.status]
 
+  function switchVariant(): void {
+    const next = variant === 'ring' ? 'bar' : 'ring'
+    setVariant(next)
+    void window.api.window.fitVariant(next)
+  }
+
+  // Clicking anywhere that is not a field drops focus, so typing a label ends
+  // by clicking the window rather than needing Tab or Enter.
+  function releaseFocus(event: React.MouseEvent): void {
+    if (event.target instanceof HTMLInputElement) return
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    setPalette(false)
+  }
+
   return (
-    <div className={`card${full ? ' is-full' : ''}`}>
+    <div className={`card${full ? ' is-full' : ''}`} onMouseDown={releaseFocus}>
       <header className="card__head">
-        <input
-          className="label"
-          value={label}
-          onChange={(event) => setLabel(event.target.value)}
-          placeholder="What are you working on?"
-          spellCheck={false}
-        />
-        <div className="head__tools">
+        <div className="tools">
+          <button className="icon" onClick={switchVariant} title="Switch ring / bar">
+            <Icon name={variant === 'ring' ? 'bar' : 'ring'} />
+          </button>
           <button
             className="icon"
-            onClick={() => setVariant(variant === 'ring' ? 'bar' : 'ring')}
-            title={`Switch to ${variant === 'ring' ? 'ring' : 'bar'}`}
+            onClick={() => setPalette(!palette)}
+            title="Accent colour"
+            style={{ color: accent }}
           >
-            {variant === 'ring' ? '▭' : '◯'}
+            <Icon name="palette" />
           </button>
           <button
             className="icon"
             onClick={() => setFullScreen(!full)}
-            title={full ? 'Exit full screen (Esc)' : 'Full screen (F11)'}
+            title={full ? 'Exit full screen' : 'Full screen'}
           >
-            {full ? '⤡' : '⤢'}
+            <Icon name={full ? 'collapse' : 'expand'} />
           </button>
-          {!full && (
-            <button
-              className="icon"
-              onClick={() => void window.api.window.resetSize()}
-              title="Reset to compact size"
-            >
-              ⧉
-            </button>
-          )}
+        </div>
+
+        <input
+          className="label"
+          value={label}
+          onChange={(event) => setLabel(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur()
+          }}
+          placeholder="What are you working on?"
+          spellCheck={false}
+        />
+
+        <div className="tools">
+          <button
+            className="icon"
+            onClick={() => void window.api.window.minimize()}
+            title="Minimise"
+          >
+            <Icon name="minimize" />
+          </button>
+          <button
+            className="icon icon--danger"
+            onClick={() => void window.api.window.close()}
+            title="Close"
+          >
+            <Icon name="close" />
+          </button>
         </div>
       </header>
+
+      {palette && (
+        <div className="palette">
+          {ACCENTS.map((option) => (
+            <button
+              key={option.value}
+              className={`swatch${option.value === accent ? ' is-active' : ''}`}
+              style={{ background: option.value }}
+              onClick={() => setAccent(option.value)}
+              title={option.name}
+            />
+          ))}
+        </div>
+      )}
 
       <TimerDial
         progress={fraction}
@@ -166,32 +247,39 @@ export default function App(): React.JSX.Element {
             <button
               className="primary"
               onClick={() => void window.api.timer.start(minutes * MINUTE_MS)}
+              title="Start"
             >
-              Start
+              <Icon name="play" />
             </button>
           </>
         ) : (
           <div className="controls">
-            {snapshot.status === 'running' && (
-              <button className="primary" onClick={() => void window.api.timer.pause()}>
-                Pause
-              </button>
-            )}
-            {snapshot.status === 'paused' && (
-              <button className="primary" onClick={() => void window.api.timer.resume()}>
-                Resume
-              </button>
-            )}
-            {snapshot.status === 'expired' && (
+            {snapshot.status === 'running' ? (
               <button
                 className="primary"
-                onClick={() => void window.api.timer.start(snapshot.plannedMs)}
+                onClick={() => void window.api.timer.pause()}
+                title="Pause"
               >
-                Again
+                <Icon name="pause" />
+              </button>
+            ) : (
+              <button
+                className="primary"
+                onClick={() => {
+                  if (snapshot.status === 'paused') void window.api.timer.resume()
+                  else void window.api.timer.start(snapshot.plannedMs)
+                }}
+                title={snapshot.status === 'paused' ? 'Resume' : 'Start again'}
+              >
+                <Icon name="play" />
               </button>
             )}
-            <button className="ghost" onClick={() => void window.api.timer.stop()}>
-              Stop
+            <button
+              className="ghost ghost--danger"
+              onClick={() => void window.api.timer.stop()}
+              title="Stop"
+            >
+              <Icon name="stop" />
             </button>
           </div>
         )}

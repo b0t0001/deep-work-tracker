@@ -304,3 +304,118 @@ input {
 .card.is-full .dial {
   flex: 1 1 auto;
 }
+
+/* ---------- header refinements ---------- */
+
+/* The label is the subject of the window, so it sits centred between the
+   two tool clusters rather than pushed to one side. */
+.label {
+  text-align: center;
+}
+
+.tools {
+  display: flex;
+  gap: 1px;
+  flex: 0 0 auto;
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(3px, 1.4vmin, 10px);
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.icon svg {
+  width: clamp(10px, 4.4vmin, 26px);
+  height: clamp(10px, 4.4vmin, 26px);
+  display: block;
+}
+
+.icon:hover {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.icon--danger:hover {
+  color: #fca5a5;
+  background: #7f1d1d4d;
+}
+
+/* ---------- accent picker ---------- */
+
+.palette {
+  display: flex;
+  gap: 5px;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.swatch {
+  width: clamp(14px, 5.5vmin, 30px);
+  height: clamp(14px, 5.5vmin, 30px);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+.swatch:hover {
+  transform: scale(1.12);
+}
+
+.swatch.is-active {
+  border-color: var(--text);
+}
+
+/* ---------- icon controls ---------- */
+
+/* Primary stays wide and Stop stays narrow: the destructive action should be
+   harder to hit by accident than the one you press every session. */
+.primary,
+.ghost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.primary svg,
+.ghost svg {
+  width: clamp(12px, 5vmin, 30px);
+  height: clamp(12px, 5vmin, 30px);
+  display: block;
+}
+
+.ghost {
+  flex: 0 0 auto;
+  padding: clamp(5px, 2.4vmin, 18px) clamp(14px, 6vmin, 46px);
+}
+
+.ghost--danger:hover {
+  color: #fca5a5;
+  border-color: #fca5a555;
+  background: #7f1d1d33;
+}
+
+/* ---------- full screen ---------- */
+
+.card.is-full .tools,
+.card.is-full .card__foot,
+.card.is-full .palette {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.card.is-full:hover .tools,
+.card.is-full:hover .card__foot,
+.card.is-full:hover .palette {
+  opacity: 1;
+}
