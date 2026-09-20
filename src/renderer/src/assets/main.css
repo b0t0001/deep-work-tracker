@@ -805,3 +805,49 @@ input {
   flex: 0 1 auto;
   min-width: 0;
 }
+
+/* ---------- title centring, properly ---------- */
+
+/* The previous attempt gave both clusters an equal flex share, but
+   min-width: min-content clamped the three-icon cluster back up above its
+   share, so they ended up unequal again and the title stayed off-centre.
+
+   Taking the clusters out of the flow entirely removes the problem at its
+   source: pinned to the left and right edges, they contribute no width, so the
+   label centres in the header's full width regardless of how many icons either
+   side carries. The header needs an explicit height because the clusters no
+   longer give it one - and in ring mode the label is hidden, so nothing would. */
+.card__head {
+  position: relative;
+  justify-content: center;
+  min-height: calc(clamp(9px, 7vmin, 28px) + 2 * clamp(5px, 2.8vmin, 15px));
+}
+
+.card__head .tools {
+  position: absolute;
+  top: 50%;
+  flex: 0 0 auto;
+  min-width: 0;
+  transform: translateY(-50%);
+}
+
+.card__head .tools:first-of-type {
+  left: 0;
+}
+
+.card__head .tools:last-of-type {
+  right: 0;
+}
+
+.label {
+  flex: 0 1 auto;
+  /* Keeps the field clear of the clusters it is now centred between. */
+  max-width: 46%;
+  min-width: 0;
+}
+
+/* Stop read as washed out at --text-dim, worst of all over the ring. Both
+   controls are full contrast now; size alone carries the hierarchy. */
+.ghost {
+  color: var(--text);
+}
