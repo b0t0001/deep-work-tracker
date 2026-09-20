@@ -13,7 +13,7 @@
      window, a hand-resized window, and a projector in full screen. */
   --pad: clamp(5px, 5vmin, 44px);
   --gap: clamp(3px, 3vmin, 28px);
-  --clock: clamp(18px, 18vmin, 280px);
+  --clock: clamp(22px, min(27vmin, 25vw), 300px);
   --caption: clamp(7px, 6vmin, 28px);
   --control: clamp(9px, 7.5vmin, 34px);
   --radius: clamp(10px, 5vmin, 24px);
@@ -487,4 +487,57 @@ input {
   fill: var(--text-dim);
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+/* ---------- ring mode: the dial takes the whole window ---------- */
+
+/* Ring mode is for recording rather than everyday use, so it behaves like a
+   presentation surface: the chrome leaves the flow entirely and floats over
+   the dial, which lets the circle use the full window height instead of
+   whatever is left after a header and footer. At the minimum window size that
+   is the difference between an 80px circle and a 130px one. */
+.card.is-ring {
+  position: relative;
+}
+
+.card.is-ring .card__head,
+.card.is-ring .card__foot,
+.card.is-ring .palette {
+  position: absolute;
+  left: var(--pad);
+  right: var(--pad);
+  opacity: 0;
+  padding: 3px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(6px);
+  transition: opacity 160ms ease;
+}
+
+.card.is-ring .card__head {
+  top: var(--pad);
+}
+
+.card.is-ring .palette {
+  top: calc(var(--pad) * 2 + 26px);
+}
+
+.card.is-ring .card__foot {
+  bottom: var(--pad);
+}
+
+.card.is-ring:hover .card__head,
+.card.is-ring:hover .card__foot,
+.card.is-ring:hover .palette {
+  opacity: 1;
+}
+
+.card.is-ring .dial {
+  flex: 1 1 auto;
+  height: 100%;
+}
+
+.card.is-ring .dial svg {
+  width: 100%;
+  height: 100%;
 }
