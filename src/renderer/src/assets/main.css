@@ -11,11 +11,11 @@
 
   /* Everything scales off the viewport, so one layout serves the compact
      window, a hand-resized window, and a projector in full screen. */
-  --pad: clamp(8px, 4vmin, 40px);
-  --gap: clamp(5px, 2.5vmin, 26px);
-  --clock: clamp(34px, 18vmin, 280px);
-  --caption: clamp(11px, 4.5vmin, 28px);
-  --control: clamp(14px, 6vmin, 34px);
+  --pad: clamp(5px, 5vmin, 44px);
+  --gap: clamp(3px, 3vmin, 28px);
+  --clock: clamp(18px, 18vmin, 280px);
+  --caption: clamp(7px, 6vmin, 28px);
+  --control: clamp(9px, 7.5vmin, 34px);
   --radius: clamp(10px, 5vmin, 24px);
 }
 
@@ -198,7 +198,7 @@ input {
 .chip {
   flex: 1;
   min-width: 0;
-  padding: clamp(5px, 1.7vmin, 13px) 0;
+  padding: clamp(2px, 2.6vmin, 14px) 0;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: transparent;
@@ -224,7 +224,7 @@ input {
 }
 
 .chip--input {
-  flex: 0 0 clamp(42px, 16vmin, 92px);
+  flex: 0 0 clamp(30px, 22vmin, 92px);
   text-align: center;
   -moz-appearance: textfield;
 }
@@ -335,8 +335,8 @@ input {
 }
 
 .icon svg {
-  width: clamp(16px, 5.5vmin, 30px);
-  height: clamp(16px, 5.5vmin, 30px);
+  width: clamp(10px, 8vmin, 32px);
+  height: clamp(10px, 8vmin, 32px);
   display: block;
 }
 
@@ -360,8 +360,8 @@ input {
 }
 
 .swatch {
-  width: clamp(19px, 6vmin, 32px);
-  height: clamp(19px, 6vmin, 32px);
+  width: clamp(12px, 10vmin, 34px);
+  height: clamp(12px, 10vmin, 34px);
   border: 2px solid transparent;
   border-radius: 999px;
   cursor: pointer;
@@ -450,23 +450,41 @@ input {
 
 .primary,
 .ghost {
-  padding: clamp(6px, 2.2vmin, 16px) 0;
+  padding: clamp(3px, 3.2vmin, 18px) 0;
   border-radius: 8px;
 }
 
 .ghost {
-  padding-left: clamp(10px, 4.5vmin, 34px);
-  padding-right: clamp(10px, 4.5vmin, 34px);
+  padding-left: clamp(7px, 6vmin, 36px);
+  padding-right: clamp(7px, 6vmin, 36px);
 }
 
 .primary svg,
 .ghost svg {
-  width: clamp(19px, 6.5vmin, 36px);
-  height: clamp(19px, 6.5vmin, 36px);
+  width: clamp(11px, 9.7vmin, 38px);
+  height: clamp(11px, 9.7vmin, 38px);
 }
 
 /* Start sits on the preset row rather than claiming one of its own, which
    matters most in ring mode where vertical space is scarce. */
 .primary--inline {
-  flex: 0 0 clamp(44px, 15vmin, 88px);
+  flex: 0 0 clamp(30px, 22vmin, 90px);
+}
+
+/* ---------- ring text ---------- */
+
+/* Drawn inside the SVG, so it shares the viewBox with the ring and scales with
+   it exactly. The fit is geometric rather than a guess about font metrics,
+   which is what guarantees the digits never touch the stroke. */
+.ring__clock {
+  fill: var(--text);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.ring__caption {
+  fill: var(--text-dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
