@@ -174,6 +174,7 @@ export default function App(): React.JSX.Element {
         caption={caption}
         variant={variant}
         dimmed={snapshot.status === 'paused'}
+        liftText={variant === 'ring' && !idle}
       />
 
       <header className="card__head">

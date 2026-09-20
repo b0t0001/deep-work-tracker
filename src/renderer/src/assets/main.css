@@ -722,3 +722,38 @@ input {
   padding-right: clamp(6px, 3vmin, 16px);
   padding-left: clamp(6px, 3vmin, 16px);
 }
+
+/* ---------- balance and hit areas ---------- */
+
+/* 70% left the buttons hanging near the bottom of the circle. At 66%, paired
+   with the lifted clock, the clock / caption / buttons group centres on the
+   ring rather than sitting below it. */
+.card.is-ring .card__foot:has(.controls) {
+  top: 66%;
+}
+
+/* Smaller inside the ring: at the old size the buttons crowded the caption. */
+.card.is-ring .controls svg {
+  width: clamp(10px, 6.4vmin, 26px);
+  height: clamp(10px, 6.4vmin, 26px);
+}
+
+/* Generous hit areas. The icons are invisible until hover, so the target has to
+   be big enough to find blind - padding is the hit area, and enlarging the
+   containers widens the no-drag zone that triggers the reveal in the first
+   place. */
+.icon {
+  padding: clamp(5px, 2.8vmin, 15px);
+}
+
+.card.is-ring .card__head {
+  padding-bottom: clamp(8px, 4vmin, 22px);
+}
+
+.card.is-ring .card__foot {
+  padding-top: clamp(8px, 4vmin, 22px);
+}
+
+.card.is-ring .card__foot:has(.controls) {
+  padding: clamp(6px, 3vmin, 16px);
+}

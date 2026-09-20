@@ -7,6 +7,12 @@ interface TimerDialProps {
   caption: string
   variant: 'ring' | 'bar'
   dimmed: boolean
+  /**
+   * Lift the text when controls occupy the lower half of the ring. Without it
+   * the clock stays centred while the buttons hang below, so the group as a
+   * whole reads as bottom-heavy even though the clock itself is centred.
+   */
+  liftText: boolean
 }
 
 const SIZE = 196
@@ -46,7 +52,8 @@ export default function TimerDial({
   clock,
   caption,
   variant,
-  dimmed
+  dimmed,
+  liftText
 }: TimerDialProps): React.JSX.Element {
   const remaining = 1 - Math.min(1, Math.max(0, progress))
 
@@ -66,7 +73,7 @@ export default function TimerDial({
   }
 
   const clockSize = fitFontSize(clock)
-  const clockY = CENTRE - CAPTION_SIZE * 0.6
+  const clockY = CENTRE - CAPTION_SIZE * 0.6 - (liftText ? 14 : 0)
   const captionY = clockY + clockSize * 0.5 + CAPTION_SIZE
 
   return (
