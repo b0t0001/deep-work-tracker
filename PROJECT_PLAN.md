@@ -103,8 +103,12 @@ Now make it worth more than the old timer.
   so the prompt must be fast — remember the last unit used per task and default
   to it. Allow an explicit "unquantifiable" value.
 - Optional end-of-session prompt: focus rating 1–5, notes
-- Session history list: view, edit, delete, and **manually add a past session**
-  (for work done away from the computer)
+- Session history list: view, edit, delete. **Every field of every session is
+  editable**, reachable from settings and from history — this data informs real
+  decisions, so it has to be correctable.
+- **Retroactive session entry** for untimed work (a six-hour club meeting
+  entered from memory). Marked `source = 'manual'`, and deliberately *not* the
+  default surface when the app opens — the timer is the primary path.
 
 **Done when:** a full day of work is captured with zero manual transcription.
 

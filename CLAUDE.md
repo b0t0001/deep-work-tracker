@@ -207,7 +207,7 @@ be recomputed, lost detail cannot.
 - `sessions` — id, project_id, tag_id (nullable), task (free text), started_at,
   ended_at, planned_duration_s, **running_duration_s** (excludes paused time),
   stop_reason, work_quantity, work_unit, unquantifiable, notes,
-  pace_target_qty, pace_target_interval_s, source (`app` | `import`)
+  pace_target_qty, pace_target_interval_s, source (`app` | `manual` | `import`)
 - `pauses` — session_id, paused_at, resumed_at. Makes `running_duration_s`
   auditable rather than a number nobody can check.
 
@@ -235,6 +235,28 @@ There are **no terms or semesters**. Rolling windows only.
 
 Derived, never stored: rate (`work_quantity / running minutes`), streaks,
 working stretches (from wall-clock gaps), totals.
+
+### Manual entry and editing
+
+Two separate needs, both required.
+
+**Every field of every session is editable from the UI**, reachable from
+settings and from the session history. The user's words: this data informs real
+decisions, so being unable to correct it is disqualifying. Edits are applied to
+the row in place; no shadow "corrected" copy.
+
+**Sessions can be created retroactively.** Not everything is timed — a six-hour
+club meeting (Penn Electric Racing) is entered afterwards from memory. These get
+`source = 'manual'`.
+
+**Manual entry must not be the default surface.** Opening the app presents the
+timer; retroactive entry is deliberately one step further in. The timer is the
+primary path and must stay uncluttered.
+
+`source` matters analytically. Manual rows carry approximate times, usually no
+work quantity, and no pace data. **Time-of-day analytics should weight or
+exclude them** — a remembered "about six hours" is not evidence about when focus
+happens. Charts must never silently mix precise and remembered timings.
 
 ### Labeling must be fast
 
