@@ -12,7 +12,7 @@
   /* Everything scales off the viewport, so one layout serves the compact
      window, a hand-resized window, and a projector in full screen. */
   --pad: clamp(5px, 5vmin, 44px);
-  --gap: clamp(3px, 3vmin, 28px);
+  --gap: clamp(2px, 2.2vmin, 22px);
   --clock: clamp(22px, min(27vmin, 25vw), 300px);
   --caption: clamp(7px, 6vmin, 28px);
   --control: clamp(9px, 7.5vmin, 34px);
@@ -198,7 +198,7 @@ input {
 .chip {
   flex: 1;
   min-width: 0;
-  padding: clamp(2px, 2.6vmin, 14px) 0;
+  padding: clamp(2px, 2vmin, 12px) 0;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: transparent;
@@ -335,8 +335,8 @@ input {
 }
 
 .icon svg {
-  width: clamp(10px, 8vmin, 32px);
-  height: clamp(10px, 8vmin, 32px);
+  width: clamp(9px, 7vmin, 28px);
+  height: clamp(9px, 7vmin, 28px);
   display: block;
 }
 
@@ -450,19 +450,19 @@ input {
 
 .primary,
 .ghost {
-  padding: clamp(3px, 3.2vmin, 18px) 0;
+  padding: clamp(2px, 2.3vmin, 14px) 0;
   border-radius: 8px;
 }
 
 .ghost {
-  padding-left: clamp(7px, 6vmin, 36px);
-  padding-right: clamp(7px, 6vmin, 36px);
+  padding-left: clamp(6px, 5vmin, 30px);
+  padding-right: clamp(6px, 5vmin, 30px);
 }
 
 .primary svg,
 .ghost svg {
-  width: clamp(11px, 9.7vmin, 38px);
-  height: clamp(11px, 9.7vmin, 38px);
+  width: clamp(10px, 8.2vmin, 32px);
+  height: clamp(10px, 8.2vmin, 32px);
 }
 
 /* Start sits on the preset row rather than claiming one of its own, which
