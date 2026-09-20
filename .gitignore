@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+release/
+*.tsbuildinfo
+
+# Local database + backups (your actual session data — never commit)
+*.db
+*.db-journal
+*.db-wal
+*.sqlite
+backups/
+
+# Environment / secrets
+.env
+.env.local
+
+# Editor + OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
