@@ -32,42 +32,57 @@ Get an empty Electron window opening reliably before any features exist.
 
 ## Phase 1 — The timer (the part that must beat the old tool)
 
-This phase is the whole risk of the project. If the timer is worse than the old
-one, nothing else matters.
+This phase is the whole risk of the project. If the timer is worse than
+Hourglass, nothing else matters.
 
-- Compact frameless window, `alwaysOnTop: true`, draggable by its body
-- Start / pause / resume / stop
-- Timer authority lives in the main process, driven by a target end timestamp
-  (never a decrementing counter — see CLAUDE.md)
-- **Looping presets:** duration and number of loops (or run until stopped).
-  Ship 60 and 90 min as defaults; duration must be freely settable (the data
-  shows 12+ distinct durations in use).
-- **On reaching 0:00:00, notify and immediately start the next block** of the
-  same length, matching Hourglass's loop. No break interval in between — breaks
-  are not tracked (decided 2026-09-19). Each repeat is its own `sessions` row.
-  Looping must stay accurate over long unattended runs.
-- **Starting the next timer must be near-instant.** A typical sitting is three
-  or four separate timers (20 min writing, 30 min a small task, the rest on CS),
-  each its own run. Project and tag should carry over from the previous session
-  by default so a new timer is one keystroke, not a form.
-- **Stopping early is the normal case, not an exception.** 72-84% of recent runs
-  were stopped before expiry. Stopping must be one obvious control, and the run
-  records `planned` and `actual` separately.
-- **Pace target (optional):** "100 words per 20 min". You set a target rate and
-  update your count as you go; the timer shows ahead or behind against it.
-  **Informational only — it must never interrupt, prompt, or alert**
-  (decided 2026-09-19). It is a readout, not a second timer.
-- Desktop notification + sound on each interval boundary
-- System tray icon showing remaining time; click to show/hide
-- Survives laptop sleep with correct elapsed time
+**Scope change:** Phase 1 now includes minimal SQLite persistence. Structured
+labeling needs projects and tags to exist, and a timer that saves nothing is not
+something the user can actually adopt. Phase 1 saves each run with a free-text
+label; Phase 2 adds the structure.
 
-**Done when:** the app can replace the current timer for a full work day, even
-though it is not yet saving anything.
+**The window**
 
-**Watch out for:** sleep/resume, multi-monitor placement, and the window
-reappearing on top after other apps steal focus.
+- Compact, frameless, draggable, `alwaysOnTop: true`
+- Task label + countdown
+- Setting toggles the progress visual between a **bar** and a **circular ring**
+- **This window is filmed for timelapse videos posted to social media.** Visual
+  quality is a requirement, not polish. Clean type, a genuinely good-looking
+  ring, no debris. Favour looking good over information density.
+- System tray icon with remaining time; click to show/hide
 
----
+**The session timer**
+
+- Freely settable duration; presets 60, 90, 30, 120, 20 min
+- Target-timestamp driven, never a decrementing counter (see CLAUDE.md)
+- On expiry: notify, then auto-start another run of the same length. Each run is
+  its own row. No break interval.
+- Survives sleep with correct elapsed time
+
+**The pace loop — a second, independent timer**
+
+- Arbitrary repeating interval (3, 5, 10, 20 min …)
+- Expresses a target rate: "100 words per 20 minutes"
+- Each loop: sound + brief display of the **cumulative target** ("target: 300
+  words" on the third 20-minute loop)
+- **Never asks for input.** The user will not log data mid-essay.
+
+**Pause, stop, undo**
+
+- Pause and stop are separate controls with clearly different affordances
+- Paused time is excluded from `running_duration_s`; pause intervals recorded
+- Only stop ends the session
+- Paused beyond the auto-end threshold (default 15 min, configurable) → end
+  automatically, recording time up to the pause
+- **Stop is undoable:** 30-second "undo — resume session" banner, and the session
+  stays editable in history afterwards
+- Optional one-click `stop_reason` on the stop screen: finished early / tired /
+  interrupted. Skippable, and skipping is the default.
+
+**Done when:** the app replaces Hourglass for a full work day, and every session
+that day is in the database with correct durations.
+
+**Watch out for:** sleep/resume, multi-monitor placement, the window reappearing
+on top after other apps steal focus, and two timers drifting apart.
 
 ## Phase 2 — Persistence and labeling
 
@@ -123,26 +138,33 @@ blocks, 2,545 hours, 2023-03-27 to 2026-09-19.
 The reason for leaving the spreadsheet. All trend math lives in tested pure
 functions under `src/shared/`, so new metrics are cheap to add.
 
-- Totals: today, this week, this month, all time
-- Weekly trend line with comparison to the previous period
-- **Time-of-day heatmap** — when during the day focus actually happens.
-  **App-recorded sessions only.** The imported history has no clock times, so
-  this chart must state its date range and never silently include imported rows.
-- Day-of-week breakdown
-- Hours by project, and by task within a project
-- Session length distribution
-- **Output and pace:** quantity per unit over time, and rate trends per task
-  type (words/min when writing, questions/min when problem-setting). The
-  analysis the spreadsheet made hardest and the user most wants.
-- Completion rate: how often sessions run to term vs. get cut short
-- Focus rating over time
-- Streaks and daily goal tracking
-- CSV export (so the data is never trapped in this app)
+The user's brief was explicit: **make it exciting.** This is a dashboard someone
+opens because they want to, not a report. Visual quality counts here too.
 
-**Done when:** every number the spreadsheet produced is reproduced, plus at
-least three insights the spreadsheet never showed.
+Confirmed wanted:
 
----
+- **Total hours over time** — running totals, this week against last
+- **Breakdown by category** — hours across HW, Startup, Job, and whether the
+  balance is where they want it
+- **Consistency and streaks** — days worked, gaps, current and best streak
+- **Calendar heatmap** — contribution-graph style, one cell per day. Explicitly
+  requested and should be prominent, not buried.
+- **Time-of-day heatmap** — when focus actually happens. **App-recorded sessions
+  only**; imported history has no clock times, so this chart must state its date
+  range and never silently include imported rows.
+- **Rate trends, scoped to one unit at a time.** The user raised this directly:
+  work differs so much that rates are often incomparable. Words per minute and
+  questions per minute must never be charted, averaged, or trended together, and
+  the UI must always say which unit it is showing.
+- **Pace target vs actual** — how good the user's own predictions are, now that
+  targets are stored
+- Working stretches derived from wall-clock gaps (the old "HW 1" grouping,
+  inferred instead of typed)
+- Session length distribution, planned vs actual
+- CSV export, so the data is never trapped in this app
+
+The user expects to add ideas here as they use it. Keep the metric layer easy to
+extend — that ease is the entire point of leaving the spreadsheet.
 
 ## Phase 5 — Polish and packaging
 

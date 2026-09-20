@@ -74,21 +74,58 @@ Rules:
 
 ### Timer correctness
 
-The main process is the single source of truth for the running timer.
+The main process is the single source of truth for both timers.
 
 **Store a target end timestamp and derive remaining time from `Date.now()`.
-Never decrement a counter on an interval.** A decrementing counter drifts,
-and it breaks outright when the machine sleeps or the window is hidden. The
-renderer ticks only to repaint; if the renderer and main disagree, main wins.
+Never decrement a counter on an interval.** A decrementing counter drifts and
+breaks outright when the machine sleeps or the window is hidden. The renderer
+ticks only to repaint; if renderer and main disagree, main wins.
 
-Sessions are recorded with absolute UTC timestamps. Convert to local time only
-at the display layer.
+### Two independent timers
+
+The user ran two Hourglass windows at once. The app must reproduce that.
+
+1. **Session timer** — the countdown for the work session. Freely settable;
+   presets 60, 90, 30, 120, 20 min. On expiry it notifies and auto-starts
+   another run of the same length (Hourglass's loop). Each run is its own
+   `sessions` row. No break interval — breaks are not tracked.
+2. **Pace loop** — an independent repeating interval, often short (3, 5, 10,
+   20 min), expressing a target rate such as "100 words per 20 minutes". On each
+   loop it plays a sound and briefly shows the **cumulative target** (third
+   20-minute loop reads `target: 300 words`).
+
+**The pace loop never asks for input.** The user's words: they will not log data
+mid-essay. It cues; they judge. Quantity is entered once, at stop.
+
+### Pause and stop are different actions
+
+This distinction is load-bearing and was missed in the first draft.
+
+- **Pause** — temporary. Bathroom, brief interruption. The session continues
+  afterwards. **Paused time is not work time**: `running_duration_s` counts only
+  time the clock was actually running, never the wall-clock span from
+  `started_at` to `ended_at`. Pause intervals are recorded so this is auditable.
+- **Stop** — the session is over. Only stop prompts for work quantity.
+- **A session paused longer than the auto-end threshold ends automatically**,
+  recording time up to the pause. Default 15 minutes, configurable. This exists
+  because the user's habit is to pause and close the window rather than stop.
+
+**Stopping must be undoable.** A 30-second "undo — resume session" banner after
+stopping, and the session stays editable in history afterwards. Accidentally
+hitting stop instead of pause must never lose timing data.
 
 ### Windows
 
-- **Compact window** — small, frameless, draggable, `alwaysOnTop: true`. This is
-  the default working view.
+- **Compact window** — small, frameless, draggable, `alwaysOnTop: true`. Shows
+  the task label and the countdown. A setting toggles the progress visual
+  between a **bar** and a **circular ring** (like the Windows Clock app).
 - **Dashboard window** — normal window with analytics and session history.
+
+**The compact window appears in timelapse videos the user posts to social
+media.** Its visual design is a functional requirement, not polish. It should
+look good on camera: clean typography, a genuinely attractive ring, no visual
+debris. When trading off between information density and looking good, lean
+toward looking good — the user can open the dashboard for detail.
 
 ## Source data and its quirks
 
@@ -157,30 +194,63 @@ rows record the literal value `unquantifiable`, which must stay representable.
 derived. Record more per session rather than aggregating early — aggregation can
 be recomputed, lost detail cannot.
 
-- `projects` — id, name, color, archived. The category tag (`HW`, `Startup`,
-  `Job`). A real row, not a string, so renaming fixes history everywhere and the
-  drift above cannot recur.
+- `projects` — id, name, color, archived. The category (`HW`, `Startup`, `Job`).
+  A real row, not a string, so renaming fixes history and drift cannot recur.
 - `tags` — id, name, project_id (nullable). The optional second dimension,
-  chiefly course codes such as `WRIT 0580`. Stable enough to be an entity, which
-  makes "hours per course this semester" a real query.
-- `presets` — saved durations. Seed 60, 90, 30, 120, 20 min (the real top five).
-- `sessions` — id, project_id, tag_id (nullable), task (free text, autocompleted
-  from history), started_at, ended_at, planned_duration_s, actual_duration_s,
-  completed, work_quantity, work_unit, unquantifiable, focus_rating, notes,
-  pace_target_qty, pace_target_minutes, source (`app` | `import`)
-- `rest_days` — date, reason. Preserves the 376 `N/A` days; a logged rest day is
-  different from missing data and must not silently average as a zero.
+  chiefly course codes such as `WRIT 0580`.
+- `presets` — saved session durations and saved pace-loop intervals.
+- `sessions` — id, project_id, tag_id (nullable), task (free text), started_at,
+  ended_at, planned_duration_s, **running_duration_s** (excludes paused time),
+  stop_reason, work_quantity, work_unit, unquantifiable, notes,
+  pace_target_qty, pace_target_interval_s, source (`app` | `import`)
+- `pauses` — session_id, paused_at, resumed_at. Makes `running_duration_s`
+  auditable rather than a number nobody can check.
 
-Derived, never stored: rate (`work_quantity / actual minutes`), completion rate,
-working stretches, totals, streaks.
+`stop_reason` is a small set the user defined from their own behaviour:
+`finished_early`, `tired`, `interrupted`, plus null when they skip it. It is
+**optional and one click** — roughly 75% of sessions end early, so a mandatory
+prompt would fire almost every time and the logging would stop happening.
 
-Three structured fields (project, tag, preset) plus one free-text field (task)
-is the deliberate balance. More structure means slower logging, and logging that
-feels like work will simply stop happening.
+There is deliberately **no `completed` boolean**. Stopping early is usually
+success (work finished faster) or good judgement (fatigue, returning fresh), and
+a boolean would render a 16% "completion rate" that reads as failure and means
+nothing. `planned_duration_s` and `running_duration_s` are facts; the
+interpretation belongs to `stop_reason` or to nobody.
+
+There is **no `focus_rating`** — cut at the user's request. Work quantity per
+minute is already an objective efficiency signal, and notes carry the rest.
+
+There is **no `rest_days` table**. Days with no work are simply days with no
+sessions; averages run over calendar days in the range, not active days only.
+The spreadsheet's `N/A` marks existed only to satisfy conditional formatting.
+
+There are **no terms or semesters**. Rolling windows only.
+
+Derived, never stored: rate (`work_quantity / running minutes`), streaks,
+working stretches (from wall-clock gaps), totals.
+
+### Labeling must be fast
+
+The user labels every session and it costs roughly 30 seconds each — about
+19 hours over the 2,336 historical sessions. Reducing that is a real feature,
+not a nicety.
+
+Sessions are labeled **before** starting, with a predicted default: the most
+likely project and tag given time of day, weekday, and recent history. This is
+a frequency lookup over the user's own data, **not a model**. Every field stays
+editable, dropdowns are keyboard-navigable, and the previous session's labels
+carry over. Prediction is cold at first, since imported rows have no clock times
+to learn from.
 
 Timestamps are ISO 8601 UTC strings. Durations are integer seconds. Imported
 rows have real durations but **null `started_at`/`ended_at`**, since countdown
 readings cannot become clock times. Every query must handle that.
+
+### Rates are only comparable within a unit
+
+Words per minute and questions per minute are different quantities. **Never
+chart, average, or trend them together.** Any rate comparison is scoped to a
+single `work_unit`, and the UI must say which unit it is showing.
 
 ## Commands
 
