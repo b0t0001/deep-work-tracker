@@ -140,10 +140,15 @@ export default function App(): React.JSX.Element {
 
   // Clicking anywhere that is not a field drops focus, so typing a label ends
   // by clicking the window rather than needing Tab or Enter.
+  //
+  // The palette is excluded deliberately: mousedown fires before click, so
+  // closing it here unmounted the swatches before their click could land,
+  // which is why picking a colour appeared to do nothing.
   function releaseFocus(event: React.MouseEvent): void {
-    if (event.target instanceof HTMLInputElement) return
+    const target = event.target as Element | null
+    if (target?.closest('input')) return
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-    setPalette(false)
+    if (!target?.closest('.palette, .palette-toggle')) setPalette(false)
   }
 
   return (
@@ -154,7 +159,7 @@ export default function App(): React.JSX.Element {
             <Icon name={variant === 'ring' ? 'bar' : 'ring'} />
           </button>
           <button
-            className="icon"
+            className="icon palette-toggle"
             onClick={() => setPalette(!palette)}
             title="Accent colour"
             style={{ color: accent }}
@@ -243,14 +248,14 @@ export default function App(): React.JSX.Element {
                 onChange={(event) => setMinutes(Math.max(1, Number(event.target.value) || 1))}
                 aria-label="Custom minutes"
               />
+              <button
+                className="primary primary--inline"
+                onClick={() => void window.api.timer.start(minutes * MINUTE_MS)}
+                title="Start"
+              >
+                <Icon name="play" />
+              </button>
             </div>
-            <button
-              className="primary"
-              onClick={() => void window.api.timer.start(minutes * MINUTE_MS)}
-              title="Start"
-            >
-              <Icon name="play" />
-            </button>
           </>
         ) : (
           <div className="controls">

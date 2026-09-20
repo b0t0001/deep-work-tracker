@@ -73,5 +73,5 @@ export function formatClock(ms: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
 }
 
-/** Preset durations in minutes, ordered by how often they appear in the user's history. */
-export const PRESET_MINUTES = [60, 90, 30, 120, 20] as const
+/** Preset durations in minutes, ascending. Any other length goes in the custom field. */
+export const PRESET_MINUTES = [30, 60, 90, 120] as const

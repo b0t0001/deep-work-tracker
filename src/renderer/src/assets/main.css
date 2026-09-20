@@ -419,3 +419,54 @@ input {
 .card.is-full:hover .palette {
   opacity: 1;
 }
+
+/* ---------- bar variant: progress sweeps behind the text ---------- */
+
+.dial--bar {
+  position: relative;
+  overflow: hidden;
+  gap: 0;
+  border-radius: clamp(6px, 2.5vmin, 16px);
+  background: var(--surface-raised);
+}
+
+.fill {
+  position: absolute;
+  inset: 0;
+  /* Translucent so the digits stay readable straight through it. */
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  transform-origin: left center;
+  will-change: transform;
+}
+
+/* The text layer is declared after .fill, so it stacks above it without
+   needing a z-index. */
+.dial--bar .dial__inner {
+  position: absolute;
+  inset: 0;
+}
+
+/* ---------- tighter controls ---------- */
+
+.primary,
+.ghost {
+  padding: clamp(3px, 1.7vmin, 13px) 0;
+  border-radius: 8px;
+}
+
+.ghost {
+  padding-left: clamp(10px, 4.5vmin, 34px);
+  padding-right: clamp(10px, 4.5vmin, 34px);
+}
+
+.primary svg,
+.ghost svg {
+  width: clamp(11px, 4.2vmin, 26px);
+  height: clamp(11px, 4.2vmin, 26px);
+}
+
+/* Start sits on the preset row rather than claiming one of its own, which
+   matters most in ring mode where vertical space is scarce. */
+.primary--inline {
+  flex: 0 0 clamp(32px, 14vmin, 76px);
+}

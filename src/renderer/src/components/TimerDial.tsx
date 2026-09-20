@@ -24,12 +24,15 @@ export default function TimerDial({
   const remaining = 1 - Math.min(1, Math.max(0, progress))
 
   if (variant === 'bar') {
+    // Hourglass renders progress as a translucent panel sweeping behind the
+    // text rather than a separate bar beneath it, which reads at a glance
+    // without costing a row of height.
     return (
       <div className={`dial dial--bar${dimmed ? ' is-dimmed' : ''}`}>
-        <div className="dial__clock">{clock}</div>
-        <div className="dial__caption">{caption}</div>
-        <div className="bar">
-          <div className="bar__fill" style={{ transform: `scaleX(${remaining})` }} />
+        <div className="fill" style={{ transform: `scaleX(${remaining})` }} />
+        <div className="dial__inner">
+          <div className="dial__clock">{clock}</div>
+          <div className="dial__caption">{caption}</div>
         </div>
       </div>
     )
