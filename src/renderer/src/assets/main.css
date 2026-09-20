@@ -522,8 +522,8 @@ input {
 .card.is-ring .card__foot,
 .card.is-ring .palette {
   position: absolute;
-  left: var(--pad);
-  right: var(--pad);
+  left: 0;
+  right: 0;
   z-index: 2;
   opacity: 0;
   transition: opacity 160ms ease;
@@ -531,17 +531,17 @@ input {
 
 /* With the label gone the two clusters go to opposite corners. */
 .card.is-ring .card__head {
-  top: var(--pad);
+  top: 0;
   justify-content: space-between;
 }
 
 .card.is-ring .palette {
-  top: calc(var(--pad) * 2 + 28px);
+  top: 32px;
   justify-content: center;
 }
 
 .card.is-ring .card__foot {
-  bottom: var(--pad);
+  bottom: 0;
 }
 
 /* Each group carries its own backdrop so it stays legible over the ring
@@ -565,16 +565,28 @@ input {
 /* ---------- Electron drag-region workarounds ---------- */
 
 /* A drag region consumes mouse events at the OS level: no hover, no clicks.
-   The whole card is draggable, which broke two things.
 
-   First, hovering the floating header in ring mode never registered, because
-   the pointer was over the draggable dial. Making the floating groups no-drag
-   lets them receive hover, and hovering either one satisfies .card:hover and
-   reveals both. The circle itself stays draggable. */
-.card.is-ring .card__head,
-.card.is-ring .card__foot,
-.card.is-ring .palette {
+   Marking the floating chrome no-drag was not enough on its own. The dial
+   spans the entire card, so the draggable SVG still covered the strip beneath
+   the header, and Electron resolves that overlap in favour of dragging
+   regardless of z-index - the pointer never reached the header at all.
+
+   So ring mode inverts the arrangement: the card is no-drag, and a single
+   drag zone covers only the middle band, stopping short of both chrome
+   strips. Nothing draggable overlaps the chrome, so hover works at the top
+   and bottom edges while the circle can still move the window. */
+.card.is-ring {
   -webkit-app-region: no-drag;
+}
+
+.card.is-ring .drag-zone {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--pad) + 34px);
+  bottom: calc(var(--pad) + 34px);
+  z-index: 1;
+  -webkit-app-region: drag;
 }
 
 /* Second, clicking the card body to dismiss the palette or leave the label did

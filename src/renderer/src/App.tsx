@@ -238,6 +238,11 @@ export default function App(): React.JSX.Element {
         </div>
       )}
 
+      {/* Ring mode drags by its middle only. The dial spans the whole card, so
+          a draggable dial would sit over the floating chrome and Electron would
+          hand those pixels to the window drag before hover could reach them. */}
+      {variant === 'ring' && <div className="drag-zone" />}
+
       <TimerDial
         progress={fraction}
         clock={formatClock(clockMs)}
