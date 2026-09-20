@@ -639,3 +639,86 @@ input {
   padding-right: clamp(7px, 3.4vmin, 18px);
   padding-left: clamp(7px, 3.4vmin, 18px);
 }
+
+/* ---------- controls as bare icons ---------- */
+
+/* No pills, no filled buttons. High-contrast glyphs that answer on hover read
+   as less furniture on screen, which matters when the window is in shot. */
+.card.is-ring .tools,
+.card.is-ring .presets,
+.card.is-ring .controls,
+.card.is-ring .palette,
+.icon,
+.icon:hover,
+.primary,
+.ghost {
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.icon {
+  color: var(--text);
+}
+
+.icon:hover {
+  color: var(--accent);
+}
+
+.icon--danger:hover {
+  color: #fca5a5;
+}
+
+.primary,
+.ghost {
+  border: none;
+  color: var(--text);
+}
+
+.primary:hover {
+  color: var(--accent);
+  filter: none;
+}
+
+.ghost {
+  color: var(--text-dim);
+}
+
+.ghost--danger:hover {
+  color: #fca5a5;
+  background: transparent;
+  border: none;
+}
+
+/* Size carries the hierarchy now that the fill is gone: the action taken every
+   session stays larger than the destructive one. */
+.primary svg {
+  width: clamp(12px, 9.4vmin, 36px);
+  height: clamp(12px, 9.4vmin, 36px);
+}
+
+/* ---------- bar mode: controls sit inside the fill ---------- */
+
+/* Mirrors ring mode. Taking the running controls out of the flow also lets the
+   dial grow into the space they used to hold, so the fill gets taller the
+   moment a timer starts. The idle preset row stays in flow - it is too wide to
+   sit inside anything. */
+.card {
+  position: relative;
+}
+
+.card:not(.is-ring) .card__foot:has(.controls) {
+  position: absolute;
+  right: auto;
+  bottom: clamp(1px, 1.6vmin, 10px);
+  left: 50%;
+  z-index: 2;
+  width: auto;
+  transform: translateX(-50%);
+}
+
+.card:not(.is-ring) .card__foot:has(.controls) .primary,
+.card:not(.is-ring) .card__foot:has(.controls) .ghost {
+  flex: 0 0 auto;
+  padding-right: clamp(6px, 3vmin, 16px);
+  padding-left: clamp(6px, 3vmin, 16px);
+}
