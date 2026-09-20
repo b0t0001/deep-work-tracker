@@ -91,8 +91,11 @@ The user ran two Hourglass windows at once. The app must reproduce that.
    `sessions` row. No break interval — breaks are not tracked.
 2. **Pace loop** — an independent repeating interval, often short (3, 5, 10,
    20 min), expressing a target rate such as "100 words per 20 minutes". On each
-   loop it plays a sound and briefly shows the **cumulative target** (third
-   20-minute loop reads `target: 300 words`).
+   loop it plays a **subtle, short** sound and briefly shows the **cumulative
+   target** (third 20-minute loop reads `target: 300 words`). Session expiry
+   uses a clearly different and more prominent sound — the two events mean
+   different things and must never be confused by ear. A 3-minute pace loop
+   fires often, so its cue must be hearable without breaking focus.
 
 **The pace loop never asks for input.** The user's words: they will not log data
 mid-essay. It cues; they judge. Quantity is entered once, at stop.
@@ -119,6 +122,8 @@ hitting stop instead of pause must never lose timing data.
 - **Compact window** — small, frameless, draggable, `alwaysOnTop: true`. Shows
   the task label and the countdown. A setting toggles the progress visual
   between a **bar** and a **circular ring** (like the Windows Clock app).
+  The ring defaults to the project's colour, and **the colour is user-editable
+  in settings** — the default is a starting point, not a constraint.
 - **Dashboard window** — normal window with analytics and session history.
 
 **The compact window appears in timelapse videos the user posts to social
@@ -207,7 +212,9 @@ be recomputed, lost detail cannot.
   auditable rather than a number nobody can check.
 
 `stop_reason` is a small set the user defined from their own behaviour:
-`finished_early`, `tired`, `interrupted`, plus null when they skip it. It is
+`finished_early`, `tired`, `interrupted`, a free-text `other` for cases none of
+them fit, plus null when they skip it. Free text lives in `stop_reason_note`, so
+it stays queryable as a reason rather than disappearing into `notes`. It is
 **optional and one click** — roughly 75% of sessions end early, so a mandatory
 prompt would fire almost every time and the logging would stop happening.
 

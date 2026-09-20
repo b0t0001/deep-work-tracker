@@ -45,6 +45,7 @@ label; Phase 2 adds the structure.
 - Compact, frameless, draggable, `alwaysOnTop: true`
 - Task label + countdown
 - Setting toggles the progress visual between a **bar** and a **circular ring**
+- Ring defaults to the project's colour; **colour is editable in settings**
 - **This window is filmed for timelapse videos posted to social media.** Visual
   quality is a requirement, not polish. Clean type, a genuinely good-looking
   ring, no debris. Favour looking good over information density.
@@ -62,8 +63,9 @@ label; Phase 2 adds the structure.
 
 - Arbitrary repeating interval (3, 5, 10, 20 min …)
 - Expresses a target rate: "100 words per 20 minutes"
-- Each loop: sound + brief display of the **cumulative target** ("target: 300
-  words" on the third 20-minute loop)
+- Each loop: **subtle** sound + brief display of the **cumulative target**
+  ("target: 300 words" on the third 20-minute loop). Session expiry uses a
+  distinctly more prominent sound.
 - **Never asks for input.** The user will not log data mid-essay.
 
 **Pause, stop, undo**
@@ -76,7 +78,10 @@ label; Phase 2 adds the structure.
 - **Stop is undoable:** 30-second "undo — resume session" banner, and the session
   stays editable in history afterwards
 - Optional one-click `stop_reason` on the stop screen: finished early / tired /
-  interrupted. Skippable, and skipping is the default.
+  interrupted, plus free text when none fit. Skippable, and skipping is default.
+- **Global hotkey for pause/resume.** Writing full-screen, reaching for the
+  mouse breaks flow. Pause is the one that must work without leaving the
+  document; stop and start-next can wait for Phase 5.
 
 **Done when:** the app replaces Hourglass for a full work day, and every session
 that day is in the database with correct durations.
