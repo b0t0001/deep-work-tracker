@@ -709,7 +709,7 @@ input {
 .card:not(.is-ring) .card__foot:has(.controls) {
   position: absolute;
   right: auto;
-  bottom: clamp(1px, 1.6vmin, 10px);
+  bottom: calc(var(--pad) + clamp(3px, 4vmin, 20px));
   left: 50%;
   z-index: 2;
   width: auto;
@@ -756,4 +756,32 @@ input {
 
 .card.is-ring .card__foot:has(.controls) {
   padding: clamp(6px, 3vmin, 16px);
+}
+
+/* ---------- bar mode: lift the text, raise the controls ---------- */
+
+/* Same reasoning as the ring: with buttons in the lower half, a clock centred
+   in the dial leaves the group as a whole sitting low. Lifting the text while
+   controls are showing centres clock, caption and buttons together. */
+.dial--bar.is-lifted .dial__inner {
+  transform: translateY(clamp(-34px, -10vmin, -9px));
+}
+
+/* Bigger targets now that the icons carry the controls on their own. Size
+   still separates them: the action taken every session reads larger than the
+   destructive one beside it. */
+.primary svg {
+  width: clamp(15px, 11.5vmin, 42px);
+  height: clamp(15px, 11.5vmin, 42px);
+}
+
+.ghost svg {
+  width: clamp(12px, 9.4vmin, 36px);
+  height: clamp(12px, 9.4vmin, 36px);
+}
+
+/* The ring has less room inside the circle, so it keeps smaller controls. */
+.card.is-ring .controls svg {
+  width: clamp(11px, 7vmin, 28px);
+  height: clamp(11px, 7vmin, 28px);
 }

@@ -62,7 +62,7 @@ export default function TimerDial({
     // text rather than a separate bar beneath it, which reads at a glance
     // without costing a row of height.
     return (
-      <div className={`dial dial--bar${dimmed ? ' is-dimmed' : ''}`}>
+      <div className={`dial dial--bar${dimmed ? ' is-dimmed' : ''}${liftText ? ' is-lifted' : ''}`}>
         <div className="fill" style={{ transform: `scaleX(${remaining})` }} />
         <div className="dial__inner">
           <div className="dial__clock">{clock}</div>
