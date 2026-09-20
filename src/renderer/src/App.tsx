@@ -150,7 +150,10 @@ export default function App(): React.JSX.Element {
   }
 
   return (
-    <div className={`card${full ? ' is-full' : ''}`} onMouseDown={releaseFocus}>
+    <div
+      className={`card${full ? ' is-full' : ''}${variant === 'ring' ? ' is-ring' : ''}`}
+      onMouseDown={releaseFocus}
+    >
       <header className="card__head">
         <div className="tools">
           <button
