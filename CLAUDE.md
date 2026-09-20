@@ -28,6 +28,32 @@ user will stop using it. Two non-negotiables carried over from the old tool:
 - **better-sqlite3** — synchronous SQLite in the main process.
 - **Recharts** — analytics charts.
 
+### Why Vite and not Next.js
+
+This gets questioned, so it is recorded here. Next.js is not an alternative to
+Vite — Vite is a build tool, Next.js is a framework built around a Node web
+server, with its own bundler. The real question is whether this app should have
+a server. It should not: there is no network, no URLs, no SEO, and the data is
+a SQLite file on the same disk as the UI.
+
+Running Next.js inside Electron has two forms, both worse here:
+
+- **Static export** disables middleware, Server Actions and API routes, and
+  Server Components execute at *build time*, so they cannot read live session
+  data. All of Next.js's weight, none of its benefits.
+- **Standalone mode** boots a real HTTP server inside the desktop app: slower
+  startup, port and lifecycle management, harder packaging, and a network hop
+  between the UI and a local file.
+
+Structurally, Electron needs three builds with different targets (`main` = Node,
+`preload` = sandboxed bridge, `renderer` = browser). electron-vite handles all
+three; Next.js has no concept of a main or preload process, so it would have to
+run *alongside* another bundler rather than replace one.
+
+Next.js would be the right call for a future web or mobile client reading this
+data over a network. That is a separate application, and the React components
+would largely port to it. It is not a reason to add a server to the desktop app.
+
 ## Architecture
 
 Three processes, strict separation:
