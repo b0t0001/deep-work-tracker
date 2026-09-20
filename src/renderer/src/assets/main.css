@@ -561,3 +561,25 @@ input {
 .card.is-ring:hover .palette {
   opacity: 1;
 }
+
+/* ---------- Electron drag-region workarounds ---------- */
+
+/* A drag region consumes mouse events at the OS level: no hover, no clicks.
+   The whole card is draggable, which broke two things.
+
+   First, hovering the floating header in ring mode never registered, because
+   the pointer was over the draggable dial. Making the floating groups no-drag
+   lets them receive hover, and hovering either one satisfies .card:hover and
+   reveals both. The circle itself stays draggable. */
+.card.is-ring .card__head,
+.card.is-ring .card__foot,
+.card.is-ring .palette {
+  -webkit-app-region: no-drag;
+}
+
+/* Second, clicking the card body to dismiss the palette or leave the label did
+   nothing, since mousedown never arrived. While either is open the card stops
+   being draggable, so the click lands and the handler commits and closes. */
+.card.is-editing {
+  -webkit-app-region: no-drag;
+}

@@ -130,6 +130,13 @@ export default function App(): React.JSX.Element {
   const [minutes, setMinutes] = useState(60)
   const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
   const [palette, setPalette] = useState(false)
+  const [labelFocused, setLabelFocused] = useState(false)
+
+  // While a field or the palette is open the card stops being a drag region.
+  // Electron drag regions swallow mouse events outright, so without this a
+  // click on the card body never reaches the handler that dismisses them -
+  // which is why editing felt impossible to exit.
+  const editing = labelFocused || palette
 
   const idle = snapshot.status === 'idle'
   const clockMs = idle ? minutes * MINUTE_MS : remainingMs(snapshot, now)
@@ -151,7 +158,9 @@ export default function App(): React.JSX.Element {
 
   return (
     <div
-      className={`card${full ? ' is-full' : ''}${variant === 'ring' ? ' is-ring' : ''}`}
+      className={`card${full ? ' is-full' : ''}${variant === 'ring' ? ' is-ring' : ''}${
+        editing ? ' is-editing' : ''
+      }`}
       onMouseDown={releaseFocus}
     >
       <header className="card__head">
@@ -188,6 +197,8 @@ export default function App(): React.JSX.Element {
           className="label"
           value={label}
           onChange={(event) => setLabel(event.target.value)}
+          onFocus={() => setLabelFocused(true)}
+          onBlur={() => setLabelFocused(false)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') event.currentTarget.blur()
           }}
