@@ -611,3 +611,31 @@ input {
 .card.is-editing {
   -webkit-app-region: no-drag;
 }
+
+/* ---------- ring mode: controls sit inside the circle ---------- */
+
+/* Pause and stop move up under the caption instead of spanning the bottom of
+   the card, where they cut across the ring. 70% clears the clock and caption -
+   which sit at roughly 46% and 63% of the dial - while staying well inside the
+   stroke. Only the running controls move: the idle preset row is far too wide
+   to live inside the circle, so it keeps the bottom strip. */
+.card.is-ring .card__foot:has(.controls) {
+  top: 70%;
+  right: auto;
+  bottom: auto;
+  left: 50%;
+  width: auto;
+  transform: translateX(-50%);
+}
+
+.card.is-ring .controls {
+  gap: 4px;
+}
+
+/* Inside the circle the buttons size to their icons rather than stretching. */
+.card.is-ring .controls .primary,
+.card.is-ring .controls .ghost {
+  flex: 0 0 auto;
+  padding-right: clamp(7px, 3.4vmin, 18px);
+  padding-left: clamp(7px, 3.4vmin, 18px);
+}
