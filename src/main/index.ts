@@ -3,6 +3,8 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { TimerEngine } from './timer'
+import { closeDatabase, openDatabase } from './db'
+import { recentSessions, recordSession } from './db/sessions'
 import type { TimerSnapshot } from '../shared/timer'
 
 /** Global shortcut for pause/resume. Writing full-screen, the mouse breaks flow. */
@@ -76,7 +78,13 @@ function registerIpc(): void {
   ipcMain.handle('timer:start', (_event, plannedMs: number) => timer.start(plannedMs))
   ipcMain.handle('timer:pause', () => timer.pause())
   ipcMain.handle('timer:resume', () => timer.resume())
-  ipcMain.handle('timer:stop', () => timer.stop())
+  ipcMain.handle('timer:setTask', (_event, task: string) => timer.setTask(task))
+  ipcMain.handle('timer:stop', () => {
+    const finished = timer.stop()
+    recordSession(finished)
+    return finished
+  })
+  ipcMain.handle('sessions:recent', (_event, limit?: number) => recentSessions(limit))
 
   ipcMain.handle('window:isFullScreen', () => compactWindow?.isFullScreen() ?? false)
   ipcMain.handle('window:setFullScreen', (_event, value: boolean) => {
@@ -122,6 +130,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  openDatabase()
   registerIpc()
   compactWindow = createCompactWindow()
 
@@ -144,6 +153,7 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   timer.dispose()
+  closeDatabase()
 })
 
 app.on('window-all-closed', () => {

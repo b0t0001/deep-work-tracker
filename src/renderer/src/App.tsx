@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  IDLE_TIMER,
   formatClock,
   progress as progressOf,
   remainingMs,
+  idleTimer,
   type TimerSnapshot
 } from '@shared/timer'
 import TimerDial from './components/TimerDial'
@@ -32,7 +32,7 @@ const ACCENT_KEY = 'dwt.accent'
  * every value is derived from the snapshot plus the current time.
  */
 function useTimer(): { snapshot: TimerSnapshot; now: number } {
-  const [snapshot, setSnapshot] = useState<TimerSnapshot>(IDLE_TIMER)
+  const [snapshot, setSnapshot] = useState<TimerSnapshot>(idleTimer)
   const [now, setNow] = useState<number>(() => Date.now())
   const frame = useRef<number>(0)
 
@@ -249,7 +249,12 @@ export default function App(): React.JSX.Element {
         <input
           className="label"
           value={label}
-          onChange={(event) => setLabel(event.target.value)}
+          onChange={(event) => {
+            setLabel(event.target.value)
+            // Main owns the label so any stop path can record it, including
+            // the auto-end that fires when a pause runs long.
+            void window.api.timer.setTask(event.target.value)
+          }}
           onFocus={() => setLabelFocused(true)}
           onBlur={() => setLabelFocused(false)}
           onKeyDown={(event) => {

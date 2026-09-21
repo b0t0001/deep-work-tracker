@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { IDLE_TIMER, hasExpired, runningMs, type TimerSnapshot } from '../shared/timer'
+import { hasExpired, idleTimer, runningMs, type TimerSnapshot } from '../shared/timer'
 
 /** How often the main process checks for expiry. Display smoothness is the renderer's job. */
 const TICK_MS = 250
@@ -12,22 +12,27 @@ const TICK_MS = 250
  * decremented on an interval; the ticker only watches for expiry.
  */
 export class TimerEngine extends EventEmitter {
-  private state: TimerSnapshot = { ...IDLE_TIMER }
+  private state: TimerSnapshot = idleTimer()
   private ticker: NodeJS.Timeout | null = null
 
   snapshot(): TimerSnapshot {
-    return { ...this.state }
+    return { ...this.state, pauses: this.state.pauses.map((p) => ({ ...p })) }
+  }
+
+  /** The label is held here so every stop path can record it, including auto-end. */
+  setTask(task: string): void {
+    this.state.task = task
   }
 
   start(plannedMs: number): TimerSnapshot {
     const now = Date.now()
     this.state = {
+      ...idleTimer(),
       status: 'running',
       plannedMs,
-      bankedRunningMs: 0,
       segmentStartedAt: now,
       startedAt: now,
-      pauseCount: 0
+      task: this.state.task
     }
     this.startTicker()
     return this.emitUpdate()
@@ -38,12 +43,15 @@ export class TimerEngine extends EventEmitter {
     this.bankSegment()
     this.state.status = 'paused'
     this.state.pauseCount += 1
+    this.state.pauses.push({ pausedAt: Date.now(), resumedAt: null })
     this.stopTicker()
     return this.emitUpdate()
   }
 
   resume(): TimerSnapshot {
     if (this.state.status !== 'paused') return this.snapshot()
+    const open = this.state.pauses[this.state.pauses.length - 1]
+    if (open && open.resumedAt === null) open.resumedAt = Date.now()
     this.state.segmentStartedAt = Date.now()
     this.state.status = 'running'
     this.startTicker()
@@ -54,9 +62,13 @@ export class TimerEngine extends EventEmitter {
   stop(): TimerSnapshot {
     if (this.state.status === 'idle') return this.snapshot()
     this.bankSegment()
-    const finished = { ...this.state, status: 'idle' as const }
+    // Close any pause still open, so a session stopped while paused records a
+    // complete history rather than a dangling interval.
+    const stillOpen = this.state.pauses[this.state.pauses.length - 1]
+    if (stillOpen && stillOpen.resumedAt === null) stillOpen.resumedAt = Date.now()
+    const finished = { ...this.snapshot(), status: 'idle' as const }
     this.stopTicker()
-    this.state = { ...IDLE_TIMER }
+    this.state = { ...idleTimer(), task: finished.task }
     this.emitUpdate()
     return finished
   }

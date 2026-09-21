@@ -25,7 +25,13 @@ user will stop using it. Two non-negotiables carried over from the old tool:
   Chosen over Tauri because the machine has Node but no Rust toolchain.
 - **React + TypeScript + Vite** — renderer UI.
 - **electron-vite** — build tooling for main / preload / renderer.
-- **better-sqlite3** — synchronous SQLite in the main process.
+- **`node:sqlite`** — SQLite built into Electron's bundled Node 24
+  (`DatabaseSync`), used in the main process. Chosen over better-sqlite3, which
+  is a native module: its prebuilt binary targets Node's ABI, not Electron's, so
+  it needs a node-gyp rebuild, and that needs Visual Studio Build Tools — the
+  multi-gigabyte dependency avoided by not choosing Tauri. `node:sqlite` has the
+  same synchronous API shape, ships with the runtime, and cannot break on
+  install.
 - **Recharts** — analytics charts.
 
 ### Why Vite and not Next.js
@@ -304,8 +310,9 @@ start. If that happens, run `node node_modules/electron/install.js`.
 
 - TypeScript strict mode. No `any` without a comment justifying it.
 - Functional React components with hooks. No class components.
-- Database migrations are numbered SQL files in `main/db/migrations/`, applied
-  in order at startup. Never edit a migration that has already run; add a new one.
+- Database migrations are numbered entries in `main/db/migrations.ts`, applied
+  in order at startup and recorded in `schema_migrations`. Never edit a
+  migration that has already run; add a new one.
 - Keep business logic (streaks, totals, trend math) in plain testable functions
   under `src/shared/`, not inside components.
 

@@ -22,10 +22,14 @@ const api = {
     pause: (): Promise<TimerSnapshot> => ipcRenderer.invoke('timer:pause'),
     resume: (): Promise<TimerSnapshot> => ipcRenderer.invoke('timer:resume'),
     stop: (): Promise<TimerSnapshot> => ipcRenderer.invoke('timer:stop'),
+    setTask: (task: string): Promise<void> => ipcRenderer.invoke('timer:setTask', task),
     onUpdate: (handler: (snapshot: TimerSnapshot) => void): Unsubscribe =>
       subscribe('timer:update', handler),
     onExpired: (handler: (snapshot: TimerSnapshot) => void): Unsubscribe =>
       subscribe('timer:expired', handler)
+  },
+  sessions: {
+    recent: (limit?: number): Promise<unknown[]> => ipcRenderer.invoke('sessions:recent', limit)
   },
   window: {
     isFullScreen: (): Promise<boolean> => ipcRenderer.invoke('window:isFullScreen'),

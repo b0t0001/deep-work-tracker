@@ -9,6 +9,12 @@
 
 export type TimerStatus = 'idle' | 'running' | 'paused' | 'expired'
 
+/** One paused stretch. `resumedAt` is null while the timer is still paused. */
+export interface PauseInterval {
+  pausedAt: number
+  resumedAt: number | null
+}
+
 export interface TimerSnapshot {
   status: TimerStatus
   /** What the timer was set to, in ms. */
@@ -21,15 +27,27 @@ export interface TimerSnapshot {
   startedAt: number | null
   /** How many times this run has been paused. */
   pauseCount: number
+  /** Every paused stretch, so running time can be audited rather than trusted. */
+  pauses: PauseInterval[]
+  /** What the user is working on. Held here so any stop path can record it. */
+  task: string
 }
 
-export const IDLE_TIMER: TimerSnapshot = {
-  status: 'idle',
-  plannedMs: 0,
-  bankedRunningMs: 0,
-  segmentStartedAt: null,
-  startedAt: null,
-  pauseCount: 0
+/**
+ * A factory rather than a shared constant: a shared object would hand every
+ * caller the same `pauses` array, and a shallow copy would not detach it.
+ */
+export function idleTimer(): TimerSnapshot {
+  return {
+    status: 'idle',
+    plannedMs: 0,
+    bankedRunningMs: 0,
+    segmentStartedAt: null,
+    startedAt: null,
+    pauseCount: 0,
+    pauses: [],
+    task: ''
+  }
 }
 
 /**
