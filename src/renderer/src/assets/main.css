@@ -13,7 +13,7 @@
      window, a hand-resized window, and a projector in full screen. */
   --pad: clamp(6px, 6.6vmin, 44px);
   --gap: clamp(2px, 2.6vmin, 24px);
-  --clock: clamp(16px, min(16vmin, 22vw), 220px);
+  --clock: clamp(17px, min(18vmin, 24vw), 240px);
   --caption: clamp(8px, 7vmin, 30px);
   --control: clamp(10px, 9vmin, 36px);
   --radius: clamp(10px, 5vmin, 24px);
@@ -1164,4 +1164,15 @@ input {
 
 .panel h2.spaced {
   margin-top: 30px;
+}
+
+/* ---------- bar fills the window, as Hourglass does ---------- */
+
+/* Hourglass paints progress across the whole window rather than into a panel
+   inset from the edges. Sitting inside the card's padding, the fill read as a
+   box with air trapped in it; breaking out to the left, right and bottom edges
+   turns that air into fill. Same window, same type, no empty margin. */
+.card:not(.is-ring) .dial--bar {
+  margin: 0 calc(var(--pad) * -1) calc(var(--pad) * -1);
+  border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px);
 }
