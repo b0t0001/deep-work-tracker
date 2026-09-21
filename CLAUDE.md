@@ -116,8 +116,10 @@ This distinction is load-bearing and was missed in the first draft.
   `started_at` to `ended_at`. Pause intervals are recorded so this is auditable.
 - **Stop** — the session is over. Only stop prompts for work quantity.
 - **A session paused longer than the auto-end threshold ends automatically**,
-  recording time up to the pause. Default 15 minutes, configurable. This exists
+  recording time up to the pause. Default 3 hours, configurable. This exists
   because the user's habit is to pause and close the window rather than stop.
+  The threshold is deliberately long: it is a backstop for a pause that was
+  forgotten, not a judgement about how long a break may be.
 
 **Stopping must be undoable.** A 30-second "undo — resume session" banner after
 stopping, and the session stays editable in history afterwards. Accidentally

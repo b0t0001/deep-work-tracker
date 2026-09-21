@@ -8,7 +8,8 @@ import { hasExpired, idleTimer, runningMs, type TimerSnapshot } from '../shared/
  */
 const TICK_MS = 100
 
-const DEFAULT_AUTO_END_MINUTES = 15
+/** Three hours: long enough that only a forgotten pause reaches it. */
+const DEFAULT_AUTO_END_MINUTES = 180
 
 /** The second timer: a repeating interval expressing a target rate. */
 export interface PaceConfig {

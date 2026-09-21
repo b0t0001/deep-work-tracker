@@ -65,7 +65,7 @@ function SettingsTab(): React.JSX.Element {
   }, [accent])
 
   const [loop, setLoop] = useState(true)
-  const [autoEnd, setAutoEnd] = useState('15')
+  const [autoEnd, setAutoEnd] = useState('180')
   const [paceInterval, setPaceInterval] = useState('')
   const [paceQuantity, setPaceQuantity] = useState('')
   const [paceUnit, setPaceUnit] = useState('')

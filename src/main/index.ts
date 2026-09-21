@@ -58,7 +58,7 @@ let tray: Tray | null = null
  */
 const settings = {
   loop: true,
-  autoEndMinutes: 15,
+  autoEndMinutes: 180,
   pace: null as PaceConfig | null
 }
 

@@ -74,7 +74,7 @@ label; Phase 2 adds the structure.
 - Pause and stop are separate controls with clearly different affordances
 - Paused time is excluded from `running_duration_s`; pause intervals recorded
 - Only stop ends the session
-- Paused beyond the auto-end threshold (default 15 min, configurable) → end
+- Paused beyond the auto-end threshold (default 3 hours, configurable) → end
   automatically, recording time up to the pause
 - **Stop is undoable:** 30-second "undo — resume session" banner, and the session
   stays editable in history afterwards
