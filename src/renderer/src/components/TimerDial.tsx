@@ -13,6 +13,8 @@ interface TimerDialProps {
   draft: string
   onDraftChange: (value: string) => void
   onSubmit: () => void
+  /** Rewrites what was typed into the canonical form once focus leaves. */
+  onNormalize: () => void
   inputRef: RefObject<HTMLInputElement | null>
   /** Pause / stop / start, rendered directly beneath the clock in both dials. */
   controls: React.ReactNode
@@ -33,6 +35,7 @@ export default function TimerDial({
   draft,
   onDraftChange,
   onSubmit,
+  onNormalize,
   inputRef,
   controls
 }: TimerDialProps): React.JSX.Element {
@@ -47,6 +50,7 @@ export default function TimerDial({
           value={draft}
           onChange={(event) => onDraftChange(event.target.value)}
           onFocus={(event) => event.currentTarget.select()}
+          onBlur={onNormalize}
           onKeyDown={(event) => {
             if (event.key === 'Enter') onSubmit()
           }}

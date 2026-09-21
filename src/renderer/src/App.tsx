@@ -6,7 +6,7 @@ import {
   remainingMs,
   type TimerSnapshot
 } from '@shared/timer'
-import { parseDurationMs } from '@shared/duration'
+import { formatDurationInput, parseDurationMs } from '@shared/duration'
 import { ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import TimerDial from './components/TimerDial'
 import { expiryCue, primeAudio } from './lib/sounds'
@@ -144,12 +144,29 @@ export default function App(): React.JSX.Element {
   // body never reaches the handler that drops focus.
   const editing = labelFocused
 
+  const canonical = plannedMs === null ? null : formatDurationInput(plannedMs)
+
   const clockMs = idle ? (plannedMs ?? 0) : remainingMs(snapshot, now)
   const fraction = idle ? 0 : progressOf(snapshot, now)
-  const caption = idle ? (plannedMs === null ? 'enter a time' : 'ready') : CAPTIONS[snapshot.status]
+  // While typing, the caption shows how the input was read, so `one hour`
+  // confirms itself as 1:00:00 before you commit to it.
+  const caption = idle
+    ? canonical === null
+      ? 'enter a time'
+      : canonical !== draft.trim()
+        ? canonical
+        : 'ready'
+    : CAPTIONS[snapshot.status]
+
+  /** Rewrites the field into canonical form, so what was typed visibly took. */
+  function normalizeDraft(): void {
+    if (canonical !== null) setDraft(canonical)
+  }
 
   function start(): void {
-    if (plannedMs !== null) void window.api.timer.start(plannedMs)
+    if (plannedMs === null) return
+    normalizeDraft()
+    void window.api.timer.start(plannedMs)
   }
 
   function releaseFocus(event: React.MouseEvent): void {
@@ -214,6 +231,7 @@ export default function App(): React.JSX.Element {
         draft={draft}
         onDraftChange={setDraft}
         onSubmit={start}
+        onNormalize={normalizeDraft}
         inputRef={clockRef}
         controls={controls}
       />
