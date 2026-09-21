@@ -1176,3 +1176,156 @@ input {
   margin: 0 calc(var(--pad) * -1) calc(var(--pad) * -1);
   border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px);
 }
+
+/* ---------- ring: square the dial so everything scales off the circle ---------- */
+
+/* The face box was sized as a percentage of the DIAL, which is as wide as the
+   window while the circle is only as wide as the window is tall. In a wide
+   window that made the box far wider than the circle, so the clock and controls
+   pushed out past the stroke.
+   
+   Squaring the dial makes the circle and its container the same thing, so a
+   percentage of one is a percentage of the other. 58% keeps the box's corners
+   inside the stroke: half its diagonal is 0.82r against a clear radius of
+   0.88r. */
+.card.is-ring .dial {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: auto;
+  max-width: 100%;
+  aspect-ratio: 1;
+  align-self: center;
+}
+
+.card.is-ring .dial svg {
+  width: 100%;
+  height: 100%;
+}
+
+.card.is-ring .dial__inner {
+  inset: 0;
+  width: 58%;
+  height: 58%;
+  margin: auto;
+}
+
+/* A circle gives much less room than a bar, so the ring runs its own scale. */
+.card.is-ring .dial__clock,
+.card.is-ring .dial__clock--input {
+  font-size: clamp(12px, 9.5vmin, 130px);
+}
+
+.card.is-ring .dial__caption {
+  font-size: clamp(7px, 5vmin, 22px);
+}
+
+.card.is-ring .controls svg {
+  width: clamp(10px, 7vmin, 28px);
+  height: clamp(10px, 7vmin, 28px);
+}
+
+.card.is-ring .dial__inner .controls {
+  margin-top: clamp(2px, 1.6vmin, 10px);
+}
+
+/* ---------- stop prompt ---------- */
+
+/* Offered after a stop, never blocking: it overlays rather than displacing the
+   layout, and clears itself after 30 seconds. Roughly three quarters of
+   sessions end early, so a prompt that demanded an answer would fire almost
+   every time and the logging would simply stop happening. */
+.stop-prompt {
+  position: absolute;
+  right: var(--pad);
+  bottom: var(--pad);
+  left: var(--pad);
+  z-index: 3;
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-app-region: no-drag;
+}
+
+.stop-prompt button {
+  padding: 4px 7px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: clamp(9px, 5vmin, 15px);
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.stop-prompt button:hover {
+  color: var(--text);
+}
+
+.stop-prompt__undo {
+  color: var(--accent) !important;
+  font-weight: 600;
+}
+
+.stop-prompt__skip {
+  opacity: 0.6;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: auto 90px;
+  gap: 4px 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.field span {
+  justify-self: start;
+}
+
+.field input {
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.field input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.field em {
+  grid-column: 1 / -1;
+  color: var(--text-dim);
+  font-style: normal;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.pace-row {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.field--inline {
+  grid-template-columns: auto 88px;
+  margin-bottom: 0;
+}
+
+code {
+  padding: 1px 5px;
+  margin: 0 2px;
+  border-radius: 5px;
+  background: var(--surface-raised);
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+}

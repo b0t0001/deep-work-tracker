@@ -26,7 +26,12 @@ function localDate(epochMs: number): string {
  * stopping should leave no trace rather than a zero-length row that would drag
  * averages down.
  */
-export function recordSession(snapshot: TimerSnapshot): number | null {
+export interface PaceTarget {
+  quantity: number | null
+  intervalMs: number
+}
+
+export function recordSession(snapshot: TimerSnapshot, pace?: PaceTarget | null): number | null {
   const runningSeconds = Math.round(runningMs(snapshot, Date.now()) / 1000)
   if (snapshot.startedAt === null || runningSeconds < 1) return null
 
@@ -39,8 +44,9 @@ export function recordSession(snapshot: TimerSnapshot): number | null {
       .prepare(
         `INSERT INTO sessions
            (task, session_date, started_at, ended_at,
-          planned_duration_s, running_duration_s, source)
-         VALUES (?, ?, ?, ?, ?, ?, 'app')`
+          planned_duration_s, running_duration_s,
+          pace_target_qty, pace_target_interval_s, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'app')`
       )
       .run(
         snapshot.task.trim() || null,
@@ -50,7 +56,9 @@ export function recordSession(snapshot: TimerSnapshot): number | null {
         iso(snapshot.startedAt),
         iso(Date.now()),
         Math.round(snapshot.plannedMs / 1000),
-        runningSeconds
+        runningSeconds,
+        pace?.quantity ?? null,
+        pace ? Math.round(pace.intervalMs / 1000) : null
       )
 
     const sessionId = Number(result.lastInsertRowid)
@@ -91,4 +99,16 @@ export function totalSecondsSince(isoStart: string): number {
     )
     .get(isoStart) as { total: number } | undefined
   return Number(row?.total ?? 0)
+}
+
+/** Reasons are optional and applied after the fact, once the stop UI is answered. */
+export function setStopReason(id: number, reason: string | null, note: string | null): void {
+  openDatabase()
+    .prepare('UPDATE sessions SET stop_reason = ?, stop_reason_note = ? WHERE id = ?')
+    .run(reason, note, id)
+}
+
+/** Used only by undo, which must leave no trace of the stop it reverses. */
+export function deleteSession(id: number): void {
+  openDatabase().prepare('DELETE FROM sessions WHERE id = ?').run(id)
 }

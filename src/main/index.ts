@@ -1,14 +1,26 @@
-import { app, shell, BrowserWindow, ipcMain, powerMonitor, globalShortcut, dialog } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  powerMonitor,
+  globalShortcut,
+  dialog,
+  Tray,
+  Menu,
+  nativeImage
+} from 'electron'
 import { readFileSync } from 'node:fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { TimerEngine } from './timer'
 import { closeDatabase, openDatabase } from './db'
-import { recentSessions, recordSession } from './db/sessions'
+import { deleteSession, recentSessions, recordSession, setStopReason } from './db/sessions'
 import { importRows, importedSessionCount } from './db/import'
 import { readImportRows, summarize } from './import/csv'
-import type { TimerSnapshot } from '../shared/timer'
+import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
+import type { PaceEvent } from './timer'
 
 /** Global shortcut for pause/resume. Writing full-screen, the mouse breaks flow. */
 const PAUSE_ACCELERATOR = 'CommandOrControl+Shift+Space'
@@ -29,6 +41,14 @@ let currentMin = BAR_MIN
 const timer = new TimerEngine()
 let compactWindow: BrowserWindow | null = null
 let dashboardWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+
+/**
+ * The last completed run, kept so undo can reverse it. Stopping by accident
+ * instead of pausing must never cost recorded time, so undo deletes the row and
+ * restores the timing exactly rather than making it be re-entered by hand.
+ */
+let lastCompleted: { id: number; snapshot: TimerSnapshot } | null = null
 
 function broadcast(channel: string, payload: unknown): void {
   if (compactWindow && !compactWindow.isDestroyed()) {
@@ -116,17 +136,44 @@ function openDashboard(): void {
   }
 }
 
+/**
+ * The tray is the only surface left when the window is minimised, so it carries
+ * the remaining time in its tooltip and toggles the window on click.
+ */
+function createTray(): void {
+  tray = new Tray(nativeImage.createFromPath(icon).resize({ width: 16, height: 16 }))
+  tray.setToolTip('Deep Work Tracker')
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Show timer', click: () => compactWindow?.show() },
+      { label: 'Settings and data', click: () => openDashboard() },
+      { type: 'separator' },
+      { label: 'Quit', click: () => app.quit() }
+    ])
+  )
+  tray.on('click', () => {
+    if (!compactWindow || compactWindow.isDestroyed()) return
+    if (compactWindow.isVisible()) compactWindow.hide()
+    else compactWindow.show()
+  })
+}
+
+function updateTray(snapshot: TimerSnapshot): void {
+  if (!tray) return
+  const label =
+    snapshot.status === 'idle'
+      ? 'Deep Work Tracker'
+      : `${formatClock(remainingMs(snapshot, Date.now()))} - ${snapshot.status}`
+  tray.setToolTip(label)
+}
+
 function registerIpc(): void {
   ipcMain.handle('timer:get', () => timer.snapshot())
   ipcMain.handle('timer:start', (_event, plannedMs: number) => timer.start(plannedMs))
   ipcMain.handle('timer:pause', () => timer.pause())
   ipcMain.handle('timer:resume', () => timer.resume())
   ipcMain.handle('timer:setTask', (_event, task: string) => timer.setTask(task))
-  ipcMain.handle('timer:stop', () => {
-    const finished = timer.stop()
-    recordSession(finished)
-    return finished
-  })
+  ipcMain.handle('timer:stop', () => timer.stop())
   ipcMain.handle('sessions:recent', (_event, limit?: number) => recentSessions(limit))
 
   ipcMain.handle('window:isFullScreen', () => compactWindow?.isFullScreen() ?? false)
@@ -176,11 +223,38 @@ function registerIpc(): void {
 
   ipcMain.handle('timer:getLoop', () => timer.isLooping())
   ipcMain.handle('timer:setLoop', (_event, value: boolean) => timer.setLoop(value))
+  ipcMain.handle('timer:getPace', () => timer.paceConfig())
+  ipcMain.handle('timer:setPace', (_event, config) => timer.setPace(config))
+  ipcMain.handle('timer:getAutoEnd', () => timer.autoEndMinutes())
+  ipcMain.handle('timer:setAutoEnd', (_event, minutes: number) => timer.setAutoEndMinutes(minutes))
 
-  timer.on('update', (snapshot: TimerSnapshot) => broadcast('timer:update', snapshot))
+  ipcMain.handle('sessions:setStopReason', (_event, reason: string | null, note: string | null) => {
+    if (lastCompleted) setStopReason(lastCompleted.id, reason, note)
+  })
 
-  // A run that reaches zero is recorded exactly like one stopped by hand.
-  timer.on('completed', (snapshot: TimerSnapshot) => recordSession(snapshot))
+  ipcMain.handle('timer:undoStop', () => {
+    if (!lastCompleted) return null
+    deleteSession(lastCompleted.id)
+    const restored = timer.restore(lastCompleted.snapshot)
+    lastCompleted = null
+    return restored
+  })
+
+  timer.on('update', (snapshot: TimerSnapshot) => {
+    broadcast('timer:update', snapshot)
+    updateTray(snapshot)
+  })
+
+  // Every finished run arrives here - stopped by hand, expired, or auto-ended -
+  // so there is one place a session is recorded and no path can miss it.
+  timer.on('completed', (snapshot: TimerSnapshot) => {
+    const id = recordSession(snapshot, timer.paceConfig())
+    lastCompleted = id === null ? null : { id, snapshot }
+    broadcast('timer:completed', { id, snapshot })
+  })
+
+  timer.on('pace', (event: PaceEvent) => broadcast('timer:pace', event))
+  timer.on('autoEnded', () => broadcast('timer:autoEnded', null))
 
   timer.on('expired', (snapshot: TimerSnapshot) => {
     broadcast('timer:expired', snapshot)
@@ -208,6 +282,7 @@ app.whenReady().then(() => {
   openDatabase()
   registerIpc()
   compactWindow = createCompactWindow()
+  createTray()
 
   // Sleeping the machine is not working, so suspend pauses rather than letting
   // the countdown burn through a closed lid.
@@ -226,6 +301,7 @@ app.whenReady().then(() => {
 })
 
 app.on('will-quit', () => {
+  tray?.destroy()
   globalShortcut.unregisterAll()
   timer.dispose()
   closeDatabase()

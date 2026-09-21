@@ -2,24 +2,52 @@ import { EventEmitter } from 'node:events'
 import { hasExpired, idleTimer, runningMs, type TimerSnapshot } from '../shared/timer'
 
 /**
- * How often the main process checks for expiry. Display smoothness is the
- * renderer's job; this only bounds how late expiry can be noticed, which is
- * also how late the cue sounds.
+ * How often the main process checks the clock. Display smoothness is the
+ * renderer's job; this bounds how late expiry is noticed, and so how late the
+ * cue sounds.
  */
 const TICK_MS = 100
 
+const DEFAULT_AUTO_END_MINUTES = 15
+
+/** The second timer: a repeating interval expressing a target rate. */
+export interface PaceConfig {
+  intervalMs: number
+  quantity: number | null
+  unit: string | null
+}
+
+export interface PaceEvent {
+  loops: number
+  /** quantity x loops - what should be done by now, if a target was set. */
+  cumulativeTarget: number | null
+  unit: string | null
+}
+
 /**
- * The single source of truth for the session timer.
+ * The single source of truth for both timers.
  *
- * State transitions bank running time into `bankedRunningMs` and clear
- * `segmentStartedAt`, so pausing is simply "stop accruing". Nothing is ever
- * decremented on an interval; the ticker only watches for expiry.
+ * Nothing here decrements: remaining time is planned minus running, and running
+ * is banked segments plus the live one measured from an absolute timestamp. A
+ * dropped tick, a hidden window or a sleeping machine cannot cause drift
+ * because there is no accumulator to corrupt.
  */
 export class TimerEngine extends EventEmitter {
   private state: TimerSnapshot = idleTimer()
   private ticker: NodeJS.Timeout | null = null
-  /** Hourglass's loop: on expiry, start another run of the same length. */
   private loop = true
+  private pace: PaceConfig | null = null
+  private paceLoopsFired = 0
+  private autoEndMs = DEFAULT_AUTO_END_MINUTES * 60_000
+
+  snapshot(): TimerSnapshot {
+    return { ...this.state, pauses: this.state.pauses.map((p) => ({ ...p })) }
+  }
+
+  /** The label is held here so every stop path can record it, auto-end included. */
+  setTask(task: string): void {
+    this.state.task = task
+  }
 
   isLooping(): boolean {
     return this.loop
@@ -29,13 +57,23 @@ export class TimerEngine extends EventEmitter {
     this.loop = value
   }
 
-  snapshot(): TimerSnapshot {
-    return { ...this.state, pauses: this.state.pauses.map((p) => ({ ...p })) }
+  paceConfig(): PaceConfig | null {
+    return this.pace
   }
 
-  /** The label is held here so every stop path can record it, including auto-end. */
-  setTask(task: string): void {
-    this.state.task = task
+  setPace(config: PaceConfig | null): void {
+    this.pace = config
+    this.paceLoopsFired = config
+      ? Math.floor(runningMs(this.state, Date.now()) / config.intervalMs)
+      : 0
+  }
+
+  autoEndMinutes(): number {
+    return Math.round(this.autoEndMs / 60_000)
+  }
+
+  setAutoEndMinutes(minutes: number): void {
+    this.autoEndMs = Math.max(0, minutes) * 60_000
   }
 
   start(plannedMs: number): TimerSnapshot {
@@ -48,6 +86,7 @@ export class TimerEngine extends EventEmitter {
       startedAt: now,
       task: this.state.task
     }
+    this.paceLoopsFired = 0
     this.startTicker()
     return this.emitUpdate()
   }
@@ -58,36 +97,77 @@ export class TimerEngine extends EventEmitter {
     this.state.status = 'paused'
     this.state.pauseCount += 1
     this.state.pauses.push({ pausedAt: Date.now(), resumedAt: null })
-    this.stopTicker()
+    // The ticker keeps running while paused: it is what notices a pause that has
+    // gone on long enough to end the session.
     return this.emitUpdate()
   }
 
   resume(): TimerSnapshot {
     if (this.state.status !== 'paused') return this.snapshot()
-    const open = this.state.pauses[this.state.pauses.length - 1]
-    if (open && open.resumedAt === null) open.resumedAt = Date.now()
+    this.closeOpenPause()
     this.state.segmentStartedAt = Date.now()
     this.state.status = 'running'
     this.startTicker()
     return this.emitUpdate()
   }
 
-  /** Ends the run and returns the final snapshot, so the caller can record it. */
+  /**
+   * Ends the run. Every path that finishes a session goes through here -
+   * manual stop, expiry, auto-end - so `completed` is the one place a session
+   * is recorded, and none of them can be forgotten.
+   */
   stop(): TimerSnapshot {
     if (this.state.status === 'idle') return this.snapshot()
     this.bankSegment()
-    // Close any pause still open, so a session stopped while paused records a
-    // complete history rather than a dangling interval.
-    const stillOpen = this.state.pauses[this.state.pauses.length - 1]
-    if (stillOpen && stillOpen.resumedAt === null) stillOpen.resumedAt = Date.now()
+    this.closeOpenPause()
     const finished = { ...this.snapshot(), status: 'idle' as const }
     this.stopTicker()
     this.state = { ...idleTimer(), task: finished.task }
+    this.paceLoopsFired = 0
+    this.emit('completed', finished)
     this.emitUpdate()
     return finished
   }
 
-  /** Banks the live segment into bankedRunningMs and stops it accruing. */
+  /**
+   * Puts a stopped run back, paused, for undo. Timing is restored exactly:
+   * hitting stop instead of pause must never cost recorded time.
+   */
+  restore(finished: TimerSnapshot): TimerSnapshot {
+    this.state = {
+      ...finished,
+      pauses: finished.pauses.map((p) => ({ ...p })),
+      status: 'paused',
+      segmentStartedAt: null
+    }
+    this.paceLoopsFired = this.pace
+      ? Math.floor(this.state.bankedRunningMs / this.pace.intervalMs)
+      : 0
+    this.startTicker()
+    return this.emitUpdate()
+  }
+
+  /** Sleeping the machine is not working, so suspend pauses rather than
+      letting the countdown burn through a closed lid. */
+  handleSuspend(): void {
+    if (this.state.status === 'running') this.pause()
+  }
+
+  handleResume(): void {
+    this.check()
+  }
+
+  dispose(): void {
+    this.stopTicker()
+    this.removeAllListeners()
+  }
+
+  private closeOpenPause(): void {
+    const open = this.state.pauses[this.state.pauses.length - 1]
+    if (open && open.resumedAt === null) open.resumedAt = Date.now()
+  }
+
+  /** Banks the live segment and stops it accruing. */
   private bankSegment(): void {
     this.state.bankedRunningMs = runningMs(this.state, Date.now())
     this.state.segmentStartedAt = null
@@ -105,28 +185,65 @@ export class TimerEngine extends EventEmitter {
   }
 
   /**
-   * Called on a short interval and on power-resume. Because remaining time is
-   * derived from timestamps, a wake-up after hours of sleep is detected on the
-   * very next check rather than drifting silently.
+   * Runs on a short interval and on power-resume. Because every value is
+   * derived from timestamps, waking after hours of sleep is noticed on the very
+   * next check rather than drifting silently.
    */
   private check(): void {
+    const now = Date.now()
+
+    if (this.state.status === 'paused') {
+      this.checkAutoEnd(now)
+      return
+    }
     if (this.state.status !== 'running') return
-    if (!hasExpired(this.state, Date.now())) return
 
+    this.checkPace(now)
+    if (hasExpired(this.state, now)) this.handleExpiry()
+  }
+
+  /**
+   * The pace loop counts *running* time, so a pause suspends it along with the
+   * session rather than firing cues at an empty desk.
+   */
+  private checkPace(now: number): void {
+    if (!this.pace) return
+    const loops = Math.floor(runningMs(this.state, now) / this.pace.intervalMs)
+    if (loops <= this.paceLoopsFired) return
+    this.paceLoopsFired = loops
+    const event: PaceEvent = {
+      loops,
+      cumulativeTarget: this.pace.quantity === null ? null : this.pace.quantity * loops,
+      unit: this.pace.unit
+    }
+    this.emit('pace', event)
+  }
+
+  /**
+   * The user's habit is to pause and close the window rather than stop, so a
+   * pause left running past the threshold ends the session at the moment it was
+   * paused - never counting the time spent away.
+   */
+  private checkAutoEnd(now: number): void {
+    if (this.autoEndMs <= 0) return
+    const open = this.state.pauses[this.state.pauses.length - 1]
+    if (!open || open.resumedAt !== null) return
+    if (now - open.pausedAt < this.autoEndMs) return
+    this.emit('autoEnded')
+    this.stop()
+  }
+
+  private handleExpiry(): void {
     this.bankSegment()
-    const openPause = this.state.pauses[this.state.pauses.length - 1]
-    if (openPause && openPause.resumedAt === null) openPause.resumedAt = Date.now()
-
+    this.closeOpenPause()
     // A run that reaches zero ran for exactly what it was set to. Recording the
-    // polling overshoot instead would inflate every completed session by up to
-    // one tick, and those are the sessions whose duration is most certain.
+    // polling overshoot would inflate every completed session by up to one tick,
+    // and those are the sessions whose duration is most certain.
     this.state.bankedRunningMs = this.state.plannedMs
 
     const finished = { ...this.snapshot(), status: 'idle' as const }
     const plannedMs = this.state.plannedMs
 
-    // The completed run is recorded before anything restarts, so each pass of a
-    // loop is its own session rather than one long merged row.
     this.emit('completed', finished)
     this.emit('expired', finished)
 
@@ -137,23 +254,6 @@ export class TimerEngine extends EventEmitter {
       this.stopTicker()
       this.emitUpdate()
     }
-  }
-
-  /**
-   * Sleeping the machine is not working. Suspend auto-pauses rather than
-   * letting the countdown burn through a closed lid.
-   */
-  handleSuspend(): void {
-    if (this.state.status === 'running') this.pause()
-  }
-
-  handleResume(): void {
-    this.check()
-  }
-
-  dispose(): void {
-    this.stopTicker()
-    this.removeAllListeners()
   }
 
   private emitUpdate(): TimerSnapshot {

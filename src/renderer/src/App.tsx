@@ -9,7 +9,7 @@ import {
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
 import { ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import TimerDial from './components/TimerDial'
-import { expiryCue, primeAudio } from './lib/sounds'
+import { expiryCue, paceCue, primeAudio } from './lib/sounds'
 import Icon from './components/Icon'
 
 /**
@@ -123,7 +123,23 @@ export default function App(): React.JSX.Element {
   const [draft, setDraft] = useState('60:00')
   const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
   const [flashing, setFlashing] = useState(false)
+  const [paceNotice, setPaceNotice] = useState<string | null>(null)
+  const [stopPrompt, setStopPrompt] = useState(false)
   const clockRef = useRef<HTMLInputElement>(null)
+
+  // The pace loop cues and shows what should be done by now. It never asks for
+  // anything: quantity is entered once, at stop, not mid-essay.
+  useEffect(() => {
+    return window.api.timer.onPace((event) => {
+      paceCue()
+      setPaceNotice(
+        event.cumulativeTarget === null
+          ? `pace ${event.loops}`
+          : `target ${event.cumulativeTarget}${event.unit ? ` ${event.unit}` : ''}`
+      )
+      window.setTimeout(() => setPaceNotice(null), 4000)
+    })
+  }, [])
 
   // Expiry cue: sound plus a flash, matching Hourglass - three flashes at 0.2s.
   // Both matter, because either one alone is missable: the flash if the window
@@ -166,7 +182,25 @@ export default function App(): React.JSX.Element {
   function start(): void {
     if (plannedMs === null) return
     normalizeDraft()
+    setStopPrompt(false)
     void window.api.timer.start(plannedMs)
+  }
+
+  /** Stopping opens a short window to undo it or say why - never a blocking one. */
+  function stop(): void {
+    void window.api.timer.stop()
+    setStopPrompt(true)
+    window.setTimeout(() => setStopPrompt(false), 30_000)
+  }
+
+  function answerStop(reason: string | null): void {
+    if (reason) void window.api.timer.setStopReason(reason, null)
+    setStopPrompt(false)
+  }
+
+  function undoStop(): void {
+    void window.api.timer.undoStop()
+    setStopPrompt(false)
   }
 
   function releaseFocus(event: React.MouseEvent): void {
@@ -196,11 +230,7 @@ export default function App(): React.JSX.Element {
         </button>
       )}
       {!idle && (
-        <button
-          className="ghost ghost--danger"
-          onClick={() => void window.api.timer.stop()}
-          title="Stop"
-        >
+        <button className="ghost ghost--danger" onClick={stop} title="Stop">
           <Icon name="stop" />
         </button>
       )}
@@ -224,7 +254,7 @@ export default function App(): React.JSX.Element {
       <TimerDial
         progress={fraction}
         clock={formatClock(clockMs)}
-        caption={caption}
+        caption={paceNotice ?? caption}
         variant={variant}
         dimmed={snapshot.status === 'paused'}
         editable={idle}
@@ -235,6 +265,20 @@ export default function App(): React.JSX.Element {
         inputRef={clockRef}
         controls={controls}
       />
+
+      {stopPrompt && (
+        <div className="stop-prompt">
+          <button className="stop-prompt__undo" onClick={undoStop} title="Resume the session">
+            Undo
+          </button>
+          <button onClick={() => answerStop('finished_early')}>done</button>
+          <button onClick={() => answerStop('tired')}>tired</button>
+          <button onClick={() => answerStop('interrupted')}>cut off</button>
+          <button className="stop-prompt__skip" onClick={() => answerStop(null)} title="Skip">
+            &times;
+          </button>
+        </div>
+      )}
 
       <header className="card__head">
         <div className="tools">

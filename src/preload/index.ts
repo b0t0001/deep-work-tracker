@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { TimerSnapshot } from '../shared/timer'
+import type { PaceConfig, PaceEvent } from '../main/timer'
 
 type Unsubscribe = () => void
 
@@ -24,6 +25,24 @@ const api = {
     stop: (): Promise<TimerSnapshot> => ipcRenderer.invoke('timer:stop'),
     setTask: (task: string): Promise<void> => ipcRenderer.invoke('timer:setTask', task),
     getLoop: (): Promise<boolean> => ipcRenderer.invoke('timer:getLoop'),
+    getPace: (): Promise<PaceConfig | null> => ipcRenderer.invoke('timer:getPace'),
+    setPace: (config: PaceConfig | null): Promise<void> =>
+      ipcRenderer.invoke('timer:setPace', config),
+    getAutoEnd: (): Promise<number> => ipcRenderer.invoke('timer:getAutoEnd'),
+    setAutoEnd: (minutes: number): Promise<void> => ipcRenderer.invoke('timer:setAutoEnd', minutes),
+    undoStop: (): Promise<TimerSnapshot | null> => ipcRenderer.invoke('timer:undoStop'),
+    setStopReason: (reason: string | null, note: string | null): Promise<void> =>
+      ipcRenderer.invoke('sessions:setStopReason', reason, note),
+    onCompleted: (handler: () => void): Unsubscribe => {
+      const listener = (): void => handler()
+      ipcRenderer.on('timer:completed', listener)
+      return () => ipcRenderer.removeListener('timer:completed', listener)
+    },
+    onPace: (handler: (event: PaceEvent) => void): Unsubscribe => {
+      const listener = (_e: unknown, event: PaceEvent): void => handler(event)
+      ipcRenderer.on('timer:pace', listener)
+      return () => ipcRenderer.removeListener('timer:pace', listener)
+    },
     setLoop: (value: boolean): Promise<void> => ipcRenderer.invoke('timer:setLoop', value),
     onUpdate: (handler: (snapshot: TimerSnapshot) => void): Unsubscribe =>
       subscribe('timer:update', handler),

@@ -84,6 +84,12 @@ label; Phase 2 adds the structure.
   mouse breaks flow. Pause is the one that must work without leaving the
   document; stop and start-next can wait for Phase 5.
 
+**Status: complete.** Built and verified: always-on-top compact window with ring
+and bar dials, an editable clock reading Hourglass's duration formats, looping
+with sound and flash, pause distinct from stop with paused time excluded,
+auto-end on a long pause, the pace loop, one-click stop reasons, undo, a tray
+icon, and every run written to SQLite.
+
 **Done when:** the app replaces Hourglass for a full work day, and every session
 that day is in the database with correct durations.
 
