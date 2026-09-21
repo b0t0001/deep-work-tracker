@@ -1,60 +1,27 @@
+import type { RefObject } from 'react'
+
 interface TimerDialProps {
   /** 0..1 fraction of the planned duration consumed. */
   progress: number
-  /** Pre-formatted countdown, e.g. "19:43". */
+  /** Pre-formatted countdown, shown when the clock is not editable. */
   clock: string
-  /** Small line under the clock: status or preset. */
   caption: string
   variant: 'ring' | 'bar'
   dimmed: boolean
-  /**
-   * Lift the text when controls occupy the lower half of the ring. Without it
-   * the clock stays centred while the buttons hang below, so the group as a
-   * whole reads as bottom-heavy even though the clock itself is centred.
-   */
-  liftText: boolean
-  /**
-   * Rendered inside the dial's own stack, directly beneath the caption.
-   *
-   * Positioning the controls separately meant clock and buttons were anchored
-   * to different things - one to the dial's centre, one to the card's bottom -
-   * so the space between them was whatever was left over, and moving either
-   * anchor just moved the whole group. As a flex child the gap is one value.
-   */
-  controls?: React.ReactNode
+  /** Idle: the clock itself is the duration field, as in Hourglass. */
+  editable: boolean
+  draft: string
+  onDraftChange: (value: string) => void
+  onSubmit: () => void
+  inputRef: RefObject<HTMLInputElement | null>
+  /** Pause / stop / start, rendered directly beneath the clock in both dials. */
+  controls: React.ReactNode
 }
 
 const SIZE = 196
 const STROKE = 12
 const RADIUS = (SIZE - STROKE) / 2
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
-const CENTRE = SIZE / 2
-
-/** Clear space between the inside of the stroke and anything drawn within it. */
-const BUFFER = 10
-/** Radius the text must stay inside: inner edge of the stroke, less the buffer. */
-const SAFE_RADIUS = RADIUS - STROKE / 2 - BUFFER
-
-const CAPTION_SIZE = 13
-
-/**
- * Largest font size whose text box still fits inside SAFE_RADIUS.
- *
- * Drawing the text inside the SVG rather than layering HTML over it means the
- * fit is geometric: both scale with the same viewBox, so the digits can never
- * collide with the ring at any window size. Ratios are for tabular figures -
- * digits run about 0.58em, colons about 0.30em.
- */
-function fitFontSize(text: string): number {
-  const digits = (text.match(/\d/g) ?? []).length
-  const colons = text.length - digits
-  const widthPerEm = digits * 0.58 + colons * 0.3
-  const halfWidth = widthPerEm / 2
-  const halfHeight = 0.36
-  // (halfWidth * F)^2 + (halfHeight * F)^2 <= SAFE_RADIUS^2
-  const limit = SAFE_RADIUS / Math.hypot(halfWidth, halfHeight)
-  return Math.floor(limit)
-}
 
 export default function TimerDial({
   progress,
@@ -62,68 +29,74 @@ export default function TimerDial({
   caption,
   variant,
   dimmed,
-  liftText,
+  editable,
+  draft,
+  onDraftChange,
+  onSubmit,
+  inputRef,
   controls
 }: TimerDialProps): React.JSX.Element {
   const remaining = 1 - Math.min(1, Math.max(0, progress))
 
+  const face = (
+    <div className="dial__inner">
+      {editable ? (
+        <input
+          ref={inputRef}
+          className="dial__clock dial__clock--input"
+          value={draft}
+          onChange={(event) => onDraftChange(event.target.value)}
+          onFocus={(event) => event.currentTarget.select()}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') onSubmit()
+          }}
+          spellCheck={false}
+          aria-label="Duration"
+        />
+      ) : (
+        <div className="dial__clock">{clock}</div>
+      )}
+      <div className="dial__caption">{caption}</div>
+      {controls}
+    </div>
+  )
+
   if (variant === 'bar') {
     // Hourglass renders progress as a translucent panel sweeping behind the
-    // text rather than a separate bar beneath it, which reads at a glance
-    // without costing a row of height.
+    // text rather than a separate bar beneath it: readable at a glance, and it
+    // costs no height.
     return (
-      <div className={`dial dial--bar${dimmed ? ' is-dimmed' : ''}${liftText ? ' is-lifted' : ''}`}>
+      <div className={`dial dial--bar${dimmed ? ' is-dimmed' : ''}`}>
         <div className="fill" style={{ transform: `scaleX(${remaining})` }} />
-        <div className="dial__inner">
-          <div className="dial__clock">{clock}</div>
-          <div className="dial__caption">{caption}</div>
-          {controls}
-        </div>
+        {face}
       </div>
     )
   }
 
-  const clockSize = fitFontSize(clock)
-  const clockY = CENTRE - CAPTION_SIZE * 0.6 - (liftText ? 14 : 0)
-  const captionY = clockY + clockSize * 0.5 + CAPTION_SIZE
-
   return (
     <div className={`dial dial--ring${dimmed ? ' is-dimmed' : ''}`}>
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={`${clock} ${caption}`}>
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
         {/* Rotated so the arc starts at twelve o'clock rather than three. */}
-        <g transform={`rotate(-90 ${CENTRE} ${CENTRE})`}>
-          <circle className="ring__track" cx={CENTRE} cy={CENTRE} r={RADIUS} strokeWidth={STROKE} />
+        <g transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}>
+          <circle
+            className="ring__track"
+            cx={SIZE / 2}
+            cy={SIZE / 2}
+            r={RADIUS}
+            strokeWidth={STROKE}
+          />
           <circle
             className="ring__value"
-            cx={CENTRE}
-            cy={CENTRE}
+            cx={SIZE / 2}
+            cy={SIZE / 2}
             r={RADIUS}
             strokeWidth={STROKE}
             strokeDasharray={CIRCUMFERENCE}
             strokeDashoffset={CIRCUMFERENCE * (1 - remaining)}
           />
         </g>
-        <text
-          className="ring__clock"
-          x={CENTRE}
-          y={clockY}
-          fontSize={clockSize}
-          textAnchor="middle"
-          dominantBaseline="central"
-        >
-          {clock}
-        </text>
-        <text
-          className="ring__caption"
-          x={CENTRE}
-          y={captionY}
-          fontSize={CAPTION_SIZE}
-          textAnchor="middle"
-          dominantBaseline="central"
-        >
-          {caption}
-        </text>
       </svg>
+      {face}
     </div>
   )
 }

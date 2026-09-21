@@ -31,12 +31,19 @@ const api = {
   sessions: {
     recent: (limit?: number): Promise<unknown[]> => ipcRenderer.invoke('sessions:recent', limit)
   },
+  importer: {
+    pickFile: (): Promise<string | null> => ipcRenderer.invoke('import:pickFile'),
+    preview: (filePath: string): Promise<unknown> => ipcRenderer.invoke('import:preview', filePath),
+    commit: (filePath: string): Promise<unknown> => ipcRenderer.invoke('import:commit', filePath),
+    existingCount: (): Promise<number> => ipcRenderer.invoke('import:existingCount')
+  },
   window: {
     isFullScreen: (): Promise<boolean> => ipcRenderer.invoke('window:isFullScreen'),
     setFullScreen: (value: boolean): Promise<boolean> =>
       ipcRenderer.invoke('window:setFullScreen', value),
     setVariant: (variant: 'ring' | 'bar'): Promise<void> =>
       ipcRenderer.invoke('window:setVariant', variant),
+    openDashboard: (): Promise<void> => ipcRenderer.invoke('window:openDashboard'),
     minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
     close: (): Promise<void> => ipcRenderer.invoke('window:close'),
     onFullScreenChange: (handler: (value: boolean) => void): Unsubscribe => {

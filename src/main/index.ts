@@ -1,10 +1,13 @@
-import { app, shell, BrowserWindow, ipcMain, powerMonitor, globalShortcut } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, powerMonitor, globalShortcut, dialog } from 'electron'
+import { readFileSync } from 'node:fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { TimerEngine } from './timer'
 import { closeDatabase, openDatabase } from './db'
 import { recentSessions, recordSession } from './db/sessions'
+import { importRows, importedSessionCount } from './db/import'
+import { readImportRows, summarize } from './import/csv'
 import type { TimerSnapshot } from '../shared/timer'
 
 /** Global shortcut for pause/resume. Writing full-screen, the mouse breaks flow. */
@@ -25,6 +28,7 @@ let currentMin = BAR_MIN
 
 const timer = new TimerEngine()
 let compactWindow: BrowserWindow | null = null
+let dashboardWindow: BrowserWindow | null = null
 
 function broadcast(channel: string, payload: unknown): void {
   if (compactWindow && !compactWindow.isDestroyed()) {
@@ -73,6 +77,45 @@ function createCompactWindow(): BrowserWindow {
   return window
 }
 
+/**
+ * Settings, data and analytics live in a normal window rather than inside the
+ * timer. The timer is a widget that has to stay small and stay out of the way;
+ * anything with tabs in it does not belong there.
+ */
+function openDashboard(): void {
+  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    dashboardWindow.focus()
+    return
+  }
+
+  dashboardWindow = new BrowserWindow({
+    width: 940,
+    height: 660,
+    minWidth: 620,
+    minHeight: 440,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#14161a',
+    ...(process.platform === 'linux' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  dashboardWindow.on('ready-to-show', () => dashboardWindow?.show())
+  dashboardWindow.on('closed', () => {
+    dashboardWindow = null
+  })
+
+  // Same renderer bundle, routed by hash - one build, one set of styles.
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    void dashboardWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/dashboard`)
+  } else {
+    void dashboardWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: '/dashboard' })
+  }
+}
+
 function registerIpc(): void {
   ipcMain.handle('timer:get', () => timer.snapshot())
   ipcMain.handle('timer:start', (_event, plannedMs: number) => timer.start(plannedMs))
@@ -110,6 +153,24 @@ function registerIpc(): void {
     }
     currentMin = next
   })
+  ipcMain.handle('import:pickFile', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose the spreadsheet export',
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+      properties: ['openFile']
+    })
+    return result.canceled ? null : result.filePaths[0]
+  })
+  ipcMain.handle('import:preview', (_event, filePath: string) =>
+    summarize(readFileSync(filePath, 'utf8'))
+  )
+  ipcMain.handle('import:commit', (_event, filePath: string) => {
+    const { rows } = readImportRows(readFileSync(filePath, 'utf8'))
+    return importRows(rows)
+  })
+  ipcMain.handle('import:existingCount', () => importedSessionCount())
+
+  ipcMain.handle('window:openDashboard', () => openDashboard())
   ipcMain.handle('window:minimize', () => compactWindow?.minimize())
   ipcMain.handle('window:close', () => compactWindow?.close())
 

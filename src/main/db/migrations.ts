@@ -70,5 +70,15 @@ export const MIGRATIONS: Migration[] = [
 
       CREATE INDEX idx_pauses_session ON pauses (session_id);
     `
+  },
+  {
+    id: 2,
+    name: 'session_date for day-level analytics',
+    sql: `
+      -- Imported rows know their calendar date but not their time of day, so
+      -- started_at stays null while the date remains usable for trends.
+      ALTER TABLE sessions ADD COLUMN session_date TEXT;
+      CREATE INDEX idx_sessions_date ON sessions (session_date);
+    `
   }
 ]

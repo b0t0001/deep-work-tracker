@@ -11,7 +11,7 @@ export type IconName =
   | 'bar'
   | 'expand'
   | 'collapse'
-  | 'palette'
+  | 'settings'
   | 'minimize'
   | 'close'
 
@@ -39,7 +39,12 @@ const PATHS: Record<IconName, React.JSX.Element> = {
       strokeLinecap="round"
     />
   ),
-  palette: <circle cx="8" cy="8" r="4.5" />,
+  settings: (
+    <path
+      d="M8 5.6a2.4 2.4 0 100 4.8 2.4 2.4 0 000-4.8zM7.1 1.5h1.8l.3 1.7 1.3.5 1.4-1 1.3 1.3-1 1.4.5 1.3 1.7.3v1.8l-1.7.3-.5 1.3 1 1.4-1.3 1.3-1.4-1-1.3.5-.3 1.7H7.1l-.3-1.7-1.3-.5-1.4 1-1.3-1.3 1-1.4-.5-1.3-1.7-.3V7.1l1.7-.3.5-1.3-1-1.4 1.3-1.3 1.4 1 1.3-.5z"
+      fillRule="evenodd"
+    />
+  ),
   minimize: <rect x="3" y="7.4" width="10" height="1.4" rx="0.7" />,
   close: (
     <path

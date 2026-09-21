@@ -13,6 +13,12 @@ export interface SessionRow {
 
 const iso = (epochMs: number): string => new Date(epochMs).toISOString()
 
+function localDate(epochMs: number): string {
+  const d = new Date(epochMs)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 /**
  * Writes a finished run and its pauses.
  *
@@ -32,11 +38,15 @@ export function recordSession(snapshot: TimerSnapshot): number | null {
     const result = db
       .prepare(
         `INSERT INTO sessions
-           (task, started_at, ended_at, planned_duration_s, running_duration_s, source)
-         VALUES (?, ?, ?, ?, ?, 'app')`
+           (task, session_date, started_at, ended_at,
+          planned_duration_s, running_duration_s, source)
+         VALUES (?, ?, ?, ?, ?, ?, 'app')`
       )
       .run(
         snapshot.task.trim() || null,
+        // Local date, not UTC: a session at 11pm belongs to that day as lived,
+        // which is how every daily total and streak is read.
+        localDate(snapshot.startedAt),
         iso(snapshot.startedAt),
         iso(Date.now()),
         Math.round(snapshot.plannedMs / 1000),

@@ -1,28 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   formatClock,
+  idleTimer,
   progress as progressOf,
   remainingMs,
-  idleTimer,
   type TimerSnapshot
 } from '@shared/timer'
+import { parseDurationMs } from '@shared/duration'
+import { ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import TimerDial from './components/TimerDial'
 import Icon from './components/Icon'
-
-const MINUTE_MS = 60_000
-
-/** Windows blue by default: familiar, and calm enough not to pull focus. */
-const ACCENTS = [
-  { name: 'Blue', value: '#0a84ff' },
-  { name: 'Ruby', value: '#d92b4b' },
-  { name: 'Purple', value: '#7c4dff' },
-  { name: 'Teal', value: '#14b8a6' },
-  { name: 'Green', value: '#2eb85c' },
-  { name: 'Orange', value: '#f28c28' },
-  { name: 'Graphite', value: '#9aa0a6' }
-] as const
-
-const ACCENT_KEY = 'dwt.accent'
 
 /**
  * Mirrors the main process's timer and drives a repaint clock.
@@ -89,29 +76,34 @@ function useFullScreen(): [boolean, (value: boolean) => void] {
   return [full, (value) => void window.api.window.setFullScreen(value)]
 }
 
-/** Browser storage can throw or come back empty, so every access is guarded. */
-function useAccent(): [string, (value: string) => void] {
+/**
+ * Browser storage can throw or come back empty, so every access is guarded.
+ * The `storage` event is what keeps this window in step with the settings
+ * panel, which lives in a separate window sharing the same origin.
+ */
+function useAccent(): string {
   const [accent, setAccent] = useState<string>(() => {
     try {
       const stored = localStorage.getItem(ACCENT_KEY)
-      // A colour saved before the palette changed is no longer selectable, so
-      // it would apply with no swatch shown as active. Fall back instead.
-      return ACCENTS.some((option) => option.value === stored) ? stored! : ACCENTS[0].value
+      return isKnownAccent(stored) ? stored : DEFAULT_ACCENT
     } catch {
-      return ACCENTS[0].value
+      return DEFAULT_ACCENT
     }
   })
 
   useEffect(() => {
     document.documentElement.style.setProperty('--accent', accent)
-    try {
-      localStorage.setItem(ACCENT_KEY, accent)
-    } catch {
-      // Private window or blocked storage; the colour simply will not persist.
-    }
   }, [accent])
 
-  return [accent, setAccent]
+  useEffect(() => {
+    const onStorage = (event: StorageEvent): void => {
+      if (event.key === ACCENT_KEY && isKnownAccent(event.newValue)) setAccent(event.newValue)
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  return accent
 }
 
 const CAPTIONS: Record<TimerSnapshot['status'], string> = {
@@ -124,49 +116,36 @@ const CAPTIONS: Record<TimerSnapshot['status'], string> = {
 export default function App(): React.JSX.Element {
   const { snapshot, now } = useTimer()
   const [full, setFullScreen] = useFullScreen()
-  const [accent, setAccent] = useAccent()
+  useAccent()
   const [label, setLabel] = useState('')
-  // The field holds text, not a number. Coercing on every keystroke meant
-  // clearing it snapped straight back to 1, so it could never be emptied to
-  // type a new value. Empty is a legitimate intermediate state; it just is not
-  // a startable one.
-  const [minutesInput, setMinutesInput] = useState('60')
-  const customRef = useRef<HTMLInputElement>(null)
-
-  const parsedMinutes = Number(minutesInput)
-  const minutes =
-    minutesInput !== '' && Number.isFinite(parsedMinutes) && parsedMinutes >= 1
-      ? Math.min(600, Math.floor(parsedMinutes))
-      : null
-  const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
-  const [palette, setPalette] = useState(false)
   const [labelFocused, setLabelFocused] = useState(false)
-
-  // While a field or the palette is open the card stops being a drag region.
-  // Electron drag regions swallow mouse events outright, so without this a
-  // click on the card body never reaches the handler that dismisses them -
-  // which is why editing felt impossible to exit.
-  const editing = labelFocused || palette
+  const [draft, setDraft] = useState('60:00')
+  const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
+  const clockRef = useRef<HTMLInputElement>(null)
 
   const idle = snapshot.status === 'idle'
-  const clockMs = idle ? (minutes ?? 0) * MINUTE_MS : remainingMs(snapshot, now)
-  const fraction = idle ? 0 : progressOf(snapshot, now)
-  const caption = idle ? (minutes ? `${minutes} min` : 'set a duration') : CAPTIONS[snapshot.status]
+  const plannedMs = parseDurationMs(draft)
 
-  // Clicking anywhere that is not a field drops focus, so typing a label ends
-  // by clicking the window rather than needing Tab or Enter.
-  //
-  // The palette is excluded deliberately: mousedown fires before click, so
-  // closing it here unmounted the swatches before their click could land,
-  // which is why picking a colour appeared to do nothing.
+  // While a field is focused the card stops being a drag region. Electron drag
+  // regions swallow mouse events outright, so without this a click on the card
+  // body never reaches the handler that drops focus.
+  const editing = labelFocused
+
+  const clockMs = idle ? (plannedMs ?? 0) : remainingMs(snapshot, now)
+  const fraction = idle ? 0 : progressOf(snapshot, now)
+  const caption = idle ? (plannedMs === null ? 'enter a time' : 'ready') : CAPTIONS[snapshot.status]
+
+  function start(): void {
+    if (plannedMs !== null) void window.api.timer.start(plannedMs)
+  }
+
   function releaseFocus(event: React.MouseEvent): void {
     const target = event.target as Element | null
     if (target?.closest('input')) return
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-    if (!target?.closest('.palette, .palette-toggle')) setPalette(false)
   }
 
-  const controlsNode = (
+  const controls = (
     <div className="controls">
       {snapshot.status === 'running' ? (
         <button className="primary" onClick={() => void window.api.timer.pause()} title="Pause">
@@ -175,22 +154,26 @@ export default function App(): React.JSX.Element {
       ) : (
         <button
           className="primary"
+          disabled={idle && plannedMs === null}
           onClick={() => {
-            if (snapshot.status === 'paused') void window.api.timer.resume()
+            if (idle) start()
+            else if (snapshot.status === 'paused') void window.api.timer.resume()
             else void window.api.timer.start(snapshot.plannedMs)
           }}
-          title={snapshot.status === 'paused' ? 'Resume' : 'Start again'}
+          title={idle ? 'Start' : snapshot.status === 'paused' ? 'Resume' : 'Start again'}
         >
           <Icon name="play" />
         </button>
       )}
-      <button
-        className="ghost ghost--danger"
-        onClick={() => void window.api.timer.stop()}
-        title="Stop"
-      >
-        <Icon name="stop" />
-      </button>
+      {!idle && (
+        <button
+          className="ghost ghost--danger"
+          onClick={() => void window.api.timer.stop()}
+          title="Stop"
+        >
+          <Icon name="stop" />
+        </button>
+      )}
     </div>
   )
 
@@ -201,41 +184,39 @@ export default function App(): React.JSX.Element {
       }`}
       onMouseDown={releaseFocus}
     >
-      {/* The dial is rendered first and reordered visually with flexbox.
-          Electron supports no-drag nested inside drag, but not the reverse, and
-          it resolves overlapping regions by document order rather than z-index.
-          Declaring the chrome after the dial is therefore what lets it receive
-          hover, while the card stays draggable by the dial itself. */}
+      {/* The dial is declared before the chrome and reordered with flexbox.
+          Electron supports no-drag nested inside drag but not the reverse, and
+          resolves overlapping regions by document order rather than z-index, so
+          this is what lets the chrome receive hover while the dial still drags. */}
       <TimerDial
         progress={fraction}
         clock={formatClock(clockMs)}
         caption={caption}
         variant={variant}
         dimmed={snapshot.status === 'paused'}
-        liftText={!idle}
-        controls={!idle && variant === 'bar' ? controlsNode : undefined}
+        editable={idle}
+        draft={draft}
+        onDraftChange={setDraft}
+        onSubmit={start}
+        inputRef={clockRef}
+        controls={controls}
       />
 
       <header className="card__head">
         <div className="tools">
           <button
             className="icon"
-            onClick={() => {
-              const next = variant === 'ring' ? 'bar' : 'ring'
-              setVariant(next)
-              void window.api.window.setVariant(next)
-            }}
+            onClick={() => setVariant(variant === 'ring' ? 'bar' : 'ring')}
             title="Switch ring / bar"
           >
             <Icon name={variant === 'ring' ? 'bar' : 'ring'} />
           </button>
           <button
-            className="icon palette-toggle"
-            onClick={() => setPalette(!palette)}
-            title="Accent colour"
-            style={{ color: accent }}
+            className="icon"
+            onClick={() => void window.api.window.openDashboard()}
+            title="Settings and data"
           >
-            <Icon name="palette" />
+            <Icon name="settings" />
           </button>
           <button
             className="icon"
@@ -259,11 +240,11 @@ export default function App(): React.JSX.Element {
           onBlur={() => setLabelFocused(false)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') event.currentTarget.blur()
-            // Tab goes to the duration, not to the window buttons. Labelling
-            // then setting a time is the actual sequence; DOM order is not.
-            if (event.key === 'Tab' && !event.shiftKey && customRef.current) {
+            // Tab goes to the duration, not the window buttons: labelling the
+            // session then setting its length is the actual sequence.
+            if (event.key === 'Tab' && !event.shiftKey && clockRef.current) {
               event.preventDefault()
-              customRef.current.focus()
+              clockRef.current.focus()
             }
           }}
           placeholder="What are you working on?"
@@ -287,59 +268,6 @@ export default function App(): React.JSX.Element {
           </button>
         </div>
       </header>
-
-      {palette && (
-        <div className="palette">
-          {ACCENTS.map((option) => (
-            <button
-              key={option.value}
-              className={`swatch${option.value === accent ? ' is-active' : ''}`}
-              style={{ background: option.value }}
-              onClick={() => setAccent(option.value)}
-              title={option.name}
-            />
-          ))}
-        </div>
-      )}
-
-      {(idle || variant === 'ring') && (
-        <footer className="card__foot">
-          {idle ? (
-            <div className="presets">
-              <input
-                ref={customRef}
-                className="chip chip--input"
-                type="text"
-                inputMode="numeric"
-                value={minutesInput}
-                onChange={(event) => {
-                  const next = event.target.value
-                  if (next === '' || /^\d{1,3}$/.test(next)) setMinutesInput(next)
-                }}
-                onFocus={(event) => event.currentTarget.select()}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && minutes !== null) {
-                    void window.api.timer.start(minutes * MINUTE_MS)
-                  }
-                }}
-                aria-label="Minutes"
-              />
-              <button
-                className="primary primary--inline"
-                disabled={minutes === null}
-                onClick={() => {
-                  if (minutes !== null) void window.api.timer.start(minutes * MINUTE_MS)
-                }}
-                title="Start"
-              >
-                <Icon name="play" />
-              </button>
-            </div>
-          ) : (
-            controlsNode
-          )}
-        </footer>
-      )}
     </div>
   )
 }

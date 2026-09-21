@@ -1,0 +1,238 @@
+/**
+ * Reader for the Deep Work spreadsheet export.
+ *
+ * The file's quirks are documented in CLAUDE.md; two matter here. Start and End
+ * are countdown readings rather than clock times, so a row's duration is start
+ * minus end. And the calendar date is known while the time of day is not.
+ */
+
+export interface ImportRow {
+  /** YYYY-MM-DD. Time of day is unknowable from a countdown reading. */
+  date: string
+  project: string
+  task: string | null
+  plannedS: number
+  actualS: number
+  quantity: number | null
+  unit: string | null
+  unquantifiable: boolean
+  notes: string | null
+}
+
+export interface ImportPreview {
+  totalRows: number
+  importable: number
+  skippedBlank: number
+  skippedNoTiming: number
+  totalHours: number
+  firstDate: string
+  lastDate: string
+  projects: Array<{ name: string; sessions: number; hours: number }>
+  units: Array<{ name: string; rows: number }>
+  sample: ImportRow[]
+}
+
+/**
+ * Three and a half years of free-text labels drifted apart. These are one
+ * project spelled several ways, and merging them is the whole reason projects
+ * became rows rather than strings.
+ */
+const PROJECT_ALIASES = new Map<string, string>([
+  ['college applications', 'College Apps'],
+  ['college application', 'College Apps'],
+  ['college', 'College Apps'],
+  ['applications', 'College Apps'],
+  ['study ap', 'Study for APs'],
+  ['study aps', 'Study for APs'],
+  ['study for ap', 'Study for APs'],
+  ['internships', 'Internship'],
+  ['block 1: hw', 'HW']
+])
+
+/** Minimal RFC 4180 reader: the export contains quoted fields with commas. */
+export function parseCsv(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let quoted = false
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i]
+    if (quoted) {
+      if (char === '"') {
+        if (text[i + 1] === '"') {
+          field += '"'
+          i += 1
+        } else {
+          quoted = false
+        }
+      } else {
+        field += char
+      }
+      continue
+    }
+    if (char === '"') {
+      quoted = true
+    } else if (char === ',') {
+      row.push(field)
+      field = ''
+    } else if (char === '\n') {
+      row.push(field)
+      rows.push(row)
+      row = []
+      field = ''
+    } else if (char !== '\r') {
+      field += char
+    }
+  }
+  if (field !== '' || row.length > 0) {
+    row.push(field)
+    rows.push(row)
+  }
+  return rows
+}
+
+function hmsToSeconds(value: string): number | null {
+  const match = /^(\d+):(\d{2}):(\d{2})$/.exec(value.trim())
+  if (!match) return null
+  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])
+}
+
+/** M/D/YY, as the sheet writes it. */
+function toIsoDate(value: string): string | null {
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{2})$/.exec(value.trim())
+  if (!match) return null
+  return `20${match[3]}-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`
+}
+
+/** `HW 2` and `HW` are the same project: the ordinal carries no meaning. */
+export function normalizeProject(raw: string): string | null {
+  const withoutOrdinal = raw
+    .trim()
+    .replace(/\s+\d+$/, '')
+    .trim()
+  if (withoutOrdinal === '' || withoutOrdinal.toUpperCase() === 'N/A') return null
+  return PROJECT_ALIASES.get(withoutOrdinal.toLowerCase()) ?? withoutOrdinal
+}
+
+/** `questions` and `question` are one unit. */
+export function normalizeUnit(raw: string): string {
+  const lower = raw.trim().toLowerCase()
+  return lower.endsWith('s') && !lower.endsWith('ss') ? lower.slice(0, -1) : lower
+}
+
+function parseWorkDone(raw: string): {
+  quantity: number | null
+  unit: string | null
+  unquantifiable: boolean
+} {
+  const value = raw.trim()
+  if (value === '') return { quantity: null, unit: null, unquantifiable: false }
+  if (value.toLowerCase() === 'unquantifiable') {
+    return { quantity: null, unit: null, unquantifiable: true }
+  }
+  const match = /^([\d.,]+)\s+(.+)$/.exec(value)
+  if (!match) return { quantity: null, unit: null, unquantifiable: false }
+  const quantity = Number(match[1].replace(/,/g, ''))
+  if (!Number.isFinite(quantity)) return { quantity: null, unit: null, unquantifiable: false }
+  return { quantity, unit: normalizeUnit(match[2]), unquantifiable: false }
+}
+
+export function readImportRows(text: string): {
+  rows: ImportRow[]
+  totalRows: number
+  skippedBlank: number
+  skippedNoTiming: number
+} {
+  const table = parseCsv(text)
+  if (table.length === 0) {
+    return { rows: [], totalRows: 0, skippedBlank: 0, skippedNoTiming: 0 }
+  }
+
+  const header = table[0].map((h) => h.trim())
+  const col = (name: string): number => header.findIndex((h) => h.startsWith(name))
+  const iDate = col('Date')
+  const iBlock = col('Block')
+  const iTask = col('Tasks')
+  const iStart = col('Start')
+  const iEnd = col('End')
+  const iWork = col('Work Done')
+  const iNotes = col('Notes')
+
+  const rows: ImportRow[] = []
+  let skippedBlank = 0
+  let skippedNoTiming = 0
+
+  for (const raw of table.slice(1)) {
+    const cell = (index: number): string => (index >= 0 ? (raw[index] ?? '') : '')
+    const date = toIsoDate(cell(iDate))
+    const project = normalizeProject(cell(iBlock))
+    const start = hmsToSeconds(cell(iStart))
+    const end = hmsToSeconds(cell(iEnd))
+
+    if (date === null || project === null) {
+      skippedBlank += 1
+      continue
+    }
+    if (start === null || end === null || start <= end) {
+      // A rest day, or a row the sheet never filled in. Both are absences of
+      // work, and an absence is already a zero - it needs no row.
+      skippedNoTiming += 1
+      continue
+    }
+
+    const work = parseWorkDone(cell(iWork))
+    const task = cell(iTask).trim()
+    const notes = cell(iNotes).trim()
+
+    rows.push({
+      date,
+      project,
+      task: task === '' ? null : task,
+      plannedS: start,
+      actualS: start - end,
+      quantity: work.quantity,
+      unit: work.unit,
+      unquantifiable: work.unquantifiable,
+      notes: notes === '' ? null : notes
+    })
+  }
+
+  return { rows, totalRows: table.length - 1, skippedBlank, skippedNoTiming }
+}
+
+export function summarize(text: string): ImportPreview {
+  const { rows, totalRows, skippedBlank, skippedNoTiming } = readImportRows(text)
+  const byProject = new Map<string, { sessions: number; seconds: number }>()
+  const byUnit = new Map<string, number>()
+  let seconds = 0
+
+  for (const row of rows) {
+    seconds += row.actualS
+    const project = byProject.get(row.project) ?? { sessions: 0, seconds: 0 }
+    project.sessions += 1
+    project.seconds += row.actualS
+    byProject.set(row.project, project)
+    if (row.unit) byUnit.set(row.unit, (byUnit.get(row.unit) ?? 0) + 1)
+  }
+
+  const dates = rows.map((r) => r.date).sort()
+
+  return {
+    totalRows,
+    importable: rows.length,
+    skippedBlank,
+    skippedNoTiming,
+    totalHours: seconds / 3600,
+    firstDate: dates[0] ?? '',
+    lastDate: dates[dates.length - 1] ?? '',
+    projects: [...byProject.entries()]
+      .map(([name, v]) => ({ name, sessions: v.sessions, hours: v.seconds / 3600 }))
+      .sort((a, b) => b.hours - a.hours),
+    units: [...byUnit.entries()]
+      .map(([name, rowCount]) => ({ name, rows: rowCount }))
+      .sort((a, b) => b.rows - a.rows)
+      .slice(0, 12),
+    sample: rows.slice(0, 8)
+  }
+}
