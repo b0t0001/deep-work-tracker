@@ -156,6 +156,34 @@ export default function App(): React.JSX.Element {
     if (!target?.closest('.palette, .palette-toggle')) setPalette(false)
   }
 
+  const controlsNode = (
+    <div className="controls">
+      {snapshot.status === 'running' ? (
+        <button className="primary" onClick={() => void window.api.timer.pause()} title="Pause">
+          <Icon name="pause" />
+        </button>
+      ) : (
+        <button
+          className="primary"
+          onClick={() => {
+            if (snapshot.status === 'paused') void window.api.timer.resume()
+            else void window.api.timer.start(snapshot.plannedMs)
+          }}
+          title={snapshot.status === 'paused' ? 'Resume' : 'Start again'}
+        >
+          <Icon name="play" />
+        </button>
+      )}
+      <button
+        className="ghost ghost--danger"
+        onClick={() => void window.api.timer.stop()}
+        title="Stop"
+      >
+        <Icon name="stop" />
+      </button>
+    </div>
+  )
+
   return (
     <div
       className={`card${full ? ' is-full' : ''}${variant === 'ring' ? ' is-ring' : ''}${
@@ -175,6 +203,7 @@ export default function App(): React.JSX.Element {
         variant={variant}
         dimmed={snapshot.status === 'paused'}
         liftText={!idle}
+        controls={!idle && variant === 'bar' ? controlsNode : undefined}
       />
 
       <header className="card__head">
@@ -252,69 +281,43 @@ export default function App(): React.JSX.Element {
         </div>
       )}
 
-      <footer className="card__foot">
-        {idle ? (
-          <>
-            <div className="presets">
-              {PRESET_MINUTES.map((preset) => (
+      {(idle || variant === 'ring') && (
+        <footer className="card__foot">
+          {idle ? (
+            <>
+              <div className="presets">
+                {PRESET_MINUTES.map((preset) => (
+                  <button
+                    key={preset}
+                    className={`chip${preset === minutes ? ' is-active' : ''}`}
+                    onClick={() => setMinutes(preset)}
+                  >
+                    {preset}
+                  </button>
+                ))}
+                <input
+                  className="chip chip--input"
+                  type="number"
+                  min={1}
+                  max={600}
+                  value={minutes}
+                  onChange={(event) => setMinutes(Math.max(1, Number(event.target.value) || 1))}
+                  aria-label="Custom minutes"
+                />
                 <button
-                  key={preset}
-                  className={`chip${preset === minutes ? ' is-active' : ''}`}
-                  onClick={() => setMinutes(preset)}
+                  className="primary primary--inline"
+                  onClick={() => void window.api.timer.start(minutes * MINUTE_MS)}
+                  title="Start"
                 >
-                  {preset}
+                  <Icon name="play" />
                 </button>
-              ))}
-              <input
-                className="chip chip--input"
-                type="number"
-                min={1}
-                max={600}
-                value={minutes}
-                onChange={(event) => setMinutes(Math.max(1, Number(event.target.value) || 1))}
-                aria-label="Custom minutes"
-              />
-              <button
-                className="primary primary--inline"
-                onClick={() => void window.api.timer.start(minutes * MINUTE_MS)}
-                title="Start"
-              >
-                <Icon name="play" />
-              </button>
-            </div>
-          </>
-        ) : (
-          <div className="controls">
-            {snapshot.status === 'running' ? (
-              <button
-                className="primary"
-                onClick={() => void window.api.timer.pause()}
-                title="Pause"
-              >
-                <Icon name="pause" />
-              </button>
-            ) : (
-              <button
-                className="primary"
-                onClick={() => {
-                  if (snapshot.status === 'paused') void window.api.timer.resume()
-                  else void window.api.timer.start(snapshot.plannedMs)
-                }}
-                title={snapshot.status === 'paused' ? 'Resume' : 'Start again'}
-              >
-                <Icon name="play" />
-              </button>
-            )}
-            <button
-              className="ghost ghost--danger"
-              onClick={() => void window.api.timer.stop()}
-              title="Stop"
-            >
-              <Icon name="stop" />
-            </button>
-          </div>
-        )}
-      </footer>
+              </div>
+            </>
+          ) : (
+            controlsNode
+          )}
+        </footer>
+      )}
     </div>
   )
 }

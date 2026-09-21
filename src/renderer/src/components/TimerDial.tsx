@@ -13,6 +13,15 @@ interface TimerDialProps {
    * whole reads as bottom-heavy even though the clock itself is centred.
    */
   liftText: boolean
+  /**
+   * Rendered inside the dial's own stack, directly beneath the caption.
+   *
+   * Positioning the controls separately meant clock and buttons were anchored
+   * to different things - one to the dial's centre, one to the card's bottom -
+   * so the space between them was whatever was left over, and moving either
+   * anchor just moved the whole group. As a flex child the gap is one value.
+   */
+  controls?: React.ReactNode
 }
 
 const SIZE = 196
@@ -53,7 +62,8 @@ export default function TimerDial({
   caption,
   variant,
   dimmed,
-  liftText
+  liftText,
+  controls
 }: TimerDialProps): React.JSX.Element {
   const remaining = 1 - Math.min(1, Math.max(0, progress))
 
@@ -67,6 +77,7 @@ export default function TimerDial({
         <div className="dial__inner">
           <div className="dial__clock">{clock}</div>
           <div className="dial__caption">{caption}</div>
+          {controls}
         </div>
       </div>
     )

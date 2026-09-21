@@ -706,28 +706,6 @@ input {
   position: relative;
 }
 
-.card:not(.is-ring) .card__foot:has(.controls) {
-  position: absolute;
-  right: auto;
-  bottom: calc(var(--pad) + clamp(7px, 11vmin, 46px));
-  left: 50%;
-  z-index: 2;
-  width: auto;
-  transform: translateX(-50%);
-}
-
-.card:not(.is-ring) .card__foot:has(.controls) .primary,
-.card:not(.is-ring) .card__foot:has(.controls) .ghost {
-  flex: 0 0 auto;
-  padding-right: clamp(6px, 3vmin, 16px);
-  padding-left: clamp(6px, 3vmin, 16px);
-}
-
-/* ---------- balance and hit areas ---------- */
-
-/* 70% left the buttons hanging near the bottom of the circle. At 66%, paired
-   with the lifted clock, the clock / caption / buttons group centres on the
-   ring rather than sitting below it. */
 .card.is-ring .card__foot:has(.controls) {
   top: 66%;
 }
@@ -763,8 +741,20 @@ input {
 /* Same reasoning as the ring: with buttons in the lower half, a clock centred
    in the dial leaves the group as a whole sitting low. Lifting the text while
    controls are showing centres clock, caption and buttons together. */
-.dial--bar.is-lifted .dial__inner {
-  transform: translateY(clamp(-44px, -14vmin, -12px));
+/* Bar controls are a flex child of the dial now, so one gap sets the spacing
+   and the whole stack centres itself. No lift, no second anchor to keep in
+   step with the first. */
+.dial__inner .controls {
+  margin-top: clamp(4px, 2.6vmin, 16px);
+  opacity: 0;
+  transition: opacity 160ms ease;
+  /* Its own no-drag island: hovering here reveals the controls without making
+     the whole dial undraggable. */
+  -webkit-app-region: no-drag;
+}
+
+.card:hover .dial__inner .controls {
+  opacity: 1;
 }
 
 /* Bigger targets now that the icons carry the controls on their own. Size
