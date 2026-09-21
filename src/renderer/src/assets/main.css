@@ -709,7 +709,7 @@ input {
 .card:not(.is-ring) .card__foot:has(.controls) {
   position: absolute;
   right: auto;
-  bottom: calc(var(--pad) + clamp(3px, 4vmin, 20px));
+  bottom: calc(var(--pad) + clamp(7px, 11vmin, 46px));
   left: 50%;
   z-index: 2;
   width: auto;
@@ -764,7 +764,7 @@ input {
    in the dial leaves the group as a whole sitting low. Lifting the text while
    controls are showing centres clock, caption and buttons together. */
 .dial--bar.is-lifted .dial__inner {
-  transform: translateY(clamp(-34px, -10vmin, -9px));
+  transform: translateY(clamp(-44px, -14vmin, -12px));
 }
 
 /* Bigger targets now that the icons carry the controls on their own. Size
