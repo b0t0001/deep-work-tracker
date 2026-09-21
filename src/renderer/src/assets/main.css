@@ -1329,3 +1329,28 @@ code {
   font-family: 'Cascadia Mono', Consolas, monospace;
   font-size: 12px;
 }
+
+/* ---------- ring: more room for the clock ---------- */
+
+/* The face box need not be square. Trading height for width buys the clock
+   real size while keeping the corners inside the stroke: at 66% x 54% the
+   half-diagonal is 0.85r against a clear radius of 0.88r. */
+.card.is-ring .dial__inner {
+  width: 66%;
+  height: 54%;
+}
+
+.card.is-ring .dial__clock,
+.card.is-ring .dial__clock--input {
+  font-size: clamp(15px, 12vmin, 160px);
+}
+
+/* ---------- controls stay visible ---------- */
+
+/* Pause and stop no longer fade with the rest of the chrome. They are the
+   controls reached mid-session, and hunting for an invisible button is worse
+   than the clutter of a visible one. */
+.dial__inner .controls,
+.card:hover .dial__inner .controls {
+  opacity: 1;
+}

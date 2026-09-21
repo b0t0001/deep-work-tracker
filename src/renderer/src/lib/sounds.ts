@@ -1,68 +1,54 @@
+import beepNormal from '../assets/sounds/BeepNormal.wav'
+import beepQuiet from '../assets/sounds/BeepQuiet.wav'
+
 /**
- * Cues synthesised with Web Audio rather than shipped as files.
+ * Hourglass's own cues, extracted from its binary's embedded resources
+ * (`BeepNormal` and `BeepQuiet` in Hourglass.Properties.Resources).
  *
- * Two events that must never be confused by ear: the pace loop fires every few
- * minutes and has to be hearable without breaking focus, while session expiry
- * is rare and should be unmissable. Synthesising them keeps that contrast under
- * direct control - pitch, length and loudness - with no assets to bundle.
+ * Using the real files rather than synthesised tones means the loop sounds
+ * exactly as it always has, and the two events keep the contrast the spec
+ * requires without it having to be tuned by hand: quiet for the pace loop,
+ * which fires every few minutes and must not break focus, normal for expiry,
+ * which is rare and should not be missed.
  */
 
-let context: AudioContext | null = null
+function load(src: string, volume: number): HTMLAudioElement {
+  const audio = new Audio(src)
+  audio.volume = volume
+  audio.preload = 'auto'
+  return audio
+}
 
-function audio(): AudioContext {
-  context ??= new AudioContext()
-  if (context.state === 'suspended') void context.resume()
-  return context
+const expiry = load(beepNormal, 1)
+const pace = load(beepQuiet, 1)
+
+function play(audio: HTMLAudioElement): void {
+  try {
+    // Rewound rather than re-created: a cue arriving while the previous one is
+    // still playing should restart it, not overlap with it.
+    audio.currentTime = 0
+    void audio.play().catch(() => {
+      /* no output device, or playback blocked; the visual cue still fires */
+    })
+  } catch {
+    /* same */
+  }
 }
 
 /**
- * Chromium will not start an AudioContext without a user gesture, and expiry
- * arrives long after the last click. Priming on any early interaction means the
- * context is already running when the cue is due.
+ * Chromium will not play audio before a user gesture, and expiry arrives long
+ * after the last click. Loading on an early interaction means the file is ready
+ * and the gesture requirement is already satisfied when the cue is due.
  */
 export function primeAudio(): void {
-  try {
-    audio()
-  } catch {
-    /* no audio device; the visual flash still fires */
-  }
+  expiry.load()
+  pace.load()
 }
 
-function tone(frequency: number, delay: number, duration: number, peak: number): void {
-  const ctx = audio()
-  const oscillator = ctx.createOscillator()
-  const gain = ctx.createGain()
-  oscillator.type = 'sine'
-  oscillator.frequency.value = frequency
-
-  const start = ctx.currentTime + delay
-  // Ramped rather than switched: an instant start or stop is heard as a click.
-  gain.gain.setValueAtTime(0.0001, start)
-  gain.gain.exponentialRampToValueAtTime(peak, start + 0.014)
-  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration)
-
-  oscillator.connect(gain)
-  gain.connect(ctx.destination)
-  oscillator.start(start)
-  oscillator.stop(start + duration + 0.03)
-}
-
-/** One short, quiet, high note. Meant to register without pulling attention. */
-export function paceCue(): void {
-  try {
-    tone(1318, 0, 0.09, 0.05)
-  } catch {
-    /* no audio device */
-  }
-}
-
-/** A rising three-note figure: longer, louder, unmistakably not the pace cue. */
 export function expiryCue(): void {
-  try {
-    tone(659, 0, 0.3, 0.16)
-    tone(880, 0.17, 0.34, 0.16)
-    tone(1318, 0.36, 0.55, 0.13)
-  } catch {
-    /* no audio device */
-  }
+  play(expiry)
+}
+
+export function paceCue(): void {
+  play(pace)
 }
