@@ -127,7 +127,18 @@ export default function App(): React.JSX.Element {
   const [full, setFullScreen] = useFullScreen()
   const [accent, setAccent] = useAccent()
   const [label, setLabel] = useState('')
-  const [minutes, setMinutes] = useState(60)
+  // The field holds text, not a number. Coercing on every keystroke meant
+  // clearing it snapped straight back to 1, so it could never be emptied to
+  // type a new value. Empty is a legitimate intermediate state; it just is not
+  // a startable one.
+  const [minutesInput, setMinutesInput] = useState('60')
+  const customRef = useRef<HTMLInputElement>(null)
+
+  const parsedMinutes = Number(minutesInput)
+  const minutes =
+    minutesInput !== '' && Number.isFinite(parsedMinutes) && parsedMinutes >= 1
+      ? Math.min(600, Math.floor(parsedMinutes))
+      : null
   const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
   const [palette, setPalette] = useState(false)
   const [labelFocused, setLabelFocused] = useState(false)
@@ -139,9 +150,9 @@ export default function App(): React.JSX.Element {
   const editing = labelFocused || palette
 
   const idle = snapshot.status === 'idle'
-  const clockMs = idle ? minutes * MINUTE_MS : remainingMs(snapshot, now)
+  const clockMs = idle ? (minutes ?? 0) * MINUTE_MS : remainingMs(snapshot, now)
   const fraction = idle ? 0 : progressOf(snapshot, now)
-  const caption = idle ? `${minutes} min` : CAPTIONS[snapshot.status]
+  const caption = idle ? (minutes ? `${minutes} min` : 'set a duration') : CAPTIONS[snapshot.status]
 
   // Clicking anywhere that is not a field drops focus, so typing a label ends
   // by clicking the window rather than needing Tab or Enter.
@@ -244,6 +255,12 @@ export default function App(): React.JSX.Element {
           onBlur={() => setLabelFocused(false)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') event.currentTarget.blur()
+            // Tab goes to the duration, not to the window buttons. Labelling
+            // then setting a time is the actual sequence; DOM order is not.
+            if (event.key === 'Tab' && !event.shiftKey && customRef.current) {
+              event.preventDefault()
+              customRef.current.focus()
+            }
           }}
           placeholder="What are you working on?"
           spellCheck={false}
@@ -290,23 +307,30 @@ export default function App(): React.JSX.Element {
                   <button
                     key={preset}
                     className={`chip${preset === minutes ? ' is-active' : ''}`}
-                    onClick={() => setMinutes(preset)}
+                    onClick={() => setMinutesInput(String(preset))}
                   >
                     {preset}
                   </button>
                 ))}
                 <input
+                  ref={customRef}
                   className="chip chip--input"
-                  type="number"
-                  min={1}
-                  max={600}
-                  value={minutes}
-                  onChange={(event) => setMinutes(Math.max(1, Number(event.target.value) || 1))}
+                  type="text"
+                  inputMode="numeric"
+                  value={minutesInput}
+                  onChange={(event) => {
+                    const next = event.target.value
+                    if (next === '' || /^\d{1,3}$/.test(next)) setMinutesInput(next)
+                  }}
+                  onFocus={(event) => event.currentTarget.select()}
                   aria-label="Custom minutes"
                 />
                 <button
                   className="primary primary--inline"
-                  onClick={() => void window.api.timer.start(minutes * MINUTE_MS)}
+                  disabled={minutes === null}
+                  onClick={() => {
+                    if (minutes !== null) void window.api.timer.start(minutes * MINUTE_MS)
+                  }}
                   title="Start"
                 >
                   <Icon name="play" />

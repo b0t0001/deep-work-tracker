@@ -841,3 +841,13 @@ input {
 .ghost {
   color: var(--text);
 }
+
+/* Start is unavailable while the duration field is empty or invalid. */
+.primary:disabled {
+  cursor: default;
+  opacity: 0.3;
+}
+
+.primary:disabled:hover {
+  color: var(--text);
+}
