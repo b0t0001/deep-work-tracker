@@ -16,7 +16,7 @@ const PAUSE_ACCELERATOR = 'CommandOrControl+Shift+Space'
  * is bounded by the shorter dimension while a bar is not. Each variant
  * therefore carries its own minimum.
  */
-const BAR_MIN = { width: 216, height: 146 }
+const BAR_MIN = { width: 250, height: 150 }
 const RING_MIN = { width: 250, height: 220 }
 
 let currentMin = BAR_MIN

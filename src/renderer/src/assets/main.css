@@ -11,11 +11,11 @@
 
   /* Everything scales off the viewport, so one layout serves the compact
      window, a hand-resized window, and a projector in full screen. */
-  --pad: clamp(5px, 5vmin, 44px);
-  --gap: clamp(2px, 2.2vmin, 22px);
-  --clock: clamp(22px, min(27vmin, 25vw), 300px);
-  --caption: clamp(7px, 6vmin, 28px);
-  --control: clamp(9px, 7.5vmin, 34px);
+  --pad: clamp(6px, 6.6vmin, 44px);
+  --gap: clamp(2px, 2.6vmin, 24px);
+  --clock: clamp(16px, min(16vmin, 22vw), 220px);
+  --caption: clamp(8px, 7vmin, 30px);
+  --control: clamp(10px, 9vmin, 36px);
   --radius: clamp(10px, 5vmin, 24px);
 }
 
@@ -335,8 +335,8 @@ input {
 }
 
 .icon svg {
-  width: clamp(9px, 7vmin, 28px);
-  height: clamp(9px, 7vmin, 28px);
+  width: clamp(10px, 8vmin, 30px);
+  height: clamp(10px, 8vmin, 30px);
   display: block;
 }
 
@@ -692,8 +692,8 @@ input {
 /* Size carries the hierarchy now that the fill is gone: the action taken every
    session stays larger than the destructive one. */
 .primary svg {
-  width: clamp(12px, 9.4vmin, 36px);
-  height: clamp(12px, 9.4vmin, 36px);
+  width: clamp(10px, 8.5vmin, 32px);
+  height: clamp(10px, 8.5vmin, 32px);
 }
 
 /* ---------- bar mode: controls sit inside the fill ---------- */
@@ -761,13 +761,13 @@ input {
    still separates them: the action taken every session reads larger than the
    destructive one beside it. */
 .primary svg {
-  width: clamp(15px, 11.5vmin, 42px);
-  height: clamp(15px, 11.5vmin, 42px);
+  width: clamp(12px, 10vmin, 38px);
+  height: clamp(12px, 10vmin, 38px);
 }
 
 .ghost svg {
-  width: clamp(12px, 9.4vmin, 36px);
-  height: clamp(12px, 9.4vmin, 36px);
+  width: clamp(10px, 8.5vmin, 32px);
+  height: clamp(10px, 8.5vmin, 32px);
 }
 
 /* The ring has less room inside the circle, so it keeps smaller controls. */
