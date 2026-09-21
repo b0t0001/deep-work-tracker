@@ -851,3 +851,11 @@ input {
 .primary:disabled:hover {
   color: var(--text);
 }
+
+/* With the preset chips gone the duration field is the whole row, so it takes
+   the space they used rather than staying chip-sized. */
+.chip--input {
+  flex: 1 1 auto;
+  padding: clamp(3px, 2.4vmin, 14px) 0;
+  font-size: var(--control);
+}

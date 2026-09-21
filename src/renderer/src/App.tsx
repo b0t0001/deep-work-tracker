@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   IDLE_TIMER,
-  PRESET_MINUTES,
   formatClock,
   progress as progressOf,
   remainingMs,
@@ -301,42 +300,36 @@ export default function App(): React.JSX.Element {
       {(idle || variant === 'ring') && (
         <footer className="card__foot">
           {idle ? (
-            <>
-              <div className="presets">
-                {PRESET_MINUTES.map((preset) => (
-                  <button
-                    key={preset}
-                    className={`chip${preset === minutes ? ' is-active' : ''}`}
-                    onClick={() => setMinutesInput(String(preset))}
-                  >
-                    {preset}
-                  </button>
-                ))}
-                <input
-                  ref={customRef}
-                  className="chip chip--input"
-                  type="text"
-                  inputMode="numeric"
-                  value={minutesInput}
-                  onChange={(event) => {
-                    const next = event.target.value
-                    if (next === '' || /^\d{1,3}$/.test(next)) setMinutesInput(next)
-                  }}
-                  onFocus={(event) => event.currentTarget.select()}
-                  aria-label="Custom minutes"
-                />
-                <button
-                  className="primary primary--inline"
-                  disabled={minutes === null}
-                  onClick={() => {
-                    if (minutes !== null) void window.api.timer.start(minutes * MINUTE_MS)
-                  }}
-                  title="Start"
-                >
-                  <Icon name="play" />
-                </button>
-              </div>
-            </>
+            <div className="presets">
+              <input
+                ref={customRef}
+                className="chip chip--input"
+                type="text"
+                inputMode="numeric"
+                value={minutesInput}
+                onChange={(event) => {
+                  const next = event.target.value
+                  if (next === '' || /^\d{1,3}$/.test(next)) setMinutesInput(next)
+                }}
+                onFocus={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && minutes !== null) {
+                    void window.api.timer.start(minutes * MINUTE_MS)
+                  }
+                }}
+                aria-label="Minutes"
+              />
+              <button
+                className="primary primary--inline"
+                disabled={minutes === null}
+                onClick={() => {
+                  if (minutes !== null) void window.api.timer.start(minutes * MINUTE_MS)
+                }}
+                title="Start"
+              >
+                <Icon name="play" />
+              </button>
+            </div>
           ) : (
             controlsNode
           )}

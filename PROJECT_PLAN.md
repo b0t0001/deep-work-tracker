@@ -53,7 +53,8 @@ label; Phase 2 adds the structure.
 
 **The session timer**
 
-- Freely settable duration; presets 60, 90, 30, 120, 20 min
+- Duration typed directly. Preset buttons were removed - they crowded a window
+  this small, and Hourglass has none. They return as a settings toggle later.
 - Target-timestamp driven, never a decrementing counter (see CLAUDE.md)
 - On expiry: notify, then auto-start another run of the same length. Each run is
   its own row. No break interval.
