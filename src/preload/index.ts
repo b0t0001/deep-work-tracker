@@ -23,6 +23,8 @@ const api = {
     resume: (): Promise<TimerSnapshot> => ipcRenderer.invoke('timer:resume'),
     stop: (): Promise<TimerSnapshot> => ipcRenderer.invoke('timer:stop'),
     setTask: (task: string): Promise<void> => ipcRenderer.invoke('timer:setTask', task),
+    getLoop: (): Promise<boolean> => ipcRenderer.invoke('timer:getLoop'),
+    setLoop: (value: boolean): Promise<void> => ipcRenderer.invoke('timer:setLoop', value),
     onUpdate: (handler: (snapshot: TimerSnapshot) => void): Unsubscribe =>
       subscribe('timer:update', handler),
     onExpired: (handler: (snapshot: TimerSnapshot) => void): Unsubscribe =>

@@ -63,9 +63,36 @@ function SettingsTab(): React.JSX.Element {
     document.documentElement.style.setProperty('--accent', accent)
   }, [accent])
 
+  const [loop, setLoop] = useState(true)
+
+  useEffect(() => {
+    void window.api.timer.getLoop().then(setLoop)
+  }, [])
+
+  function toggleLoop(value: boolean): void {
+    setLoop(value)
+    void window.api.timer.setLoop(value)
+  }
+
   return (
     <section className="panel">
-      <h2>Accent colour</h2>
+      <h2>Timer</h2>
+      <label className="toggle">
+        <input
+          type="checkbox"
+          checked={loop}
+          onChange={(event) => toggleLoop(event.target.checked)}
+        />
+        <span>
+          <strong>Loop</strong>
+          <em>
+            On expiry, start another run of the same length. Each pass is recorded as its own
+            session.
+          </em>
+        </span>
+      </label>
+
+      <h2 className="spaced">Accent colour</h2>
       <p className="muted">
         Used for the ring, the progress fill and every control. Applies to the timer immediately.
       </p>

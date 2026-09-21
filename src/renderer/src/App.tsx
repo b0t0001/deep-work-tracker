@@ -9,6 +9,7 @@ import {
 import { parseDurationMs } from '@shared/duration'
 import { ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import TimerDial from './components/TimerDial'
+import { expiryCue, primeAudio } from './lib/sounds'
 import Icon from './components/Icon'
 
 /**
@@ -121,7 +122,19 @@ export default function App(): React.JSX.Element {
   const [labelFocused, setLabelFocused] = useState(false)
   const [draft, setDraft] = useState('60:00')
   const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
+  const [flashing, setFlashing] = useState(false)
   const clockRef = useRef<HTMLInputElement>(null)
+
+  // Expiry cue: sound plus a flash, matching Hourglass - three flashes at 0.2s.
+  // Both matter, because either one alone is missable: the flash if the window
+  // is buried, the sound if the room is loud.
+  useEffect(() => {
+    return window.api.timer.onExpired(() => {
+      expiryCue()
+      setFlashing(true)
+      window.setTimeout(() => setFlashing(false), 620)
+    })
+  }, [])
 
   const idle = snapshot.status === 'idle'
   const plannedMs = parseDurationMs(draft)
@@ -181,8 +194,11 @@ export default function App(): React.JSX.Element {
     <div
       className={`card${full ? ' is-full' : ''}${variant === 'ring' ? ' is-ring' : ''}${
         editing ? ' is-editing' : ''
-      }`}
-      onMouseDown={releaseFocus}
+      }${flashing ? ' is-flashing' : ''}`}
+      onMouseDown={(event) => {
+        primeAudio()
+        releaseFocus(event)
+      }}
     >
       {/* The dial is declared before the chrome and reordered with flexbox.
           Electron supports no-drag nested inside drag but not the reverse, and

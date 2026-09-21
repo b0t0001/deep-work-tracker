@@ -1,8 +1,12 @@
 import { EventEmitter } from 'node:events'
 import { hasExpired, idleTimer, runningMs, type TimerSnapshot } from '../shared/timer'
 
-/** How often the main process checks for expiry. Display smoothness is the renderer's job. */
-const TICK_MS = 250
+/**
+ * How often the main process checks for expiry. Display smoothness is the
+ * renderer's job; this only bounds how late expiry can be noticed, which is
+ * also how late the cue sounds.
+ */
+const TICK_MS = 100
 
 /**
  * The single source of truth for the session timer.
@@ -14,6 +18,16 @@ const TICK_MS = 250
 export class TimerEngine extends EventEmitter {
   private state: TimerSnapshot = idleTimer()
   private ticker: NodeJS.Timeout | null = null
+  /** Hourglass's loop: on expiry, start another run of the same length. */
+  private loop = true
+
+  isLooping(): boolean {
+    return this.loop
+  }
+
+  setLoop(value: boolean): void {
+    this.loop = value
+  }
 
   snapshot(): TimerSnapshot {
     return { ...this.state, pauses: this.state.pauses.map((p) => ({ ...p })) }
@@ -98,11 +112,31 @@ export class TimerEngine extends EventEmitter {
   private check(): void {
     if (this.state.status !== 'running') return
     if (!hasExpired(this.state, Date.now())) return
+
     this.bankSegment()
-    this.state.status = 'expired'
-    this.stopTicker()
-    this.emitUpdate()
-    this.emit('expired', this.snapshot())
+    const openPause = this.state.pauses[this.state.pauses.length - 1]
+    if (openPause && openPause.resumedAt === null) openPause.resumedAt = Date.now()
+
+    // A run that reaches zero ran for exactly what it was set to. Recording the
+    // polling overshoot instead would inflate every completed session by up to
+    // one tick, and those are the sessions whose duration is most certain.
+    this.state.bankedRunningMs = this.state.plannedMs
+
+    const finished = { ...this.snapshot(), status: 'idle' as const }
+    const plannedMs = this.state.plannedMs
+
+    // The completed run is recorded before anything restarts, so each pass of a
+    // loop is its own session rather than one long merged row.
+    this.emit('completed', finished)
+    this.emit('expired', finished)
+
+    if (this.loop) {
+      this.start(plannedMs)
+    } else {
+      this.state.status = 'expired'
+      this.stopTicker()
+      this.emitUpdate()
+    }
   }
 
   /**

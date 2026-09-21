@@ -1113,3 +1113,55 @@ input {
   color: var(--text);
   border-left: 3px solid var(--accent);
 }
+
+/* ---------- expiry flash ---------- */
+
+/* Hourglass flashes its notification border from full opacity to nothing over
+   0.2s, three times. Same timing here, applied to the dial. */
+@keyframes expiry-flash {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.08;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.card.is-flashing .dial {
+  animation: expiry-flash 0.2s ease-in-out 3;
+}
+
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.toggle input {
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggle em {
+  color: var(--text-dim);
+  font-style: normal;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.panel h2.spaced {
+  margin-top: 30px;
+}

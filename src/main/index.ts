@@ -174,8 +174,22 @@ function registerIpc(): void {
   ipcMain.handle('window:minimize', () => compactWindow?.minimize())
   ipcMain.handle('window:close', () => compactWindow?.close())
 
+  ipcMain.handle('timer:getLoop', () => timer.isLooping())
+  ipcMain.handle('timer:setLoop', (_event, value: boolean) => timer.setLoop(value))
+
   timer.on('update', (snapshot: TimerSnapshot) => broadcast('timer:update', snapshot))
-  timer.on('expired', (snapshot: TimerSnapshot) => broadcast('timer:expired', snapshot))
+
+  // A run that reaches zero is recorded exactly like one stopped by hand.
+  timer.on('completed', (snapshot: TimerSnapshot) => recordSession(snapshot))
+
+  timer.on('expired', (snapshot: TimerSnapshot) => {
+    broadcast('timer:expired', snapshot)
+    // Flashes the taskbar button, which is the only cue that lands when the
+    // window is behind a full-screen document.
+    if (compactWindow && !compactWindow.isDestroyed() && !compactWindow.isFocused()) {
+      compactWindow.flashFrame(true)
+    }
+  })
 }
 
 function togglePause(): void {
