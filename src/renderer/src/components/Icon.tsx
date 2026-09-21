@@ -12,6 +12,7 @@ export type IconName =
   | 'expand'
   | 'collapse'
   | 'settings'
+  | 'plus'
   | 'minimize'
   | 'close'
 
@@ -39,6 +40,7 @@ const PATHS: Record<IconName, React.JSX.Element> = {
       strokeLinecap="round"
     />
   ),
+  plus: <path d="M7.2 3h1.6v4.2H13v1.6H8.8V13H7.2V8.8H3V7.2h4.2z" />,
   settings: (
     <path
       d="M8 5.6a2.4 2.4 0 100 4.8 2.4 2.4 0 000-4.8zM7.1 1.5h1.8l.3 1.7 1.3.5 1.4-1 1.3 1.3-1 1.4.5 1.3 1.7.3v1.8l-1.7.3-.5 1.3 1 1.4-1.3 1.3-1.4-1-1.3.5-.3 1.7H7.1l-.3-1.7-1.3-.5-1.4 1-1.3-1.3 1-1.4-.5-1.3-1.7-.3V7.1l1.7-.3.5-1.3-1-1.4 1.3-1.3 1.4 1 1.3-.5z"

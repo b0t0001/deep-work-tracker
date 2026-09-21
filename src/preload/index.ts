@@ -64,6 +64,7 @@ const api = {
       ipcRenderer.invoke('window:setFullScreen', value),
     setVariant: (variant: 'ring' | 'bar'): Promise<void> =>
       ipcRenderer.invoke('window:setVariant', variant),
+    newTimer: (): Promise<void> => ipcRenderer.invoke('window:newTimer'),
     openDashboard: (): Promise<void> => ipcRenderer.invoke('window:openDashboard'),
     minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
     close: (): Promise<void> => ipcRenderer.invoke('window:close'),

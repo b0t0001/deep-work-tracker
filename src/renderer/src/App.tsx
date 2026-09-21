@@ -291,6 +291,13 @@ export default function App(): React.JSX.Element {
           </button>
           <button
             className="icon"
+            onClick={() => void window.api.window.newTimer()}
+            title="New timer window"
+          >
+            <Icon name="plus" />
+          </button>
+          <button
+            className="icon"
             onClick={() => void window.api.window.openDashboard()}
             title="Settings and data"
           >

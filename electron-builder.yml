@@ -12,8 +12,13 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: dwt-scaffold
+  executableName: deep-work-tracker
+  icon: build/icon.ico
 nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  createStartMenuShortcut: true
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
@@ -38,6 +43,3 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates

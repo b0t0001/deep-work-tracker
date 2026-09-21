@@ -8,59 +8,86 @@ import {
   dialog,
   Tray,
   Menu,
-  nativeImage
+  nativeImage,
+  type IpcMainInvokeEvent
 } from 'electron'
 import { readFileSync } from 'node:fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { TimerEngine } from './timer'
+import { TimerEngine, type PaceConfig, type PaceEvent } from './timer'
 import { closeDatabase, openDatabase } from './db'
 import { deleteSession, recentSessions, recordSession, setStopReason } from './db/sessions'
 import { importRows, importedSessionCount } from './db/import'
 import { readImportRows, summarize } from './import/csv'
 import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
-import type { PaceEvent } from './timer'
 
-/** Global shortcut for pause/resume. Writing full-screen, the mouse breaks flow. */
 const PAUSE_ACCELERATOR = 'CommandOrControl+Shift+Space'
 
 /**
- * Opens at its smallest usable footprint. The comparison against Hourglass made
- * the point: a timer that eats a quarter of the screen will not get used.
- *
- * The ring needs more room than the bar for the same legibility, since a circle
- * is bounded by the shorter dimension while a bar is not. Each variant
- * therefore carries its own minimum.
+ * Opens at its smallest usable footprint, matching the size Hourglass is
+ * actually run at. Everything scales with the window, so the user resizes up
+ * when they want a bigger dial.
  */
 const BAR_MIN = { width: 250, height: 136 }
 const RING_MIN = { width: 250, height: 220 }
 
-let currentMin = BAR_MIN
+/**
+ * One timer per window.
+ *
+ * The user ran two Hourglass windows side by side, and a second window is still
+ * the natural way to time two things at once. Each carries its own engine and
+ * its own last-completed run, so an undo in one window cannot reach into
+ * another's session.
+ */
+interface TimerInstance {
+  window: BrowserWindow
+  engine: TimerEngine
+  lastCompleted: { id: number; snapshot: TimerSnapshot } | null
+  minimum: { width: number; height: number }
+}
 
-const timer = new TimerEngine()
-let compactWindow: BrowserWindow | null = null
+const instances = new Map<number, TimerInstance>()
 let dashboardWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
 /**
- * The last completed run, kept so undo can reverse it. Stopping by accident
- * instead of pausing must never cost recorded time, so undo deletes the row and
- * restores the timing exactly rather than making it be re-entered by hand.
+ * Settings that belong to the app rather than to one timer. The dashboard is a
+ * single window, so a change there applies to every open timer and is inherited
+ * by any opened afterwards.
  */
-let lastCompleted: { id: number; snapshot: TimerSnapshot } | null = null
-
-function broadcast(channel: string, payload: unknown): void {
-  if (compactWindow && !compactWindow.isDestroyed()) {
-    compactWindow.webContents.send(channel, payload)
-  }
+const settings = {
+  loop: true,
+  autoEndMinutes: 15,
+  pace: null as PaceConfig | null
 }
 
-function createCompactWindow(): BrowserWindow {
+function instanceFor(event: IpcMainInvokeEvent): TimerInstance | undefined {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  return window ? instances.get(window.id) : undefined
+}
+
+/** The timer a global shortcut should act on: focused first, else the only one. */
+function activeInstance(): TimerInstance | undefined {
+  const focused = BrowserWindow.getFocusedWindow()
+  if (focused && instances.has(focused.id)) return instances.get(focused.id)
+  return instances.values().next().value
+}
+
+function send(instance: TimerInstance, channel: string, payload: unknown): void {
+  if (!instance.window.isDestroyed()) instance.window.webContents.send(channel, payload)
+}
+
+function createTimerWindow(): BrowserWindow {
+  // New windows cascade rather than stack, so a second timer is visible as soon
+  // as it opens instead of hiding exactly behind the first.
+  const offset = instances.size * 28
+
   const window = new BrowserWindow({
     ...BAR_MIN,
     minWidth: BAR_MIN.width,
     minHeight: BAR_MIN.height,
+    ...(instances.size > 0 ? { x: undefined, y: undefined } : {}),
     show: false,
     frame: false,
     transparent: true,
@@ -75,13 +102,55 @@ function createCompactWindow(): BrowserWindow {
     }
   })
 
-  // 'screen-saver' keeps the timer above full-screen apps, which is the whole
-  // point - the user writes essays full-screen and still needs to see the clock.
+  // 'screen-saver' keeps the timer above full-screen apps, which is the point:
+  // essays get written full-screen.
   window.setAlwaysOnTop(true, 'screen-saver')
 
-  window.on('ready-to-show', () => window.show())
-  window.on('enter-full-screen', () => broadcast('window:fullscreen', true))
-  window.on('leave-full-screen', () => broadcast('window:fullscreen', false))
+  const engine = new TimerEngine()
+  engine.setLoop(settings.loop)
+  engine.setAutoEndMinutes(settings.autoEndMinutes)
+  engine.setPace(settings.pace)
+
+  const instance: TimerInstance = { window, engine, lastCompleted: null, minimum: BAR_MIN }
+  instances.set(window.id, instance)
+
+  engine.on('update', (snapshot: TimerSnapshot) => {
+    send(instance, 'timer:update', snapshot)
+    updateTray()
+  })
+
+  // Every finished run arrives here - stopped by hand, expired, or auto-ended -
+  // so there is one place a session is recorded and no path can miss it.
+  engine.on('completed', (snapshot: TimerSnapshot) => {
+    const id = recordSession(snapshot, engine.paceConfig())
+    instance.lastCompleted = id === null ? null : { id, snapshot }
+    send(instance, 'timer:completed', null)
+  })
+
+  engine.on('pace', (event: PaceEvent) => send(instance, 'timer:pace', event))
+  engine.on('autoEnded', () => send(instance, 'timer:autoEnded', null))
+
+  engine.on('expired', (snapshot: TimerSnapshot) => {
+    send(instance, 'timer:expired', snapshot)
+    // Flashing the taskbar button is the only cue that lands when the window is
+    // behind a full-screen document.
+    if (!window.isDestroyed() && !window.isFocused()) window.flashFrame(true)
+  })
+
+  window.on('ready-to-show', () => {
+    if (offset > 0) {
+      const [x, y] = window.getPosition()
+      window.setPosition(x + offset, y + offset)
+    }
+    window.show()
+  })
+  window.on('enter-full-screen', () => send(instance, 'window:fullscreen', true))
+  window.on('leave-full-screen', () => send(instance, 'window:fullscreen', false))
+  window.on('closed', () => {
+    engine.dispose()
+    instances.delete(window.id)
+    updateTray()
+  })
 
   window.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -89,18 +158,18 @@ function createCompactWindow(): BrowserWindow {
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    window.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    void window.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    window.loadFile(join(__dirname, '../renderer/index.html'))
+    void window.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
   return window
 }
 
 /**
- * Settings, data and analytics live in a normal window rather than inside the
- * timer. The timer is a widget that has to stay small and stay out of the way;
- * anything with tabs in it does not belong there.
+ * Settings, data and analytics live in a normal window. The timer is a widget
+ * that has to stay small and out of the way; anything with tabs in it does not
+ * belong there.
  */
 function openDashboard(): void {
   if (dashboardWindow && !dashboardWindow.isDestroyed()) {
@@ -136,70 +205,117 @@ function openDashboard(): void {
   }
 }
 
-/**
- * The tray is the only surface left when the window is minimised, so it carries
- * the remaining time in its tooltip and toggles the window on click.
- */
+/** The tray is the only surface left when every window is minimised. */
 function createTray(): void {
   tray = new Tray(nativeImage.createFromPath(icon).resize({ width: 16, height: 16 }))
-  tray.setToolTip('Deep Work Tracker')
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Show timer', click: () => compactWindow?.show() },
+      { label: 'New timer', click: () => createTimerWindow() },
+      { label: 'Show timers', click: () => instances.forEach((i) => i.window.show()) },
       { label: 'Settings and data', click: () => openDashboard() },
       { type: 'separator' },
       { label: 'Quit', click: () => app.quit() }
     ])
   )
   tray.on('click', () => {
-    if (!compactWindow || compactWindow.isDestroyed()) return
-    if (compactWindow.isVisible()) compactWindow.hide()
-    else compactWindow.show()
+    const anyHidden = [...instances.values()].some((i) => !i.window.isVisible())
+    instances.forEach((i) => (anyHidden ? i.window.show() : i.window.hide()))
   })
+  updateTray()
 }
 
-function updateTray(snapshot: TimerSnapshot): void {
+function updateTray(): void {
   if (!tray) return
+  const running = [...instances.values()]
+    .map((i) => i.engine.snapshot())
+    .filter((s) => s.status !== 'idle')
   const label =
-    snapshot.status === 'idle'
+    running.length === 0
       ? 'Deep Work Tracker'
-      : `${formatClock(remainingMs(snapshot, Date.now()))} - ${snapshot.status}`
+      : running.map((s) => `${formatClock(remainingMs(s, Date.now()))} ${s.status}`).join('  |  ')
   tray.setToolTip(label)
 }
 
 function registerIpc(): void {
-  ipcMain.handle('timer:get', () => timer.snapshot())
-  ipcMain.handle('timer:start', (_event, plannedMs: number) => timer.start(plannedMs))
-  ipcMain.handle('timer:pause', () => timer.pause())
-  ipcMain.handle('timer:resume', () => timer.resume())
-  ipcMain.handle('timer:setTask', (_event, task: string) => timer.setTask(task))
-  ipcMain.handle('timer:stop', () => timer.stop())
+  // Every timer call resolves the instance from the window that sent it, so two
+  // open timers never touch each other's clock.
+  ipcMain.handle('timer:get', (event) => instanceFor(event)?.engine.snapshot() ?? null)
+  ipcMain.handle('timer:start', (event, plannedMs: number) =>
+    instanceFor(event)?.engine.start(plannedMs)
+  )
+  ipcMain.handle('timer:pause', (event) => instanceFor(event)?.engine.pause())
+  ipcMain.handle('timer:resume', (event) => instanceFor(event)?.engine.resume())
+  ipcMain.handle('timer:stop', (event) => instanceFor(event)?.engine.stop())
+  ipcMain.handle('timer:setTask', (event, task: string) => instanceFor(event)?.engine.setTask(task))
+
+  ipcMain.handle('sessions:setStopReason', (event, reason: string | null, note: string | null) => {
+    const completed = instanceFor(event)?.lastCompleted
+    if (completed) setStopReason(completed.id, reason, note)
+  })
+
+  ipcMain.handle('timer:undoStop', (event) => {
+    const instance = instanceFor(event)
+    if (!instance?.lastCompleted) return null
+    deleteSession(instance.lastCompleted.id)
+    const restored = instance.engine.restore(instance.lastCompleted.snapshot)
+    instance.lastCompleted = null
+    return restored
+  })
+
+  // Settings belong to the app, so a change reaches every open timer.
+  ipcMain.handle('timer:getLoop', () => settings.loop)
+  ipcMain.handle('timer:setLoop', (_event, value: boolean) => {
+    settings.loop = value
+    instances.forEach((i) => i.engine.setLoop(value))
+  })
+  ipcMain.handle('timer:getPace', () => settings.pace)
+  ipcMain.handle('timer:setPace', (_event, config: PaceConfig | null) => {
+    settings.pace = config
+    instances.forEach((i) => i.engine.setPace(config))
+  })
+  ipcMain.handle('timer:getAutoEnd', () => settings.autoEndMinutes)
+  ipcMain.handle('timer:setAutoEnd', (_event, minutes: number) => {
+    settings.autoEndMinutes = minutes
+    instances.forEach((i) => i.engine.setAutoEndMinutes(minutes))
+  })
+
   ipcMain.handle('sessions:recent', (_event, limit?: number) => recentSessions(limit))
 
-  ipcMain.handle('window:isFullScreen', () => compactWindow?.isFullScreen() ?? false)
-  ipcMain.handle('window:setFullScreen', (_event, value: boolean) => {
-    compactWindow?.setFullScreen(value)
+  ipcMain.handle('window:newTimer', () => {
+    createTimerWindow()
+  })
+  ipcMain.handle('window:openDashboard', () => openDashboard())
+  ipcMain.handle(
+    'window:isFullScreen',
+    (event) => instanceFor(event)?.window.isFullScreen() ?? false
+  )
+  ipcMain.handle('window:setFullScreen', (event, value: boolean) => {
+    instanceFor(event)?.window.setFullScreen(value)
     return value
   })
+  ipcMain.handle('window:minimize', (event) => instanceFor(event)?.window.minimize())
+  ipcMain.handle('window:close', (event) => instanceFor(event)?.window.close())
+
   /**
    * Each dial has its own minimum. A window sitting at the old minimum follows
-   * the new one - which is what makes ring shrink back down on the way to bar -
-   * while a size the user chose deliberately is left alone unless it is now
-   * too small.
+   * the new one, which is what makes ring shrink back on the way to bar, while
+   * a size chosen deliberately is left alone unless it is now too small.
    */
-  ipcMain.handle('window:setVariant', (_event, variant: 'ring' | 'bar') => {
-    if (!compactWindow || compactWindow.isFullScreen()) return
+  ipcMain.handle('window:setVariant', (event, variant: 'ring' | 'bar') => {
+    const instance = instanceFor(event)
+    if (!instance || instance.window.isFullScreen()) return
     const next = variant === 'ring' ? RING_MIN : BAR_MIN
-    const [width, height] = compactWindow.getSize()
-    const wasAtMinimum = width <= currentMin.width + 2 && height <= currentMin.height + 2
-    compactWindow.setMinimumSize(next.width, next.height)
-    if (wasAtMinimum) {
-      compactWindow.setSize(next.width, next.height)
-    } else if (width < next.width || height < next.height) {
-      compactWindow.setSize(Math.max(width, next.width), Math.max(height, next.height))
+    const [width, height] = instance.window.getSize()
+    const wasAtMinimum =
+      width <= instance.minimum.width + 2 && height <= instance.minimum.height + 2
+    instance.window.setMinimumSize(next.width, next.height)
+    if (wasAtMinimum) instance.window.setSize(next.width, next.height)
+    else if (width < next.width || height < next.height) {
+      instance.window.setSize(Math.max(width, next.width), Math.max(height, next.height))
     }
-    currentMin = next
+    instance.minimum = next
   })
+
   ipcMain.handle('import:pickFile', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Choose the spreadsheet export',
@@ -216,60 +332,14 @@ function registerIpc(): void {
     return importRows(rows)
   })
   ipcMain.handle('import:existingCount', () => importedSessionCount())
-
-  ipcMain.handle('window:openDashboard', () => openDashboard())
-  ipcMain.handle('window:minimize', () => compactWindow?.minimize())
-  ipcMain.handle('window:close', () => compactWindow?.close())
-
-  ipcMain.handle('timer:getLoop', () => timer.isLooping())
-  ipcMain.handle('timer:setLoop', (_event, value: boolean) => timer.setLoop(value))
-  ipcMain.handle('timer:getPace', () => timer.paceConfig())
-  ipcMain.handle('timer:setPace', (_event, config) => timer.setPace(config))
-  ipcMain.handle('timer:getAutoEnd', () => timer.autoEndMinutes())
-  ipcMain.handle('timer:setAutoEnd', (_event, minutes: number) => timer.setAutoEndMinutes(minutes))
-
-  ipcMain.handle('sessions:setStopReason', (_event, reason: string | null, note: string | null) => {
-    if (lastCompleted) setStopReason(lastCompleted.id, reason, note)
-  })
-
-  ipcMain.handle('timer:undoStop', () => {
-    if (!lastCompleted) return null
-    deleteSession(lastCompleted.id)
-    const restored = timer.restore(lastCompleted.snapshot)
-    lastCompleted = null
-    return restored
-  })
-
-  timer.on('update', (snapshot: TimerSnapshot) => {
-    broadcast('timer:update', snapshot)
-    updateTray(snapshot)
-  })
-
-  // Every finished run arrives here - stopped by hand, expired, or auto-ended -
-  // so there is one place a session is recorded and no path can miss it.
-  timer.on('completed', (snapshot: TimerSnapshot) => {
-    const id = recordSession(snapshot, timer.paceConfig())
-    lastCompleted = id === null ? null : { id, snapshot }
-    broadcast('timer:completed', { id, snapshot })
-  })
-
-  timer.on('pace', (event: PaceEvent) => broadcast('timer:pace', event))
-  timer.on('autoEnded', () => broadcast('timer:autoEnded', null))
-
-  timer.on('expired', (snapshot: TimerSnapshot) => {
-    broadcast('timer:expired', snapshot)
-    // Flashes the taskbar button, which is the only cue that lands when the
-    // window is behind a full-screen document.
-    if (compactWindow && !compactWindow.isDestroyed() && !compactWindow.isFocused()) {
-      compactWindow.flashFrame(true)
-    }
-  })
 }
 
 function togglePause(): void {
-  const { status } = timer.snapshot()
-  if (status === 'running') timer.pause()
-  else if (status === 'paused') timer.resume()
+  const instance = activeInstance()
+  if (!instance) return
+  const { status } = instance.engine.snapshot()
+  if (status === 'running') instance.engine.pause()
+  else if (status === 'paused') instance.engine.resume()
 }
 
 app.whenReady().then(() => {
@@ -281,29 +351,27 @@ app.whenReady().then(() => {
 
   openDatabase()
   registerIpc()
-  compactWindow = createCompactWindow()
+  createTimerWindow()
   createTray()
 
-  // Sleeping the machine is not working, so suspend pauses rather than letting
-  // the countdown burn through a closed lid.
-  powerMonitor.on('suspend', () => timer.handleSuspend())
-  powerMonitor.on('resume', () => timer.handleResume())
+  // Sleeping the machine is not working, so suspend pauses every running timer
+  // rather than letting countdowns burn through a closed lid.
+  powerMonitor.on('suspend', () => instances.forEach((i) => i.engine.handleSuspend()))
+  powerMonitor.on('resume', () => instances.forEach((i) => i.engine.handleResume()))
 
   if (!globalShortcut.register(PAUSE_ACCELERATOR, togglePause)) {
     console.warn(`Could not register ${PAUSE_ACCELERATOR}; another app likely owns it.`)
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      compactWindow = createCompactWindow()
-    }
+    if (instances.size === 0) createTimerWindow()
   })
 })
 
 app.on('will-quit', () => {
   tray?.destroy()
   globalShortcut.unregisterAll()
-  timer.dispose()
+  instances.forEach((i) => i.engine.dispose())
   closeDatabase()
 })
 
