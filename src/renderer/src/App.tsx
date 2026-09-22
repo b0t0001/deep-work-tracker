@@ -124,6 +124,18 @@ export default function App(): React.JSX.Element {
   const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
   const [flashing, setFlashing] = useState(false)
   const [paceNotice, setPaceNotice] = useState<string | null>(null)
+  const [pace, setPace] = useState<{
+    intervalMs: number
+    quantity: number | null
+    unit: string | null
+  } | null>(null)
+
+  // A pace loop configured in settings was invisible from here, so it was easy
+  // to conclude the feature did not exist. The timer now says when one is on.
+  useEffect(() => {
+    void window.api.timer.getPace().then(setPace)
+    return window.api.settings.onChanged((next) => setPace(next.pace))
+  }, [])
   const [stopPrompt, setStopPrompt] = useState(false)
   const clockRef = useRef<HTMLInputElement>(null)
 
@@ -166,12 +178,18 @@ export default function App(): React.JSX.Element {
   const fraction = idle ? 0 : progressOf(snapshot, now)
   // While typing, the caption shows how the input was read, so `one hour`
   // confirms itself as 1:00:00 before you commit to it.
+  const paceLabel =
+    pace === null
+      ? null
+      : `${pace.quantity ?? ''}${pace.unit ? ` ${pace.unit}` : ''}`.trim() +
+        `/${Math.round(pace.intervalMs / 60_000)}m`
+
   const caption = idle
     ? canonical === null
       ? 'enter a time'
       : canonical !== draft.trim()
         ? canonical
-        : 'ready'
+        : (paceLabel ?? 'ready')
     : CAPTIONS[snapshot.status]
 
   /** Rewrites the field into canonical form, so what was typed visibly took. */

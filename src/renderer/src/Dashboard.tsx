@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import { parseDurationMs } from '@shared/duration'
+import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 
 type Tab = 'settings' | 'data' | 'analytics' | 'import'
 
@@ -37,6 +38,69 @@ function hours(seconds: number): string {
   return `${(seconds / 3600).toFixed(2)} h`
 }
 
+const SHORTCUTS: Array<{ id: string; label: string; hint: string }> = [
+  {
+    id: 'pause',
+    label: 'Pause / resume',
+    hint: 'The one that matters: writing full screen, reaching for the mouse breaks flow.'
+  },
+  { id: 'stop', label: 'Stop', hint: 'Ends the session. Undo is still offered afterwards.' },
+  {
+    id: 'newTimer',
+    label: 'New timer window',
+    hint: 'Opens a second timer for something running alongside.'
+  }
+]
+
+function ShortcutField({
+  label,
+  hint,
+  value,
+  failed,
+  onChange
+}: {
+  label: string
+  hint: string
+  value: string
+  failed: boolean
+  onChange: (accelerator: string) => void
+}): React.JSX.Element {
+  const [capturing, setCapturing] = useState(false)
+
+  return (
+    <div className="shortcut">
+      <div className="shortcut__text">
+        <strong>{label}</strong>
+        <em>{hint}</em>
+      </div>
+      <button
+        className={`shortcut__key${capturing ? ' is-capturing' : ''}${failed ? ' is-failed' : ''}`}
+        onClick={() => setCapturing(true)}
+        onBlur={() => setCapturing(false)}
+        onKeyDown={(event) => {
+          if (!capturing) return
+          event.preventDefault()
+          if (event.key === 'Escape') {
+            setCapturing(false)
+            return
+          }
+          if (event.key === 'Backspace' || event.key === 'Delete') {
+            onChange('')
+            setCapturing(false)
+            return
+          }
+          const accelerator = acceleratorFromEvent(event)
+          if (!accelerator) return
+          onChange(accelerator)
+          setCapturing(false)
+        }}
+      >
+        {capturing ? 'Press keys…' : describeAccelerator(value)}
+      </button>
+    </div>
+  )
+}
+
 function SettingsTab(): React.JSX.Element {
   const [accent, setAccent] = useState<string>(() => {
     try {
@@ -46,33 +110,18 @@ function SettingsTab(): React.JSX.Element {
       return DEFAULT_ACCENT
     }
   })
-
-  function choose(value: string): void {
-    setAccent(value)
-    document.documentElement.style.setProperty('--accent', value)
-    try {
-      localStorage.setItem(ACCENT_KEY, value)
-      // localStorage does not notify the window that wrote it, so the timer is
-      // told explicitly. Same origin, so it receives this as a storage event.
-      window.dispatchEvent(new StorageEvent('storage', { key: ACCENT_KEY, newValue: value }))
-    } catch {
-      /* blocked storage: the colour applies but will not persist */
-    }
-  }
-
-  useEffect(() => {
-    document.documentElement.style.setProperty('--accent', accent)
-  }, [accent])
-
   const [loop, setLoop] = useState(true)
   const [autoEnd, setAutoEnd] = useState('180')
   const [paceInterval, setPaceInterval] = useState('')
   const [paceQuantity, setPaceQuantity] = useState('')
   const [paceUnit, setPaceUnit] = useState('')
+  const [shortcuts, setShortcuts] = useState<Record<string, string>>({})
+  const [failures, setFailures] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     void window.api.timer.getLoop().then(setLoop)
     void window.api.timer.getAutoEnd().then((minutes) => setAutoEnd(String(minutes)))
+    void window.api.shortcuts.get().then(setShortcuts)
     void window.api.timer.getPace().then((config) => {
       if (!config) return
       setPaceInterval(String(Math.round(config.intervalMs / 60_000)))
@@ -80,6 +129,23 @@ function SettingsTab(): React.JSX.Element {
       setPaceUnit(config.unit ?? '')
     })
   }, [])
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--accent', accent)
+  }, [accent])
+
+  function chooseAccent(value: string): void {
+    setAccent(value)
+    document.documentElement.style.setProperty('--accent', value)
+    try {
+      localStorage.setItem(ACCENT_KEY, value)
+      // localStorage does not notify the window that wrote it, so the timer is
+      // told explicitly. Same origin, so it arrives as a storage event.
+      window.dispatchEvent(new StorageEvent('storage', { key: ACCENT_KEY, newValue: value }))
+    } catch {
+      /* blocked storage: the colour applies but will not persist */
+    }
+  }
 
   /** An interval with no number is not a pace loop, so it is switched off. */
   function applyPace(interval: string, quantity: string, unit: string): void {
@@ -95,47 +161,17 @@ function SettingsTab(): React.JSX.Element {
     )
   }
 
-  function toggleLoop(value: boolean): void {
-    setLoop(value)
-    void window.api.timer.setLoop(value)
+  function changeShortcut(id: string, accelerator: string): void {
+    const next = { ...shortcuts, [id]: accelerator }
+    setShortcuts(next)
+    void window.api.shortcuts.set(next).then((results) => {
+      setFailures(Object.fromEntries(Object.entries(results).map(([k, ok]) => [k, !ok])))
+    })
   }
 
   return (
     <section className="panel">
-      <h2>Timer</h2>
-      <label className="toggle">
-        <input
-          type="checkbox"
-          checked={loop}
-          onChange={(event) => toggleLoop(event.target.checked)}
-        />
-        <span>
-          <strong>Loop</strong>
-          <em>
-            On expiry, start another run of the same length. Each pass is recorded as its own
-            session.
-          </em>
-        </span>
-      </label>
-
-      <label className="field">
-        <span>End a paused session after</span>
-        <input
-          value={autoEnd}
-          onChange={(event) => {
-            setAutoEnd(event.target.value)
-            const minutes = Number(event.target.value)
-            if (Number.isFinite(minutes)) void window.api.timer.setAutoEnd(minutes)
-          }}
-          inputMode="numeric"
-        />
-        <em>
-          minutes. Pausing and walking away is easy to forget; the session ends at the moment it was
-          paused, so time away is never counted. Zero switches this off.
-        </em>
-      </label>
-
-      <h2 className="spaced">Pace loop</h2>
+      <h2>Pace loop</h2>
       <p className="muted">
         A second timer running alongside the session. Every interval it plays a quiet cue and shows
         what should be done by now &mdash; &ldquo;100 words per 20 minutes&rdquo; reads{' '}
@@ -179,9 +215,69 @@ function SettingsTab(): React.JSX.Element {
         </label>
       </div>
       <p className="muted">
-        The interval reads the same forms as the clock: <code>20</code>, <code>3 min</code>,
-        <code>90 sec</code>. Clearing it switches the pace loop off.
+        The interval reads the same forms as the clock: <code>20</code>, <code>3 min</code>,{' '}
+        <code>90 sec</code>. Clearing it switches the pace loop off. While it is on, the timer shows
+        it under the clock.
       </p>
+
+      <h2 className="spaced">Timer</h2>
+      <label className="toggle">
+        <input
+          type="checkbox"
+          checked={loop}
+          onChange={(event) => {
+            setLoop(event.target.checked)
+            void window.api.timer.setLoop(event.target.checked)
+          }}
+        />
+        <span>
+          <strong>Loop</strong>
+          <em>
+            On expiry, start another run of the same length. Each pass is recorded as its own
+            session.
+          </em>
+        </span>
+      </label>
+
+      <label className="field">
+        <span>End a paused session after</span>
+        <input
+          value={autoEnd}
+          onChange={(event) => {
+            setAutoEnd(event.target.value)
+            const minutes = Number(event.target.value)
+            if (Number.isFinite(minutes)) void window.api.timer.setAutoEnd(minutes)
+          }}
+          inputMode="numeric"
+        />
+        <em>
+          minutes. A backstop for a pause you forgot, not a limit on how long a break may be &mdash;
+          the session ends at the moment it was paused, so time away is never counted. Zero switches
+          it off.
+        </em>
+      </label>
+
+      <h2 className="spaced">Keyboard shortcuts</h2>
+      <p className="muted">
+        System-wide, so they work without leaving whatever you are writing in. Click a binding and
+        press the keys; Backspace clears it, Escape cancels.
+      </p>
+      {SHORTCUTS.map((entry) => (
+        <ShortcutField
+          key={entry.id}
+          label={entry.label}
+          hint={entry.hint}
+          value={shortcuts[entry.id] ?? ''}
+          failed={failures[entry.id] ?? false}
+          onChange={(accelerator) => changeShortcut(entry.id, accelerator)}
+        />
+      ))}
+      {Object.values(failures).some(Boolean) && (
+        <p className="notice">
+          A binding shown in red could not be registered &mdash; another application already owns
+          that combination. Pick a different one.
+        </p>
+      )}
 
       <h2 className="spaced">Accent colour</h2>
       <p className="muted">
@@ -193,7 +289,7 @@ function SettingsTab(): React.JSX.Element {
             key={option.value}
             className={`swatch-large${option.value === accent ? ' is-active' : ''}`}
             style={{ background: option.value }}
-            onClick={() => choose(option.value)}
+            onClick={() => chooseAccent(option.value)}
             title={option.name}
           >
             <span>{option.name}</span>

@@ -22,7 +22,14 @@ import { importRows, importedSessionCount } from './db/import'
 import { readImportRows, summarize } from './import/csv'
 import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
 
-const PAUSE_ACCELERATOR = 'CommandOrControl+Shift+Space'
+/** Actions a global shortcut can drive, and what they start out bound to. */
+export type ShortcutAction = 'pause' | 'stop' | 'newTimer'
+
+const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
+  pause: 'CommandOrControl+Shift+Space',
+  stop: '',
+  newTimer: ''
+}
 
 /**
  * Opens at its smallest usable footprint, matching the size Hourglass is
@@ -59,7 +66,16 @@ let tray: Tray | null = null
 const settings = {
   loop: true,
   autoEndMinutes: 180,
-  pace: null as PaceConfig | null
+  pace: null as PaceConfig | null,
+  shortcuts: { ...DEFAULT_SHORTCUTS }
+}
+
+/**
+ * Settings live in the main process but are edited in the dashboard, so every
+ * timer window is told when they change rather than polling or going stale.
+ */
+function broadcastSettings(): void {
+  instances.forEach((i) => send(i, 'settings:changed', { pace: settings.pace }))
 }
 
 function instanceFor(event: IpcMainInvokeEvent): TimerInstance | undefined {
@@ -272,6 +288,7 @@ function registerIpc(): void {
   ipcMain.handle('timer:setPace', (_event, config: PaceConfig | null) => {
     settings.pace = config
     instances.forEach((i) => i.engine.setPace(config))
+    broadcastSettings()
   })
   ipcMain.handle('timer:getAutoEnd', () => settings.autoEndMinutes)
   ipcMain.handle('timer:setAutoEnd', (_event, minutes: number) => {
@@ -280,6 +297,12 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('sessions:recent', (_event, limit?: number) => recentSessions(limit))
+
+  ipcMain.handle('shortcuts:get', () => settings.shortcuts)
+  ipcMain.handle('shortcuts:set', (_event, next: Record<ShortcutAction, string>) => {
+    settings.shortcuts = { ...settings.shortcuts, ...next }
+    return registerShortcuts()
+  })
 
   ipcMain.handle('window:newTimer', () => {
     createTimerWindow()
@@ -342,6 +365,38 @@ function togglePause(): void {
   else if (status === 'paused') instance.engine.resume()
 }
 
+const SHORTCUT_ACTIONS: Record<ShortcutAction, () => void> = {
+  pause: togglePause,
+  stop: () => activeInstance()?.engine.stop(),
+  newTimer: () => createTimerWindow()
+}
+
+/**
+ * Re-registers every binding from scratch.
+ *
+ * Registration fails silently when another application already owns the
+ * combination, so the result is reported back and shown in settings - a
+ * shortcut that quietly does nothing is worse than one you know is taken.
+ */
+function registerShortcuts(): Record<ShortcutAction, boolean> {
+  globalShortcut.unregisterAll()
+  const result = {} as Record<ShortcutAction, boolean>
+  for (const [action, accelerator] of Object.entries(settings.shortcuts)) {
+    const key = action as ShortcutAction
+    if (!accelerator) {
+      result[key] = true
+      continue
+    }
+    try {
+      result[key] = globalShortcut.register(accelerator, SHORTCUT_ACTIONS[key])
+    } catch {
+      // Electron throws rather than returning false on a malformed accelerator.
+      result[key] = false
+    }
+  }
+  return result
+}
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.b0t0001.deepworktracker')
 
@@ -359,9 +414,7 @@ app.whenReady().then(() => {
   powerMonitor.on('suspend', () => instances.forEach((i) => i.engine.handleSuspend()))
   powerMonitor.on('resume', () => instances.forEach((i) => i.engine.handleResume()))
 
-  if (!globalShortcut.register(PAUSE_ACCELERATOR, togglePause)) {
-    console.warn(`Could not register ${PAUSE_ACCELERATOR}; another app likely owns it.`)
-  }
+  registerShortcuts()
 
   app.on('activate', () => {
     if (instances.size === 0) createTimerWindow()
