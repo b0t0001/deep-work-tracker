@@ -367,6 +367,13 @@ always-on-top. `Start` and `End` in the CSV are **time remaining on the
 countdown, not wall-clock time**. Every one of the 2,336 rows has `end < start`,
 and `|start - end|` matches the recorded hours exactly.
 
+**A blank `End` means the countdown reached 0:00:00** — the sheet leaves it
+empty when a run went to term and computes the duration from `Start` alone. Its
+own Total Time column agrees on all 19 such rows. Reading a blank End as
+missing data instead discards 19 real sessions and 23 hours. A row with neither
+reading is genuinely untimed and gets no row: an absence of timing is not a
+zero-length session.
+
 **Consequence: the historical data contains no time-of-day information.**
 Time-of-day analytics can only ever cover sessions recorded by this app. Never
 present a time-of-day chart that silently includes imported rows.

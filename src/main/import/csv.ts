@@ -174,9 +174,15 @@ export function readImportRows(text: string): {
       skippedBlank += 1
       continue
     }
-    if (start === null || end === null || start <= end) {
-      // A rest day, or a row the sheet never filled in. Both are absences of
-      // work, and an absence is already a zero - it needs no row.
+    // A blank End means the countdown reached 0:00:00. The sheet leaves it empty
+    // when a run went to term and computes the duration from Start alone; its
+    // own Total Time column agrees with that on all 19 such rows. Treating a
+    // blank End as missing data instead would have discarded them.
+    const finish = end ?? 0
+
+    if (start === null || start <= finish) {
+      // No Start either: the row records that something happened but not for how
+      // long. An absence of timing is not a zero-length session, so it gets no row.
       skippedNoTiming += 1
       continue
     }
@@ -190,7 +196,7 @@ export function readImportRows(text: string): {
       project,
       task: task === '' ? null : task,
       plannedS: start,
-      actualS: start - end,
+      actualS: start - finish,
       quantity: work.quantity,
       unit: work.unit,
       unquantifiable: work.unquantifiable,
