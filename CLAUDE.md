@@ -124,6 +124,49 @@ Rules that hold it together:
 - **It never asks for input.** The user will not log data mid-essay. It cues;
   they judge. Quantity is entered once, at stop.
 
+### The pace window's lifetime and state
+
+The pace window is part of a timer, not a window in its own right, and
+everything about it follows from that.
+
+- **Its accent is the app's accent.** Every window reads the same stored value
+  through the shared `useAccentSync` hook and follows the same storage event, so
+  they cannot disagree. Do not give any window its own copy.
+- **It dims with its parent** when the session pauses — a paused session is not
+  being paced. **Only the ring and the reading fade.** The card *is* the
+  window's background, so fading the element itself makes the whole window
+  see-through rather than quiet.
+- **It ends with the session it was set for.** Looping does not pass through
+  idle — expiry starts the next run directly — so a repeating session keeps its
+  pace across laps, while stopping, auto-ending, or expiring without loop closes
+  it.
+- **Ending is not the same as the user closing it.** Closing means "remove
+  this" and clears the panel fields. Ending means "that session is over", so the
+  values stay and the same pace re-arms with one click.
+- **Undo brings it back.** The pace a completed run was carrying is kept, and
+  undoing the stop restores it with the window. Lap position needs no special
+  handling: it derives from running time, which the restored snapshot already
+  carries, so it resumes mid-lap rather than from zero.
+- **It opens without taking focus** (`showInactive`). It appears as soon as the
+  interval parses, which is while the user is still typing it, and activating
+  would pull the caret out of the field mid-word.
+- **Its close control is always visible**, not hover-only. A control that
+  appears only once you happen to hover the right spot is one nobody knows
+  exists.
+
+### The pace panel
+
+Opened from the button beside start, never from settings.
+
+- **Opening it applies whatever the fields already hold.** Values left behind by
+  a finished session are exactly the case where re-arming should be one click;
+  requiring an edit meant retyping a value already on screen.
+- **Enter walks the fields** — interval, quantity, unit — then closes the panel
+  and focuses the clock, so the next Enter starts the session and its pace
+  together. A pace can be set and started without the mouse.
+- **The confirm button is a checkmark, not an X.** Settings apply as they are
+  typed, so it confirms rather than dismisses.
+
 ### The two cues must differ in timbre, not volume
 
 Session expiry plays **Hourglass's own beep**, extracted from `BeepNormal` in
@@ -224,21 +267,59 @@ genuinely attractive ring, no visual debris. When trading off information
 density against looking good, lean toward looking good — the dashboard carries
 the detail.
 
-### Electron specifics that are easy to get wrong
+### Electron drag regions: check this before adding any control
 
-Three rules, each learned by breaking something:
+This has now broken the build three separate times. It is not background
+reading — it is a check to run **before** writing the JSX, not a thing to
+remember afterwards.
 
-1. **A drag region consumes mouse events at the OS level** — no hover, no
-   clicks. Anything interactive inside one needs `-webkit-app-region: no-drag`.
-   Inputs get this automatically, which is why a full-width clock input once
-   turned the middle of the window into a dead band nothing could drag.
-2. **`no-drag` nests inside `drag`, but `drag` does not nest inside `no-drag`.**
-   Inverting the card to make a floating panel hoverable killed dragging
-   outright.
-3. **Overlapping drag regions resolve by document order, not `z-index`.** The
-   chrome is therefore declared *after* the dial in the markup and reordered
-   visually with flexbox `order`. Declaring it first let the dial override it
-   and hover stopped working.
+**The rule that keeps being broken:**
+
+> Any interactive element that visually overlaps a draggable surface must be
+> the **last sibling** in its container.
+
+Electron resolves overlapping drag regions by **document order, not
+`z-index`**. Writing chrome first and content second is the natural reading
+order and it is wrong here: the later element wins, so a button declared before
+the thing it sits on top of is silently dead. It renders, it highlights in
+devtools, it never receives a click and never fires `:hover`.
+
+Every occurrence so far was the same shape — an interactive control added to
+the top of a component that overlays the dial:
+
+| What broke | Why |
+| --- | --- |
+| Ring-mode header never appeared on hover | declared before the dial |
+| Ring mode could not be dragged at all | drag zone declared before the dial |
+| Pace window's close button did nothing | declared before the ring |
+
+**Before adding a control that overlays a dial, ring or card, ask:**
+
+1. Does it sit on top of a draggable surface? If no, stop — this does not apply.
+2. Is it declared **after** that surface in the markup? If not, move it.
+3. Does it need `-webkit-app-region: no-drag`? Buttons and inputs get this
+   automatically; a plain `div` or the container around them does not.
+4. If the visual order now disagrees with the markup order, fix it with flexbox
+   `order`, never by moving the element back.
+
+**Two more rules that follow from the same mechanism:**
+
+- **A drag region consumes mouse events at the OS level** — no hover, no
+  clicks, no `mousedown`. This is why a full-width clock input once turned the
+  middle of the window into a dead band nothing could drag, and why the card
+  drops `-webkit-app-region: drag` entirely while a field is focused.
+- **`no-drag` nests inside `drag`, but `drag` does not nest inside `no-drag`.**
+  Inverting the card to make a floating panel hoverable killed dragging
+  outright.
+
+**Symptom-to-cause, since these look like unrelated bugs:**
+
+| Symptom | Cause |
+| --- | --- |
+| Button visible but clicks do nothing | declared before the draggable surface |
+| `:hover` styles never apply | same |
+| A region of the window cannot be dragged | a `no-drag` element covers it |
+| Dragging stopped everywhere | `drag` nested inside `no-drag` |
 
 ### Global shortcuts
 
@@ -429,23 +510,11 @@ npm run format
 No test runner yet — Vitest arrives in Phase 2, alongside the first real
 logic worth testing. Do not reference `npm run test` until it exists.
 
-In the meantime the timer engine is verified by bundling it standalone and
-driving it from Node, which has already caught two real defects: completed runs
-recording the polling overshoot, and every spelled-out duration silently
-failing to parse. Anything touching the engine should be exercised this way
-rather than assumed:
+The timer engine is exercised directly in the meantime — see
+**Working practices**.
 
-```
-npx esbuild src/main/timer.ts --bundle --platform=node --format=esm --outfile=<tmp>/t.mjs
-node <tmp>/your-test.mjs
-```
-
-**`npm run dist` produces an installer; it does not update the installed app.**
-The installed copy under `AppData\Local\Programs\deep-work-tracker` is a
-snapshot taken at build time and has no link to the source. Changes reach it
-only by rebuilding *and* running the installer again, which upgrades in place.
-Rebuild and reinstall whenever the user is testing from the desktop icon rather
-than `npm run dev`.
+`npm run dist` produces an installer; it does not update the installed app.
+See **Working practices**.
 
 `package.json` carries an `allowScripts` field. npm 11 blocks install scripts
 by default, and Electron's postinstall is what downloads the 246 MB binary —
@@ -461,6 +530,34 @@ start. If that happens, run `node node_modules/electron/install.js`.
   migration that has already run; add a new one.
 - Keep business logic (streaks, totals, trend math) in plain testable functions
   under `src/shared/`, not inside components.
+
+## Working practices
+
+Three things learned by getting them wrong here, not general advice:
+
+**Work on a branch, never commit straight to `main`.** Eight commits went onto
+`main` directly before this was noticed, which also cost the user the
+added/removed line counter in the desktop app — it measures a branch against its
+base, and on `main` there is no base to measure against. Branch before starting
+a piece of work.
+
+**`npm run dist` does not update the installed app.** The copy under
+`AppData\Local\Programs\deep-work-tracker` is a snapshot taken at build time
+with no link to the source. Changes reach it only by rebuilding *and* running
+the installer again, which upgrades in place. The user tests from the desktop
+icon, so **rebuild and reinstall as part of the change** rather than telling
+them to — a day was lost to them looking at a stale build and reporting bugs
+that were already fixed.
+
+**Exercise the timer engine rather than assuming it.** Bundling it standalone
+and driving it from Node has already caught two real defects that review did
+not: completed runs recording the polling overshoot, and every spelled-out
+duration silently failing to parse. Anything touching the engine gets a script:
+
+```
+npx esbuild src/main/timer.ts --bundle --platform=node --format=esm --outfile=<tmp>/t.mjs
+node <tmp>/your-test.mjs
+```
 
 ## Working with the user
 
