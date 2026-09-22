@@ -267,7 +267,14 @@ export default function App(): React.JSX.Element {
       )}
       <button
         className={`ghost ghost--pace${pace ? ' is-on' : ''}`}
-        onClick={() => setPaceOpen(!paceOpen)}
+        onClick={() => {
+          const opening = !paceOpen
+          setPaceOpen(opening)
+          // Re-arm from whatever the fields already hold. A pace that ended
+          // with its session leaves its values behind, and requiring an edit to
+          // bring it back meant retyping a value that was already on screen.
+          if (opening) applyPace(paceEvery, paceQty, paceUnit)
+        }}
         title={pace ? `Pace loop: ${paceLabel}` : 'Add a pace loop'}
       >
         <Icon name="pace" />
