@@ -1001,9 +1001,13 @@ input {
 
 /* ---------- tables ---------- */
 
+/* `separate` rather than `collapse`: a collapsed border belongs to the table
+   rather than the cell, so it scrolls away from a sticky header and leaves the
+   heading floating over the rows with no rule under it. */
 .grid {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
 }
 
@@ -1014,12 +1018,16 @@ input {
   text-align: left;
 }
 
+/* Sticky alone is not enough. Table cells paint in document order, so without
+   a stacking context the rows scrolling past are drawn over the header - which
+   reads as the header failing to freeze at all. */
 .grid th {
-  color: var(--text-dim);
-  font-weight: 500;
   position: sticky;
   top: 0;
+  z-index: 2;
   background: var(--surface);
+  color: var(--text-dim);
+  font-weight: 500;
 }
 
 .grid .num {
