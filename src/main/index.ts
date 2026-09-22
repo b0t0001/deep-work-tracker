@@ -19,6 +19,8 @@ import { TimerEngine, type PaceConfig, type PaceEvent } from './timer'
 import { closeDatabase, openDatabase } from './db'
 import { deleteSession, recentSessions, recordSession, setStopReason } from './db/sessions'
 import { importRows, importedSessionCount } from './db/import'
+import { createSession, historyState, redo, removeSession, undo, updateSession } from './db/history'
+import type { SessionPatch } from './db/sessions'
 import { readImportRows, summarize } from './import/csv'
 import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
 
@@ -458,6 +460,19 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('sessions:recent', (_event, limit?: number) => recentSessions(limit))
+
+  // Edits from the Data tab go through the history module rather than the
+  // repository, so every one of them is undoable by construction.
+  ipcMain.handle('sessions:create', (_event, patch: SessionPatch) =>
+    createSession(patch, 'add session')
+  )
+  ipcMain.handle('sessions:update', (_event, id: number, patch: SessionPatch) =>
+    updateSession(id, patch, 'edit session')
+  )
+  ipcMain.handle('sessions:remove', (_event, id: number) => removeSession(id, 'delete session'))
+  ipcMain.handle('history:state', () => historyState())
+  ipcMain.handle('history:undo', () => undo())
+  ipcMain.handle('history:redo', () => redo())
 
   ipcMain.handle('shortcuts:get', () => settings.shortcuts)
   ipcMain.handle('shortcuts:set', (_event, next: Record<ShortcutAction, string>) => {

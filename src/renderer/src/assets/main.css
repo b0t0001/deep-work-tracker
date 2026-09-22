@@ -1636,3 +1636,68 @@ code {
 .pace-panel__close:hover {
   color: var(--text);
 }
+
+/* ---------- session editor ---------- */
+
+.editor {
+  margin: 16px 0 22px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-raised);
+}
+
+.editor h3 {
+  margin: 0 0 4px;
+}
+
+.editor__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px 18px;
+  margin-bottom: 4px;
+}
+
+.editor .field--inline {
+  grid-template-columns: 76px 1fr;
+  margin-bottom: 0;
+}
+
+.editor .field--wide {
+  grid-column: 1 / -1;
+}
+
+.row-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.row-actions button {
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.row-actions button:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+
+/* Delete is reversible here - undo is one button away - so it is marked rather
+   than guarded behind a confirmation that would be in the way every time. */
+.row-actions__danger:hover {
+  color: #fca5a5 !important;
+  border-color: #fca5a555 !important;
+}
+
+.is-editing-row td {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}

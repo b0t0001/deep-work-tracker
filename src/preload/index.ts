@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { TimerSnapshot } from '../shared/timer'
 import type { PaceConfig, PaceEvent } from '../main/timer'
+import type { HistoryState } from '../main/db/history'
 
 type Unsubscribe = () => void
 
@@ -75,7 +76,17 @@ const api = {
       ipcRenderer.invoke('shortcuts:set', next)
   },
   sessions: {
-    recent: (limit?: number): Promise<unknown[]> => ipcRenderer.invoke('sessions:recent', limit)
+    recent: (limit?: number): Promise<unknown[]> => ipcRenderer.invoke('sessions:recent', limit),
+    create: (patch: Record<string, unknown>): Promise<number> =>
+      ipcRenderer.invoke('sessions:create', patch),
+    update: (id: number, patch: Record<string, unknown>): Promise<void> =>
+      ipcRenderer.invoke('sessions:update', id, patch),
+    remove: (id: number): Promise<void> => ipcRenderer.invoke('sessions:remove', id)
+  },
+  history: {
+    state: (): Promise<HistoryState> => ipcRenderer.invoke('history:state'),
+    undo: (): Promise<HistoryState> => ipcRenderer.invoke('history:undo'),
+    redo: (): Promise<HistoryState> => ipcRenderer.invoke('history:redo')
   },
   importer: {
     pickFile: (): Promise<string | null> => ipcRenderer.invoke('import:pickFile'),

@@ -1,15 +1,49 @@
 import { openDatabase } from './index'
 import { runningMs, type TimerSnapshot } from '../../shared/timer'
 
+/** Every column, so a deleted row can be restored exactly as it was. */
 export interface SessionRow {
   id: number
+  project_id: number | null
+  tag_id: number | null
   task: string | null
+  session_date: string | null
   started_at: string | null
   ended_at: string | null
   planned_duration_s: number
   running_duration_s: number
+  stop_reason: string | null
+  stop_reason_note: string | null
+  work_quantity: number | null
+  work_unit: string | null
+  unquantifiable: number
+  notes: string | null
+  pace_target_qty: number | null
+  pace_target_interval_s: number | null
   source: string
 }
+
+export const SESSION_COLUMNS = [
+  'project_id',
+  'tag_id',
+  'task',
+  'session_date',
+  'started_at',
+  'ended_at',
+  'planned_duration_s',
+  'running_duration_s',
+  'stop_reason',
+  'stop_reason_note',
+  'work_quantity',
+  'work_unit',
+  'unquantifiable',
+  'notes',
+  'pace_target_qty',
+  'pace_target_interval_s',
+  'source'
+] as const
+
+export type SessionPatch = Partial<Omit<SessionRow, 'id'>>
 
 const iso = (epochMs: number): string => new Date(epochMs).toISOString()
 
@@ -77,15 +111,67 @@ export function recordSession(snapshot: TimerSnapshot, pace?: PaceTarget | null)
   }
 }
 
-export function recentSessions(limit = 20): SessionRow[] {
+export function recentSessions(limit = 200): SessionRow[] {
   return openDatabase()
     .prepare(
-      `SELECT id, task, started_at, ended_at, planned_duration_s, running_duration_s, source
-         FROM sessions
-        ORDER BY COALESCE(started_at, '') DESC, id DESC
+      `SELECT * FROM sessions
+        ORDER BY COALESCE(session_date, '') DESC, COALESCE(started_at, '') DESC, id DESC
         LIMIT ?`
     )
     .all(limit) as unknown as SessionRow[]
+}
+
+export function getSession(id: number): SessionRow | null {
+  const row = openDatabase().prepare('SELECT * FROM sessions WHERE id = ?').get(id)
+  return (row as unknown as SessionRow) ?? null
+}
+
+export interface PauseRow {
+  session_id: number
+  paused_at: string
+  resumed_at: string | null
+}
+
+export function getPauses(sessionId: number): PauseRow[] {
+  return openDatabase()
+    .prepare('SELECT session_id, paused_at, resumed_at FROM pauses WHERE session_id = ?')
+    .all(sessionId) as unknown as PauseRow[]
+}
+
+/**
+ * Inserts a row, optionally keeping its original id.
+ *
+ * Undo needs the id back: analytics and the history stack both refer to rows by
+ * it, and a restored session that came back under a new id would be a different
+ * session as far as anything else is concerned.
+ */
+export function insertSession(patch: SessionPatch, id?: number): number {
+  const columns = SESSION_COLUMNS.filter((c) => patch[c] !== undefined)
+  const names = id === undefined ? columns : ['id', ...columns]
+  const values =
+    id === undefined ? columns.map((c) => patch[c]) : [id, ...columns.map((c) => patch[c])]
+  const result = openDatabase()
+    .prepare(
+      `INSERT INTO sessions (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`
+    )
+    .run(...(values as Array<string | number | null>))
+  return id ?? Number(result.lastInsertRowid)
+}
+
+export function patchSession(id: number, patch: SessionPatch): void {
+  const columns = SESSION_COLUMNS.filter((c) => patch[c] !== undefined)
+  if (columns.length === 0) return
+  openDatabase()
+    .prepare(`UPDATE sessions SET ${columns.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
+    .run(...(columns.map((c) => patch[c]) as Array<string | number | null>), id)
+}
+
+export function insertPauses(rows: PauseRow[]): void {
+  if (rows.length === 0) return
+  const statement = openDatabase().prepare(
+    'INSERT INTO pauses (session_id, paused_at, resumed_at) VALUES (?, ?, ?)'
+  )
+  for (const row of rows) statement.run(row.session_id, row.paused_at, row.resumed_at)
 }
 
 /**

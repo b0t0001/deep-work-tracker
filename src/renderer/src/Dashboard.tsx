@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
+import { formatDurationInput, parseDurationMs } from '@shared/duration'
 
 type Tab = 'settings' | 'data' | 'analytics' | 'import'
 
@@ -18,6 +19,9 @@ interface SessionRow {
   started_at: string | null
   planned_duration_s: number
   running_duration_s: number
+  work_quantity: number | null
+  work_unit: string | null
+  notes: string | null
   source: string
 }
 
@@ -253,26 +257,201 @@ function AnalyticsTab(): React.JSX.Element {
   )
 }
 
+interface HistoryState {
+  canUndo: boolean
+  canRedo: boolean
+  undoLabel: string | null
+  redoLabel: string | null
+}
+
+const EMPTY_HISTORY: HistoryState = {
+  canUndo: false,
+  canRedo: false,
+  undoLabel: null,
+  redoLabel: null
+}
+
+/** What the form edits. Timing is typed as a duration, not as raw seconds. */
+interface FormState {
+  session_date: string
+  task: string
+  planned: string
+  actual: string
+  work_quantity: string
+  work_unit: string
+  notes: string
+}
+
+function toForm(row: SessionRow | null): FormState {
+  const today = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return {
+    session_date:
+      row?.session_date ??
+      `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`,
+    task: row?.task ?? '',
+    planned: row ? formatDurationInput(row.planned_duration_s * 1000) : '',
+    actual: row ? formatDurationInput(row.running_duration_s * 1000) : '',
+    work_quantity: row?.work_quantity == null ? '' : String(row.work_quantity),
+    work_unit: row?.work_unit ?? '',
+    notes: row?.notes ?? ''
+  }
+}
+
+function SessionForm({
+  row,
+  onSave,
+  onCancel
+}: {
+  row: SessionRow | null
+  onSave: (patch: Record<string, unknown>) => void
+  onCancel: () => void
+}): React.JSX.Element {
+  const [form, setForm] = useState<FormState>(() => toForm(row))
+
+  const plannedMs = parseDurationMs(form.planned)
+  const actualMs = parseDurationMs(form.actual)
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(form.session_date)
+  const canSave = validDate && actualMs !== null
+
+  function set<K extends keyof FormState>(key: K, value: string): void {
+    setForm({ ...form, [key]: value })
+  }
+
+  return (
+    <div className="editor">
+      <h3>{row ? `Edit session ${row.id}` : 'Add a session'}</h3>
+      <p className="muted">
+        {row
+          ? 'Changes apply to the row in place, and can be undone.'
+          : 'For work that was not timed — a meeting entered afterwards. Recorded as a manual session, which time-of-day analytics will treat as approximate.'}
+      </p>
+
+      <div className="editor__grid">
+        <label className="field field--inline">
+          <span>Date</span>
+          <input value={form.session_date} onChange={(e) => set('session_date', e.target.value)} />
+        </label>
+        <label className="field field--inline field--wide">
+          <span>Task</span>
+          <input value={form.task} onChange={(e) => set('task', e.target.value)} />
+        </label>
+        <label className="field field--inline">
+          <span>Planned</span>
+          <input
+            value={form.planned}
+            placeholder="1:00:00"
+            onChange={(e) => set('planned', e.target.value)}
+          />
+        </label>
+        <label className="field field--inline">
+          <span>Actual</span>
+          <input
+            value={form.actual}
+            placeholder="45:00"
+            onChange={(e) => set('actual', e.target.value)}
+          />
+        </label>
+        <label className="field field--inline">
+          <span>Quantity</span>
+          <input
+            value={form.work_quantity}
+            placeholder="340"
+            onChange={(e) => {
+              if (/^\d{0,7}(\.\d{0,2})?$/.test(e.target.value)) set('work_quantity', e.target.value)
+            }}
+          />
+        </label>
+        <label className="field field--inline">
+          <span>Unit</span>
+          <input
+            value={form.work_unit}
+            placeholder="words"
+            onChange={(e) => set('work_unit', e.target.value.replace(/\d/g, ''))}
+          />
+        </label>
+        <label className="field field--inline field--wide">
+          <span>Notes</span>
+          <input value={form.notes} onChange={(e) => set('notes', e.target.value)} />
+        </label>
+      </div>
+
+      <div className="row">
+        <button
+          className="action action--primary"
+          disabled={!canSave}
+          onClick={() =>
+            onSave({
+              session_date: form.session_date,
+              task: form.task.trim() === '' ? null : form.task.trim(),
+              // Planned falls back to actual: a session entered from memory was
+              // never planned, and a null there would break duration maths.
+              planned_duration_s: Math.round((plannedMs ?? actualMs ?? 0) / 1000),
+              running_duration_s: Math.round((actualMs ?? 0) / 1000),
+              work_quantity: form.work_quantity === '' ? null : Number(form.work_quantity),
+              work_unit: form.work_unit.trim() === '' ? null : form.work_unit.trim(),
+              notes: form.notes.trim() === '' ? null : form.notes.trim(),
+              ...(row ? {} : { source: 'manual' })
+            })
+          }
+        >
+          {row ? 'Save' : 'Add session'}
+        </button>
+        <button className="action" onClick={onCancel}>
+          Cancel
+        </button>
+        {!canSave && <span className="muted">A date and an actual duration are required.</span>}
+      </div>
+    </div>
+  )
+}
+
 function DataTab(): React.JSX.Element {
   const [rows, setRows] = useState<SessionRow[] | null>(null)
+  const [history, setHistory] = useState<HistoryState>(EMPTY_HISTORY)
+  const [editing, setEditing] = useState<SessionRow | 'new' | null>(null)
 
+  async function refresh(): Promise<void> {
+    const [next, state] = await Promise.all([
+      window.api.sessions.recent(200),
+      window.api.history.state()
+    ])
+    setRows(next as SessionRow[])
+    setHistory(state)
+  }
+
+  // Written as a promise chain rather than calling refresh(): the lint rule
+  // cannot see that refresh awaits before it sets state, and reads the call as
+  // a synchronous setState inside an effect.
   useEffect(() => {
-    void window.api.sessions.recent(200).then((result) => setRows(result as SessionRow[]))
+    void Promise.all([window.api.sessions.recent(200), window.api.history.state()]).then(
+      ([next, state]) => {
+        setRows(next as SessionRow[])
+        setHistory(state)
+      }
+    )
   }, [])
 
-  if (rows === null) return <section className="panel">Loading…</section>
-
-  if (rows.length === 0) {
-    return (
-      <section className="panel">
-        <h2>Sessions</h2>
-        <p className="muted">
-          Nothing recorded yet. Run a timer and stop it, or bring in the spreadsheet from the Import
-          tab.
-        </p>
-      </section>
-    )
+  async function save(patch: Record<string, unknown>): Promise<void> {
+    if (editing === 'new') await window.api.sessions.create(patch)
+    else if (editing) await window.api.sessions.update(editing.id, patch)
+    setEditing(null)
+    await refresh()
   }
+
+  async function remove(id: number): Promise<void> {
+    await window.api.sessions.remove(id)
+    if (editing !== 'new' && editing?.id === id) setEditing(null)
+    await refresh()
+  }
+
+  async function step(direction: 'undo' | 'redo'): Promise<void> {
+    await (direction === 'undo' ? window.api.history.undo() : window.api.history.redo())
+    setEditing(null)
+    await refresh()
+  }
+
+  if (rows === null) return <section className="panel">Loading…</section>
 
   const total = rows.reduce((sum, row) => sum + row.running_duration_s, 0)
 
@@ -280,32 +459,88 @@ function DataTab(): React.JSX.Element {
     <section className="panel">
       <h2>Sessions</h2>
       <p className="muted">
-        {rows.length} most recent &middot; {hours(total)} in view
+        {rows.length === 0
+          ? 'Nothing recorded yet. Run a timer and stop it, add one by hand, or bring in the spreadsheet from the Import tab.'
+          : `${rows.length} most recent \u00b7 ${hours(total)} in view`}
       </p>
-      <table className="grid">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Task</th>
-            <th className="num">Planned</th>
-            <th className="num">Actual</th>
-            <th>Source</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.id}>
-              <td>{row.session_date ?? '—'}</td>
-              <td>{row.task ?? <span className="muted">unlabelled</span>}</td>
-              <td className="num">{hours(row.planned_duration_s)}</td>
-              <td className="num">{hours(row.running_duration_s)}</td>
-              <td>
-                <span className={`badge badge--${row.source}`}>{row.source}</span>
-              </td>
+
+      <div className="row">
+        <button className="action action--primary" onClick={() => setEditing('new')}>
+          Add session
+        </button>
+        <button
+          className="action"
+          disabled={!history.canUndo}
+          onClick={() => void step('undo')}
+          title={history.undoLabel ? `Undo ${history.undoLabel}` : 'Nothing to undo'}
+        >
+          Undo
+        </button>
+        <button
+          className="action"
+          disabled={!history.canRedo}
+          onClick={() => void step('redo')}
+          title={history.redoLabel ? `Redo ${history.redoLabel}` : 'Nothing to redo'}
+        >
+          Redo
+        </button>
+        {history.canUndo && <span className="muted">last: {history.undoLabel}</span>}
+      </div>
+
+      {editing !== null && (
+        <SessionForm
+          row={editing === 'new' ? null : editing}
+          onSave={(patch) => void save(patch)}
+          onCancel={() => setEditing(null)}
+        />
+      )}
+
+      {rows.length > 0 && (
+        <table className="grid">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Task</th>
+              <th className="num">Planned</th>
+              <th className="num">Actual</th>
+              <th className="num">Output</th>
+              <th>Source</th>
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                key={row.id}
+                className={editing !== 'new' && editing?.id === row.id ? 'is-editing-row' : ''}
+              >
+                <td>{row.session_date ?? '—'}</td>
+                <td>{row.task ?? <span className="muted">unlabelled</span>}</td>
+                <td className="num">{hours(row.planned_duration_s)}</td>
+                <td className="num">{hours(row.running_duration_s)}</td>
+                <td className="num">
+                  {row.work_quantity == null ? '—' : `${row.work_quantity} ${row.work_unit ?? ''}`}
+                </td>
+                <td>
+                  <span className={`badge badge--${row.source}`}>{row.source}</span>
+                </td>
+                <td className="row-actions">
+                  <button onClick={() => setEditing(row)} title="Edit">
+                    Edit
+                  </button>
+                  <button
+                    className="row-actions__danger"
+                    onClick={() => void remove(row.id)}
+                    title="Delete \u2014 undoable"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </section>
   )
 }

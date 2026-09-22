@@ -45,7 +45,7 @@ label; Phase 2 adds the structure.
 - Compact, frameless, draggable, `alwaysOnTop: true`
 - Task label + countdown
 - Setting toggles the progress visual between a **bar** and a **circular ring**
-- Ring defaults to the project's colour; **colour is editable in settings**
+- Accent colour is editable in settings and shared by every window
 - **This window is filmed for timelapse videos posted to social media.** Visual
   quality is a requirement, not polish. Clean type, a genuinely good-looking
   ring, no debris. Favour looking good over information density.
