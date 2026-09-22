@@ -163,7 +163,9 @@ function syncPaceWindow(instance: TimerInstance): void {
   paceWindows.set(paceWindow.id, instance)
 
   paceWindow.on('ready-to-show', () => {
-    paceWindow.show()
+    // Shown without being activated: it opens while the user is still typing
+    // the interval, and taking focus would pull the caret out of the field.
+    paceWindow.showInactive()
     sendToPace(instance, 'pace:config', config)
     sendToPace(instance, 'timer:update', instance.engine.snapshot())
   })

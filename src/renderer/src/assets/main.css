@@ -1563,22 +1563,25 @@ code {
   text-transform: uppercase;
 }
 
-/* Only appears on hover: the circle is meant to be glanced at, not operated. */
+/* Visible rather than hover-only. A control that appears only once you happen
+   to hover over the right spot is a control nobody knows exists. */
 .pace-card__close {
   position: absolute;
-  top: 10px;
+  top: 9px;
   right: 50%;
   z-index: 2;
-  padding: 0 5px;
+  padding: 0 6px;
   border: none;
   background: transparent;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.5;
   transform: translateX(50%);
-  transition: opacity 140ms ease;
+  transition:
+    opacity 140ms ease,
+    color 140ms ease;
   -webkit-app-region: no-drag;
 }
 
