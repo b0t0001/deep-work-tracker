@@ -421,13 +421,35 @@ function registerIpc(): void {
     if (!instance) return null
     return { snapshot: instance.engine.snapshot(), config: instance.engine.paceConfig() }
   })
+  /**
+   * Closing the pace window means different things depending on the session.
+   *
+   * Mid-session it is dismissing a window, not abandoning the pace - the run is
+   * still being paced against it - so the values stay and reopening restores
+   * the same loop. Its position needs nothing kept: lap and remaining both
+   * derive from running time, so re-arming lands exactly where it left off.
+   *
+   * With no session running there is nothing to come back to, so closing means
+   * remove it, and the fields clear.
+   */
   ipcMain.handle('pace:close', (event) => {
     const window = BrowserWindow.fromWebContents(event.sender)
     const instance = window ? paceWindows.get(window.id) : undefined
     if (!instance) return
+
+    const config = instance.engine.paceConfig()
+    const { status } = instance.engine.snapshot()
+    const midSession = status === 'running' || status === 'paused'
+
     instance.engine.setPace(null)
     syncPaceWindow(instance)
-    send(instance, 'pace:cleared', null)
+
+    if (midSession && config) {
+      instance.lastPace = config
+      send(instance, 'pace:ended', null)
+    } else {
+      send(instance, 'pace:cleared', null)
+    }
   })
   ipcMain.handle('timer:getAutoEnd', () => settings.autoEndMinutes)
   ipcMain.handle('timer:setAutoEnd', (_event, minutes: number) => {
