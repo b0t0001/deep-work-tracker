@@ -120,7 +120,7 @@ export default function App(): React.JSX.Element {
   useAccent()
   const [label, setLabel] = useState('')
   const [labelFocused, setLabelFocused] = useState(false)
-  const [draft, setDraft] = useState('60:00')
+  const [draft, setDraft] = useState('1:00:00')
   const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
   const [flashing, setFlashing] = useState(false)
   const [paceNotice, setPaceNotice] = useState<string | null>(null)
@@ -199,16 +199,16 @@ export default function App(): React.JSX.Element {
 
   const canonical = plannedMs === null ? null : formatDurationInput(plannedMs)
 
-  const clockMs = idle ? (plannedMs ?? 0) : remainingMs(snapshot, now)
-  const fraction = idle ? 0 : progressOf(snapshot, now)
-  // While typing, the caption shows how the input was read, so `one hour`
-  // confirms itself as 1:00:00 before you commit to it.
   const paceLabel =
     pace === null
       ? null
       : `${pace.quantity ?? ''}${pace.unit ? ` ${pace.unit}` : ''}`.trim() +
         `/${Math.round(pace.intervalMs / 60_000)}m`
 
+  const clockMs = idle ? (plannedMs ?? 0) : remainingMs(snapshot, now)
+  const fraction = idle ? 0 : progressOf(snapshot, now)
+  // While typing, the caption shows how the input was read, so `one hour`
+  // confirms itself as 1:00:00 before you commit to it.
   const caption = idle
     ? canonical === null
       ? 'enter a time'
@@ -254,6 +254,13 @@ export default function App(): React.JSX.Element {
 
   const controls = (
     <div className="controls">
+      <button
+        className={`ghost ghost--pace${pace ? ' is-on' : ''}`}
+        onClick={() => setPaceOpen(!paceOpen)}
+        title={pace ? `Pace loop: ${paceLabel}` : 'Add a pace loop'}
+      >
+        <Icon name="pace" />
+      </button>
       {snapshot.status === 'running' ? (
         <button className="primary" onClick={() => void window.api.timer.pause()} title="Pause">
           <Icon name="pause" />
@@ -413,13 +420,6 @@ export default function App(): React.JSX.Element {
         />
 
         <div className="tools">
-          <button
-            className={`icon${pace ? ' is-on' : ''}`}
-            onClick={() => setPaceOpen(!paceOpen)}
-            title={pace ? 'Pace loop (on)' : 'Add a pace loop'}
-          >
-            <Icon name="pace" />
-          </button>
           <button
             className="icon"
             onClick={() => setFullScreen(!full)}

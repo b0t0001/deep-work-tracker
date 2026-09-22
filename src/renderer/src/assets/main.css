@@ -1490,3 +1490,27 @@ code {
 .icon.is-on {
   color: var(--accent);
 }
+
+/* ---------- pace control ---------- */
+
+/* Sits beside start because that is where the decision is made: you set a pace
+   for the session you are about to run, not in a menu beforehand. */
+.ghost--pace {
+  padding-right: clamp(5px, 4vmin, 24px);
+  padding-left: clamp(5px, 4vmin, 24px);
+  color: var(--text-dim);
+}
+
+.ghost--pace svg {
+  width: clamp(11px, 8vmin, 30px);
+  height: clamp(11px, 8vmin, 30px);
+}
+
+.ghost--pace:hover {
+  color: var(--text);
+}
+
+/* Accent while armed, so a configured pace is visible at a glance. */
+.ghost--pace.is-on {
+  color: var(--accent);
+}
