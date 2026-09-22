@@ -14,6 +14,7 @@ export type IconName =
   | 'settings'
   | 'plus'
   | 'pace'
+  | 'check'
   | 'minimize'
   | 'close'
 
@@ -42,6 +43,16 @@ const PATHS: Record<IconName, React.JSX.Element> = {
     />
   ),
   plus: <path d="M7.2 3h1.6v4.2H13v1.6H8.8V13H7.2V8.8H3V7.2h4.2z" />,
+  check: (
+    <path
+      d="M3 8.4l3.2 3.2L13 4.8"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  ),
   pace: (
     <path
       d="M1.6 8h2.1l1.6-4.6 2.4 9.2 1.9-6.1 1.1 1.5h3.7"

@@ -96,6 +96,20 @@ function send(instance: TimerInstance, channel: string, payload: unknown): void 
   if (!instance.window.isDestroyed()) instance.window.webContents.send(channel, payload)
 }
 
+/**
+ * Ends the pace loop with the session.
+ *
+ * Distinct from the user closing the pace window: that means "remove this", and
+ * clears what was typed. This means "the session it belonged to is over", so
+ * the values stay in the panel and re-arming is one click.
+ */
+function endPace(instance: TimerInstance): void {
+  if (!instance.engine.paceConfig()) return
+  instance.engine.setPace(null)
+  syncPaceWindow(instance)
+  send(instance, 'pace:ended', null)
+}
+
 function sendToPace(instance: TimerInstance, channel: string, payload: unknown): void {
   const target = instance.paceWindow
   if (target && !target.isDestroyed()) target.webContents.send(channel, payload)
@@ -209,6 +223,10 @@ function createTimerWindow(): BrowserWindow {
   engine.on('update', (snapshot: TimerSnapshot) => {
     send(instance, 'timer:update', snapshot)
     sendToPace(instance, 'timer:update', snapshot)
+    // A pace belongs to the session it was set for, so it ends with it. Looping
+    // does not pass through idle - expiry starts the next run directly - so a
+    // repeating session keeps its pace across laps.
+    if (snapshot.status === 'idle' || snapshot.status === 'expired') endPace(instance)
     updateTray()
   })
 

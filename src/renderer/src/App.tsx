@@ -7,9 +7,9 @@ import {
   type TimerSnapshot
 } from '@shared/timer'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
-import { ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import TimerDial from './components/TimerDial'
 import { expiryCue, primeAudio } from './lib/sounds'
+import { useAccentSync } from './lib/accent'
 import Icon from './components/Icon'
 
 /**
@@ -77,36 +77,6 @@ function useFullScreen(): [boolean, (value: boolean) => void] {
   return [full, (value) => void window.api.window.setFullScreen(value)]
 }
 
-/**
- * Browser storage can throw or come back empty, so every access is guarded.
- * The `storage` event is what keeps this window in step with the settings
- * panel, which lives in a separate window sharing the same origin.
- */
-function useAccent(): string {
-  const [accent, setAccent] = useState<string>(() => {
-    try {
-      const stored = localStorage.getItem(ACCENT_KEY)
-      return isKnownAccent(stored) ? stored : DEFAULT_ACCENT
-    } catch {
-      return DEFAULT_ACCENT
-    }
-  })
-
-  useEffect(() => {
-    document.documentElement.style.setProperty('--accent', accent)
-  }, [accent])
-
-  useEffect(() => {
-    const onStorage = (event: StorageEvent): void => {
-      if (event.key === ACCENT_KEY && isKnownAccent(event.newValue)) setAccent(event.newValue)
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
-
-  return accent
-}
-
 const CAPTIONS: Record<TimerSnapshot['status'], string> = {
   idle: 'ready',
   running: 'running',
@@ -117,7 +87,7 @@ const CAPTIONS: Record<TimerSnapshot['status'], string> = {
 export default function App(): React.JSX.Element {
   const { snapshot, now } = useTimer()
   const [full, setFullScreen] = useFullScreen()
-  useAccent()
+  useAccentSync()
   const [label, setLabel] = useState('')
   const [labelFocused, setLabelFocused] = useState(false)
   const [draft, setDraft] = useState('1:00:00')
@@ -130,12 +100,21 @@ export default function App(): React.JSX.Element {
   } | null>(null)
 
   const [paceOpen, setPaceOpen] = useState(false)
+  const paceEveryRef = useRef<HTMLInputElement>(null)
+  const paceQtyRef = useRef<HTMLInputElement>(null)
+  const paceUnitRef = useRef<HTMLInputElement>(null)
   const [paceEvery, setPaceEvery] = useState('')
   const [paceQty, setPaceQty] = useState('')
   const [paceUnit, setPaceUnit] = useState('')
 
   // The pace loop belongs to this window, so it is read back on mount in case
   // the renderer reloaded while one was running.
+  // Opening the panel puts the caret in the first field, so it can be filled
+  // without reaching for the mouse.
+  useEffect(() => {
+    if (paceOpen) paceEveryRef.current?.focus()
+  }, [paceOpen])
+
   useEffect(() => {
     void window.api.timer.getPace().then((config) => {
       if (!config) return
@@ -145,6 +124,11 @@ export default function App(): React.JSX.Element {
       setPaceUnit(config.unit ?? '')
     })
   }, [])
+
+  function closePace(): void {
+    setPaceOpen(false)
+    clockRef.current?.focus()
+  }
 
   /** An interval with no number is not a pace loop, so it switches off. */
   function applyPace(every: string, quantity: string, unit: string): void {
@@ -163,7 +147,7 @@ export default function App(): React.JSX.Element {
   const [stopPrompt, setStopPrompt] = useState(false)
   const clockRef = useRef<HTMLInputElement>(null)
 
-  // Closing the pace window clears the loop, so this window follows suit.
+  // Closing the pace window means "remove this", so the fields clear with it.
   useEffect(() => {
     return window.api.pace.onCleared(() => {
       setPace(null)
@@ -171,6 +155,12 @@ export default function App(): React.JSX.Element {
       setPaceQty('')
       setPaceUnit('')
     })
+  }, [])
+
+  // Ending with the session means "that one is over" - the values stay, so the
+  // same pace can be re-armed for the next run with one click.
+  useEffect(() => {
+    return window.api.pace.onEnded(() => setPace(null))
   }, [])
 
   // Expiry cue: sound plus a flash, matching Hourglass - three flashes at 0.2s.
@@ -316,16 +306,21 @@ export default function App(): React.JSX.Element {
           <div className="pace-panel__row">
             <span>every</span>
             <input
+              ref={paceEveryRef}
               value={paceEvery}
               placeholder="20"
               onChange={(event) => {
                 setPaceEvery(event.target.value)
                 applyPace(event.target.value, paceQty, paceUnit)
               }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') paceQtyRef.current?.focus()
+              }}
               aria-label="Pace interval"
             />
             <span>do</span>
             <input
+              ref={paceQtyRef}
               value={paceQty}
               placeholder="100"
               inputMode="numeric"
@@ -333,14 +328,21 @@ export default function App(): React.JSX.Element {
                 setPaceQty(event.target.value)
                 applyPace(paceEvery, event.target.value, paceUnit)
               }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') paceUnitRef.current?.focus()
+              }}
               aria-label="Pace target"
             />
             <input
+              ref={paceUnitRef}
               value={paceUnit}
               placeholder="words"
               onChange={(event) => {
                 setPaceUnit(event.target.value)
                 applyPace(paceEvery, paceQty, event.target.value)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') closePace()
               }}
               aria-label="Pace unit"
             />

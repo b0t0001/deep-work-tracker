@@ -62,6 +62,11 @@ const api = {
       const listener = (): void => handler()
       ipcRenderer.on('pace:cleared', listener)
       return () => ipcRenderer.removeListener('pace:cleared', listener)
+    },
+    onEnded: (handler: () => void): Unsubscribe => {
+      const listener = (): void => handler()
+      ipcRenderer.on('pace:ended', listener)
+      return () => ipcRenderer.removeListener('pace:ended', listener)
     }
   },
   shortcuts: {

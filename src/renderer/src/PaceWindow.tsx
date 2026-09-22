@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { formatClock, idleTimer, runningMs, type TimerSnapshot } from '@shared/timer'
 import { paceCue, primeAudio } from './lib/sounds'
+import { useAccentSync } from './lib/accent'
 
 interface PaceConfig {
   intervalMs: number
@@ -21,6 +22,7 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS
  * records nothing - the session it paces is the only thing written.
  */
 export default function PaceWindow(): React.JSX.Element {
+  useAccentSync()
   const [snapshot, setSnapshot] = useState<TimerSnapshot>(idleTimer)
   const [config, setConfig] = useState<PaceConfig | null>(null)
   const [now, setNow] = useState<number>(() => Date.now())
@@ -68,7 +70,12 @@ export default function PaceWindow(): React.JSX.Element {
   const target = config?.quantity == null ? null : config.quantity * (laps + 1)
 
   return (
-    <div className={`pace-card${flashing ? ' is-flashing' : ''}`} onMouseDown={primeAudio}>
+    <div
+      className={`pace-card${flashing ? ' is-flashing' : ''}${
+        snapshot.status === 'paused' ? ' is-dimmed' : ''
+      }`}
+      onMouseDown={primeAudio}
+    >
       <button
         className="pace-card__close"
         onClick={() => void window.api.pace.close()}

@@ -1593,3 +1593,27 @@ code {
 .pace-card.is-flashing svg {
   animation: expiry-flash 0.2s ease-in-out 3;
 }
+
+/* The pace window dims with its parent: a paused session is not being paced. */
+.pace-card.is-dimmed {
+  opacity: 0.45;
+  transition: opacity 200ms ease;
+}
+
+/* Confirming, not dismissing - the panel applies as you type, so the button
+   says the settings are finished rather than discarded. */
+.pace-panel__close {
+  display: flex;
+  align-items: center;
+  padding: 3px 5px;
+  color: var(--accent);
+}
+
+.pace-panel__close svg {
+  width: clamp(11px, 5.4vmin, 20px);
+  height: clamp(11px, 5.4vmin, 20px);
+}
+
+.pace-panel__close:hover {
+  color: var(--text);
+}
