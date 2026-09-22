@@ -1419,3 +1419,74 @@ code {
   border-color: #fca5a5;
   color: #fca5a5;
 }
+
+/* ---------- pace panel ---------- */
+
+/* Set from the timer rather than from settings: a pace belongs to the session
+   you are about to run, not to the application. */
+.pace-panel {
+  position: absolute;
+  right: var(--pad);
+  bottom: var(--pad);
+  left: var(--pad);
+  z-index: 3;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 5px 6px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-app-region: no-drag;
+}
+
+.pace-panel__row {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+
+.pace-panel span {
+  color: var(--text-dim);
+  font-size: clamp(8px, 4.4vmin, 14px);
+  flex: 0 0 auto;
+}
+
+.pace-panel input {
+  min-width: 0;
+  flex: 1 1 0;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: clamp(9px, 4.6vmin, 15px);
+  text-align: center;
+  outline: none;
+}
+
+.pace-panel input:focus {
+  border-color: var(--accent);
+}
+
+.pace-panel__close {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: clamp(11px, 5vmin, 18px);
+  cursor: pointer;
+}
+
+.pace-panel__close:hover {
+  color: var(--text);
+}
+
+/* The icon carries the state, so a configured pace is visible without opening
+   the panel to check. */
+.icon.is-on {
+  color: var(--accent);
+}

@@ -130,12 +130,37 @@ export default function App(): React.JSX.Element {
     unit: string | null
   } | null>(null)
 
-  // A pace loop configured in settings was invisible from here, so it was easy
-  // to conclude the feature did not exist. The timer now says when one is on.
+  const [paceOpen, setPaceOpen] = useState(false)
+  const [paceEvery, setPaceEvery] = useState('')
+  const [paceQty, setPaceQty] = useState('')
+  const [paceUnit, setPaceUnit] = useState('')
+
+  // The pace loop belongs to this window, so it is read back on mount in case
+  // the renderer reloaded while one was running.
   useEffect(() => {
-    void window.api.timer.getPace().then(setPace)
-    return window.api.settings.onChanged((next) => setPace(next.pace))
+    void window.api.timer.getPace().then((config) => {
+      if (!config) return
+      setPace(config)
+      setPaceEvery(String(Math.round(config.intervalMs / 60_000)))
+      setPaceQty(config.quantity === null ? '' : String(config.quantity))
+      setPaceUnit(config.unit ?? '')
+    })
   }, [])
+
+  /** An interval with no number is not a pace loop, so it switches off. */
+  function applyPace(every: string, quantity: string, unit: string): void {
+    const intervalMs = parseDurationMs(every)
+    const config =
+      intervalMs === null
+        ? null
+        : {
+            intervalMs,
+            quantity: quantity.trim() === '' ? null : Number(quantity),
+            unit: unit.trim() === '' ? null : unit.trim()
+          }
+    setPace(config)
+    void window.api.timer.setPace(config)
+  }
   const [stopPrompt, setStopPrompt] = useState(false)
   const clockRef = useRef<HTMLInputElement>(null)
 
@@ -170,7 +195,7 @@ export default function App(): React.JSX.Element {
   // While a field is focused the card stops being a drag region. Electron drag
   // regions swallow mouse events outright, so without this a click on the card
   // body never reaches the handler that drops focus.
-  const editing = labelFocused
+  const editing = labelFocused || paceOpen
 
   const canonical = plannedMs === null ? null : formatDurationInput(plannedMs)
 
@@ -284,6 +309,46 @@ export default function App(): React.JSX.Element {
         controls={controls}
       />
 
+      {paceOpen && (
+        <div className="pace-panel">
+          <div className="pace-panel__row">
+            <span>every</span>
+            <input
+              value={paceEvery}
+              placeholder="20"
+              onChange={(event) => {
+                setPaceEvery(event.target.value)
+                applyPace(event.target.value, paceQty, paceUnit)
+              }}
+              aria-label="Pace interval"
+            />
+            <span>do</span>
+            <input
+              value={paceQty}
+              placeholder="100"
+              inputMode="numeric"
+              onChange={(event) => {
+                setPaceQty(event.target.value)
+                applyPace(paceEvery, event.target.value, paceUnit)
+              }}
+              aria-label="Pace target"
+            />
+            <input
+              value={paceUnit}
+              placeholder="words"
+              onChange={(event) => {
+                setPaceUnit(event.target.value)
+                applyPace(paceEvery, paceQty, event.target.value)
+              }}
+              aria-label="Pace unit"
+            />
+          </div>
+          <button className="pace-panel__close" onClick={() => setPaceOpen(false)} title="Done">
+            &times;
+          </button>
+        </div>
+      )}
+
       {stopPrompt && (
         <div className="stop-prompt">
           <button className="stop-prompt__undo" onClick={undoStop} title="Resume the session">
@@ -348,6 +413,13 @@ export default function App(): React.JSX.Element {
         />
 
         <div className="tools">
+          <button
+            className={`icon${pace ? ' is-on' : ''}`}
+            onClick={() => setPaceOpen(!paceOpen)}
+            title={pace ? 'Pace loop (on)' : 'Add a pace loop'}
+          >
+            <Icon name="pace" />
+          </button>
           <button
             className="icon"
             onClick={() => setFullScreen(!full)}

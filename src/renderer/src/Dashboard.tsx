@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
-import { parseDurationMs } from '@shared/duration'
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 
 type Tab = 'settings' | 'data' | 'analytics' | 'import'
@@ -112,9 +111,6 @@ function SettingsTab(): React.JSX.Element {
   })
   const [loop, setLoop] = useState(true)
   const [autoEnd, setAutoEnd] = useState('180')
-  const [paceInterval, setPaceInterval] = useState('')
-  const [paceQuantity, setPaceQuantity] = useState('')
-  const [paceUnit, setPaceUnit] = useState('')
   const [shortcuts, setShortcuts] = useState<Record<string, string>>({})
   const [failures, setFailures] = useState<Record<string, boolean>>({})
 
@@ -122,12 +118,6 @@ function SettingsTab(): React.JSX.Element {
     void window.api.timer.getLoop().then(setLoop)
     void window.api.timer.getAutoEnd().then((minutes) => setAutoEnd(String(minutes)))
     void window.api.shortcuts.get().then(setShortcuts)
-    void window.api.timer.getPace().then((config) => {
-      if (!config) return
-      setPaceInterval(String(Math.round(config.intervalMs / 60_000)))
-      setPaceQuantity(config.quantity === null ? '' : String(config.quantity))
-      setPaceUnit(config.unit ?? '')
-    })
   }, [])
 
   useEffect(() => {
@@ -147,20 +137,6 @@ function SettingsTab(): React.JSX.Element {
     }
   }
 
-  /** An interval with no number is not a pace loop, so it is switched off. */
-  function applyPace(interval: string, quantity: string, unit: string): void {
-    const intervalMs = parseDurationMs(interval)
-    void window.api.timer.setPace(
-      intervalMs === null
-        ? null
-        : {
-            intervalMs,
-            quantity: quantity.trim() === '' ? null : Number(quantity),
-            unit: unit.trim() === '' ? null : unit.trim()
-          }
-    )
-  }
-
   function changeShortcut(id: string, accelerator: string): void {
     const next = { ...shortcuts, [id]: accelerator }
     setShortcuts(next)
@@ -171,56 +147,7 @@ function SettingsTab(): React.JSX.Element {
 
   return (
     <section className="panel">
-      <h2>Pace loop</h2>
-      <p className="muted">
-        A second timer running alongside the session. Every interval it plays a quiet cue and shows
-        what should be done by now &mdash; &ldquo;100 words per 20 minutes&rdquo; reads{' '}
-        <em>target 300 words</em> on the third loop. It never asks you to type anything; quantity is
-        entered once, at stop.
-      </p>
-      <div className="pace-row">
-        <label className="field field--inline">
-          <span>Every</span>
-          <input
-            value={paceInterval}
-            placeholder="20"
-            onChange={(event) => {
-              setPaceInterval(event.target.value)
-              applyPace(event.target.value, paceQuantity, paceUnit)
-            }}
-          />
-        </label>
-        <label className="field field--inline">
-          <span>Target</span>
-          <input
-            value={paceQuantity}
-            placeholder="100"
-            inputMode="numeric"
-            onChange={(event) => {
-              setPaceQuantity(event.target.value)
-              applyPace(paceInterval, event.target.value, paceUnit)
-            }}
-          />
-        </label>
-        <label className="field field--inline">
-          <span>Unit</span>
-          <input
-            value={paceUnit}
-            placeholder="words"
-            onChange={(event) => {
-              setPaceUnit(event.target.value)
-              applyPace(paceInterval, paceQuantity, event.target.value)
-            }}
-          />
-        </label>
-      </div>
-      <p className="muted">
-        The interval reads the same forms as the clock: <code>20</code>, <code>3 min</code>,{' '}
-        <code>90 sec</code>. Clearing it switches the pace loop off. While it is on, the timer shows
-        it under the clock.
-      </p>
-
-      <h2 className="spaced">Timer</h2>
+      <h2>Timer</h2>
       <label className="toggle">
         <input
           type="checkbox"

@@ -66,16 +66,7 @@ let tray: Tray | null = null
 const settings = {
   loop: true,
   autoEndMinutes: 180,
-  pace: null as PaceConfig | null,
   shortcuts: { ...DEFAULT_SHORTCUTS }
-}
-
-/**
- * Settings live in the main process but are edited in the dashboard, so every
- * timer window is told when they change rather than polling or going stale.
- */
-function broadcastSettings(): void {
-  instances.forEach((i) => send(i, 'settings:changed', { pace: settings.pace }))
 }
 
 function instanceFor(event: IpcMainInvokeEvent): TimerInstance | undefined {
@@ -125,7 +116,6 @@ function createTimerWindow(): BrowserWindow {
   const engine = new TimerEngine()
   engine.setLoop(settings.loop)
   engine.setAutoEndMinutes(settings.autoEndMinutes)
-  engine.setPace(settings.pace)
 
   const instance: TimerInstance = { window, engine, lastCompleted: null, minimum: BAR_MIN }
   instances.set(window.id, instance)
@@ -284,12 +274,12 @@ function registerIpc(): void {
     settings.loop = value
     instances.forEach((i) => i.engine.setLoop(value))
   })
-  ipcMain.handle('timer:getPace', () => settings.pace)
-  ipcMain.handle('timer:setPace', (_event, config: PaceConfig | null) => {
-    settings.pace = config
-    instances.forEach((i) => i.engine.setPace(config))
-    broadcastSettings()
-  })
+  // Pace belongs to one timer, not to the app: a writing sprint and a problem
+  // set running side by side keep different rates.
+  ipcMain.handle('timer:getPace', (event) => instanceFor(event)?.engine.paceConfig() ?? null)
+  ipcMain.handle('timer:setPace', (event, config: PaceConfig | null) =>
+    instanceFor(event)?.engine.setPace(config)
+  )
   ipcMain.handle('timer:getAutoEnd', () => settings.autoEndMinutes)
   ipcMain.handle('timer:setAutoEnd', (_event, minutes: number) => {
     settings.autoEndMinutes = minutes

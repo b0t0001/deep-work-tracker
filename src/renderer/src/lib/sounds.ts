@@ -1,5 +1,4 @@
 import beepNormal from '../assets/sounds/BeepNormal.wav'
-import beepQuiet from '../assets/sounds/BeepQuiet.wav'
 
 /**
  * Hourglass's own cues, extracted from its binary's embedded resources
@@ -12,6 +11,8 @@ import beepQuiet from '../assets/sounds/BeepQuiet.wav'
  * which is rare and should not be missed.
  */
 
+let toneContext: AudioContext | null = null
+
 function load(src: string, volume: number): HTMLAudioElement {
   const audio = new Audio(src)
   audio.volume = volume
@@ -20,7 +21,6 @@ function load(src: string, volume: number): HTMLAudioElement {
 }
 
 const expiry = load(beepNormal, 1)
-const pace = load(beepQuiet, 1)
 
 function play(audio: HTMLAudioElement): void {
   try {
@@ -42,13 +42,47 @@ function play(audio: HTMLAudioElement): void {
  */
 export function primeAudio(): void {
   expiry.load()
-  pace.load()
+  try {
+    toneContext ??= new AudioContext()
+    if (toneContext.state === 'suspended') void toneContext.resume()
+  } catch {
+    /* no audio device */
+  }
 }
 
 export function expiryCue(): void {
   play(expiry)
 }
 
+/**
+ * A short double tick, synthesised rather than a quieter copy of the beep.
+ *
+ * The two events mean different things and must never be confused by ear, and
+ * the same waveform at a lower volume is exactly the confusable case - in a
+ * loud room a quiet beep and a loud one are the same sound. A different timbre
+ * and rhythm stay distinct however loud the room is.
+ */
 export function paceCue(): void {
-  play(pace)
+  try {
+    toneContext ??= new AudioContext()
+    const ctx = toneContext
+    if (ctx.state === 'suspended') void ctx.resume()
+    for (const delay of [0, 0.11]) {
+      const oscillator = ctx.createOscillator()
+      const gain = ctx.createGain()
+      oscillator.type = 'triangle'
+      oscillator.frequency.value = 1760
+      const start = ctx.currentTime + delay
+      // Ramped rather than switched: an instant start or stop is heard as a click.
+      gain.gain.setValueAtTime(0.0001, start)
+      gain.gain.exponentialRampToValueAtTime(0.09, start + 0.008)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.07)
+      oscillator.connect(gain)
+      gain.connect(ctx.destination)
+      oscillator.start(start)
+      oscillator.stop(start + 0.1)
+    }
+  } catch {
+    /* no audio device; the visual cue still fires */
+  }
 }

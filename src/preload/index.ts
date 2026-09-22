@@ -54,13 +54,6 @@ const api = {
     set: (next: Record<string, string>): Promise<Record<string, boolean>> =>
       ipcRenderer.invoke('shortcuts:set', next)
   },
-  settings: {
-    onChanged: (handler: (payload: { pace: PaceConfig | null }) => void): Unsubscribe => {
-      const listener = (_e: unknown, payload: { pace: PaceConfig | null }): void => handler(payload)
-      ipcRenderer.on('settings:changed', listener)
-      return () => ipcRenderer.removeListener('settings:changed', listener)
-    }
-  },
   sessions: {
     recent: (limit?: number): Promise<unknown[]> => ipcRenderer.invoke('sessions:recent', limit)
   },
