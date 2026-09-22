@@ -439,7 +439,18 @@ function DataTab(): React.JSX.Element {
     await refresh()
   }
 
-  async function remove(id: number): Promise<void> {
+  async function remove(row: SessionRow): Promise<void> {
+    const confirmed = await window.api.ui.confirm({
+      title: 'Delete session',
+      message: `Delete ${row.task ?? 'this unlabelled session'}?`,
+      detail: `${row.session_date ?? 'no date'} · ${hours(row.running_duration_s)} recorded.
+
+This can be undone.`,
+      confirmLabel: 'Delete'
+    })
+    if (!confirmed) return
+
+    const id = row.id
     await window.api.sessions.remove(id)
     if (editing !== 'new' && editing?.id === id) setEditing(null)
     await refresh()
@@ -530,7 +541,7 @@ function DataTab(): React.JSX.Element {
                   </button>
                   <button
                     className="row-actions__danger"
-                    onClick={() => void remove(row.id)}
+                    onClick={() => void remove(row)}
                     title="Delete \u2014 undoable"
                   >
                     Delete

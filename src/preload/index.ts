@@ -83,6 +83,14 @@ const api = {
       ipcRenderer.invoke('sessions:update', id, patch),
     remove: (id: number): Promise<void> => ipcRenderer.invoke('sessions:remove', id)
   },
+  ui: {
+    confirm: (options: {
+      title: string
+      message: string
+      detail?: string
+      confirmLabel: string
+    }): Promise<boolean> => ipcRenderer.invoke('ui:confirm', options)
+  },
   history: {
     state: (): Promise<HistoryState> => ipcRenderer.invoke('history:state'),
     undo: (): Promise<HistoryState> => ipcRenderer.invoke('history:undo'),

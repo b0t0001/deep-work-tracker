@@ -515,6 +515,28 @@ function registerIpc(): void {
     instance.minimum = next
   })
 
+  /** A real modal, attached to the window that asked, so it cannot be missed. */
+  ipcMain.handle(
+    'ui:confirm',
+    async (
+      event,
+      options: { title: string; message: string; detail?: string; confirmLabel: string }
+    ) => {
+      const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
+      const result = await dialog.showMessageBox(parent!, {
+        type: 'warning',
+        buttons: [options.confirmLabel, 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        title: options.title,
+        message: options.message,
+        detail: options.detail,
+        noLink: true
+      })
+      return result.response === 0
+    }
+  )
+
   ipcMain.handle('import:pickFile', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Choose the spreadsheet export',
