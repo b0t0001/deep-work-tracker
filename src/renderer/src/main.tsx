@@ -4,11 +4,21 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import Dashboard from './Dashboard'
+import PaceWindow from './PaceWindow'
 
-// One bundle, two windows. The hash decides which root renders, so the timer
-// and the dashboard share every style and component without a router.
-const isDashboard = window.location.hash.startsWith('#/dashboard')
+// One bundle, three windows. The hash decides which root renders, so the timer,
+// its pace loop and the dashboard share every style and component without a
+// router.
+const route = window.location.hash
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>{isDashboard ? <Dashboard /> : <App />}</StrictMode>
+// Written inline rather than as a component: a component declared here would
+// break fast refresh for the whole entry file.
+const root = route.startsWith('#/dashboard') ? (
+  <Dashboard />
+) : route.startsWith('#/pace') ? (
+  <PaceWindow />
+) : (
+  <App />
 )
+
+createRoot(document.getElementById('root')!).render(<StrictMode>{root}</StrictMode>)

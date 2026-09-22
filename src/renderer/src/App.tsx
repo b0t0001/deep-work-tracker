@@ -9,7 +9,7 @@ import {
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
 import { ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import TimerDial from './components/TimerDial'
-import { expiryCue, paceCue, primeAudio } from './lib/sounds'
+import { expiryCue, primeAudio } from './lib/sounds'
 import Icon from './components/Icon'
 
 /**
@@ -123,7 +123,6 @@ export default function App(): React.JSX.Element {
   const [draft, setDraft] = useState('1:00:00')
   const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
   const [flashing, setFlashing] = useState(false)
-  const [paceNotice, setPaceNotice] = useState<string | null>(null)
   const [pace, setPace] = useState<{
     intervalMs: number
     quantity: number | null
@@ -164,17 +163,13 @@ export default function App(): React.JSX.Element {
   const [stopPrompt, setStopPrompt] = useState(false)
   const clockRef = useRef<HTMLInputElement>(null)
 
-  // The pace loop cues and shows what should be done by now. It never asks for
-  // anything: quantity is entered once, at stop, not mid-essay.
+  // Closing the pace window clears the loop, so this window follows suit.
   useEffect(() => {
-    return window.api.timer.onPace((event) => {
-      paceCue()
-      setPaceNotice(
-        event.cumulativeTarget === null
-          ? `pace ${event.loops}`
-          : `target ${event.cumulativeTarget}${event.unit ? ` ${event.unit}` : ''}`
-      )
-      window.setTimeout(() => setPaceNotice(null), 4000)
+    return window.api.pace.onCleared(() => {
+      setPace(null)
+      setPaceEvery('')
+      setPaceQty('')
+      setPaceUnit('')
     })
   }, [])
 
@@ -254,13 +249,6 @@ export default function App(): React.JSX.Element {
 
   const controls = (
     <div className="controls">
-      <button
-        className={`ghost ghost--pace${pace ? ' is-on' : ''}`}
-        onClick={() => setPaceOpen(!paceOpen)}
-        title={pace ? `Pace loop: ${paceLabel}` : 'Add a pace loop'}
-      >
-        <Icon name="pace" />
-      </button>
       {snapshot.status === 'running' ? (
         <button className="primary" onClick={() => void window.api.timer.pause()} title="Pause">
           <Icon name="pause" />
@@ -284,6 +272,13 @@ export default function App(): React.JSX.Element {
           <Icon name="stop" />
         </button>
       )}
+      <button
+        className={`ghost ghost--pace${pace ? ' is-on' : ''}`}
+        onClick={() => setPaceOpen(!paceOpen)}
+        title={pace ? `Pace loop: ${paceLabel}` : 'Add a pace loop'}
+      >
+        <Icon name="pace" />
+      </button>
     </div>
   )
 
@@ -304,7 +299,7 @@ export default function App(): React.JSX.Element {
       <TimerDial
         progress={fraction}
         clock={formatClock(clockMs)}
-        caption={paceNotice ?? caption}
+        caption={caption}
         variant={variant}
         dimmed={snapshot.status === 'paused'}
         editable={idle}

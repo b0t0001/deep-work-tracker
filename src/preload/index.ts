@@ -49,6 +49,21 @@ const api = {
     onExpired: (handler: (snapshot: TimerSnapshot) => void): Unsubscribe =>
       subscribe('timer:expired', handler)
   },
+  pace: {
+    state: (): Promise<{ snapshot: TimerSnapshot; config: PaceConfig } | null> =>
+      ipcRenderer.invoke('pace:state'),
+    close: (): Promise<void> => ipcRenderer.invoke('pace:close'),
+    onConfig: (handler: (config: PaceConfig) => void): Unsubscribe => {
+      const listener = (_e: unknown, config: PaceConfig): void => handler(config)
+      ipcRenderer.on('pace:config', listener)
+      return () => ipcRenderer.removeListener('pace:config', listener)
+    },
+    onCleared: (handler: () => void): Unsubscribe => {
+      const listener = (): void => handler()
+      ipcRenderer.on('pace:cleared', listener)
+      return () => ipcRenderer.removeListener('pace:cleared', listener)
+    }
+  },
   shortcuts: {
     get: (): Promise<Record<string, string>> => ipcRenderer.invoke('shortcuts:get'),
     set: (next: Record<string, string>): Promise<Record<string, boolean>> =>

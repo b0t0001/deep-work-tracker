@@ -1514,3 +1514,82 @@ code {
 .ghost--pace.is-on {
   color: var(--accent);
 }
+
+/* ---------- pace window ---------- */
+
+/* A small circle beside the timer it belongs to: the same idea as running a
+   second Hourglass, but visibly attached and carrying only what a pace needs -
+   time to the next cue, and what should be done by then. */
+.pace-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  -webkit-app-region: drag;
+}
+
+.pace-card svg {
+  width: 100%;
+  height: 100%;
+}
+
+.pace-card__face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.pace-card__clock {
+  font-size: 23px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.pace-card__target {
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Only appears on hover: the circle is meant to be glanced at, not operated. */
+.pace-card__close {
+  position: absolute;
+  top: 10px;
+  right: 50%;
+  z-index: 2;
+  padding: 0 5px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateX(50%);
+  transition: opacity 140ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.pace-card:hover .pace-card__close {
+  opacity: 1;
+}
+
+.pace-card__close:hover {
+  color: #fca5a5;
+}
+
+.pace-card.is-flashing svg {
+  animation: expiry-flash 0.2s ease-in-out 3;
+}
