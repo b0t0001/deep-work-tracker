@@ -76,14 +76,6 @@ export default function PaceWindow(): React.JSX.Element {
       }`}
       onMouseDown={primeAudio}
     >
-      <button
-        className="pace-card__close"
-        onClick={() => void window.api.pace.close()}
-        title="Remove the pace loop"
-      >
-        &times;
-      </button>
-
       <svg viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
         <g transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}>
           <circle
@@ -113,6 +105,18 @@ export default function PaceWindow(): React.JSX.Element {
             : `${target}${config?.unit ? ` ${config.unit}` : ''}`}
         </div>
       </div>
+
+      {/* Declared last on purpose. Electron resolves overlapping drag regions
+          by document order rather than z-index, so a no-drag control placed
+          before the ring is overridden by it and never receives a click - the
+          button was visible but dead. */}
+      <button
+        className="pace-card__close"
+        onClick={() => void window.api.pace.close()}
+        title="Remove the pace loop"
+      >
+        &times;
+      </button>
     </div>
   )
 }

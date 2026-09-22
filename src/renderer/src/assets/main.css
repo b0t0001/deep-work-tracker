@@ -1567,10 +1567,10 @@ code {
    to hover over the right spot is a control nobody knows exists. */
 .pace-card__close {
   position: absolute;
-  top: 9px;
+  top: 23px;
   right: 50%;
   z-index: 2;
-  padding: 0 6px;
+  padding: 1px 7px;
   border: none;
   background: transparent;
   color: var(--text-dim);
@@ -1590,7 +1590,8 @@ code {
 }
 
 .pace-card__close:hover {
-  color: #fca5a5;
+  color: #f87171;
+  opacity: 1;
 }
 
 .pace-card.is-flashing svg {
