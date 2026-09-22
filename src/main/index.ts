@@ -58,6 +58,12 @@ interface TimerInstance {
    * state and records nothing.
    */
   paceWindow: BrowserWindow | null
+  /**
+   * The pace the last completed run was carrying, kept so undo can bring it
+   * back. Undo restores timing exactly; the pace it was run against is part of
+   * that, not a setting to be typed again.
+   */
+  lastPace: PaceConfig | null
 }
 
 /** Small, circular, and deliberately almost empty. */
@@ -104,7 +110,9 @@ function send(instance: TimerInstance, channel: string, payload: unknown): void 
  * the values stay in the panel and re-arming is one click.
  */
 function endPace(instance: TimerInstance): void {
-  if (!instance.engine.paceConfig()) return
+  const config = instance.engine.paceConfig()
+  if (!config) return
+  instance.lastPace = config
   instance.engine.setPace(null)
   syncPaceWindow(instance)
   send(instance, 'pace:ended', null)
@@ -218,7 +226,8 @@ function createTimerWindow(): BrowserWindow {
     engine,
     lastCompleted: null,
     minimum: BAR_MIN,
-    paceWindow: null
+    paceWindow: null,
+    lastPace: null
   }
   instances.set(window.id, instance)
 
@@ -378,6 +387,14 @@ function registerIpc(): void {
     deleteSession(instance.lastCompleted.id)
     const restored = instance.engine.restore(instance.lastCompleted.snapshot)
     instance.lastCompleted = null
+
+    // The pace comes back with it. Lap position needs no restoring: it is
+    // derived from running time, which the snapshot already carries.
+    if (instance.lastPace) {
+      instance.engine.setPace(instance.lastPace)
+      instance.lastPace = null
+      syncPaceWindow(instance)
+    }
     return restored
   })
 

@@ -227,7 +227,10 @@ export default function App(): React.JSX.Element {
   }
 
   function undoStop(): void {
-    void window.api.timer.undoStop()
+    void window.api.timer.undoStop().then(() => {
+      // Undo may have brought a pace loop back with the session.
+      void window.api.timer.getPace().then(setPace)
+    })
     setStopPrompt(false)
   }
 

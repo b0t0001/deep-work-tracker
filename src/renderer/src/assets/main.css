@@ -434,7 +434,7 @@ input {
   position: absolute;
   inset: 0;
   /* Translucent so the digits stay readable straight through it. */
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: color-mix(in srgb, var(--accent) 37%, transparent);
   transform-origin: left center;
   will-change: transform;
 }
@@ -1597,10 +1597,17 @@ code {
   animation: expiry-flash 0.2s ease-in-out 3;
 }
 
-/* The pace window dims with its parent: a paused session is not being paced. */
-.pace-card.is-dimmed {
-  opacity: 0.45;
+/* The pace window dims with its parent: a paused session is not being paced.
+   Only the ring and the reading fade - the card is the window's background, so
+   fading it would make the whole thing see-through rather than quiet. */
+.pace-card svg,
+.pace-card__face {
   transition: opacity 200ms ease;
+}
+
+.pace-card.is-dimmed svg,
+.pace-card.is-dimmed .pace-card__face {
+  opacity: 0.4;
 }
 
 /* Confirming, not dismissing - the panel applies as you type, so the button
