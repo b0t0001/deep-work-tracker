@@ -303,13 +303,6 @@ export default function App(): React.JSX.Element {
           >
             <Icon name="settings" />
           </button>
-          <button
-            className="icon"
-            onClick={() => setFullScreen(!full)}
-            title={full ? 'Exit full screen' : 'Full screen'}
-          >
-            <Icon name={full ? 'collapse' : 'expand'} />
-          </button>
         </div>
 
         <input
@@ -337,6 +330,13 @@ export default function App(): React.JSX.Element {
         />
 
         <div className="tools">
+          <button
+            className="icon"
+            onClick={() => setFullScreen(!full)}
+            title={full ? 'Exit full screen' : 'Full screen'}
+          >
+            <Icon name={full ? 'collapse' : 'expand'} />
+          </button>
           <button
             className="icon"
             onClick={() => void window.api.window.minimize()}

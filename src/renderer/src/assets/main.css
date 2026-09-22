@@ -1354,3 +1354,16 @@ code {
 .card:hover .dial__inner .controls {
   opacity: 1;
 }
+
+/* ---------- keep the dial draggable ---------- */
+
+/* The clock is an input while idle, and inputs are no-drag, so a full-width
+   one turned the middle of the window into a dead band you could not drag by.
+   Sizing it to its content leaves the rest of the dial draggable, which is
+   most of the window. */
+.dial__clock--input {
+  width: auto;
+  min-width: 2ch;
+  max-width: 82%;
+  field-sizing: content;
+}
