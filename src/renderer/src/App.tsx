@@ -335,8 +335,13 @@ export default function App(): React.JSX.Element {
               placeholder="100"
               inputMode="numeric"
               onChange={(event) => {
-                setPaceQty(event.target.value)
-                applyPace(paceEvery, event.target.value, paceUnit)
+                const next = event.target.value
+                // A count, so only digits and at most one decimal point. The
+                // partial forms `1.` and `` have to be allowed or the field
+                // cannot be typed into or cleared.
+                if (!/^\d{0,6}(\.\d{0,2})?$/.test(next)) return
+                setPaceQty(next)
+                applyPace(paceEvery, next, paceUnit)
               }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') paceUnitRef.current?.focus()
@@ -348,8 +353,12 @@ export default function App(): React.JSX.Element {
               value={paceUnit}
               placeholder="words"
               onChange={(event) => {
-                setPaceUnit(event.target.value)
-                applyPace(paceEvery, paceQty, event.target.value)
+                // Digits here are always meant for the field beside this one,
+                // so they are dropped rather than rejected - the rest of what
+                // was typed still lands.
+                const next = event.target.value.replace(/\d/g, '')
+                setPaceUnit(next)
+                applyPace(paceEvery, paceQty, next)
               }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') closePace()

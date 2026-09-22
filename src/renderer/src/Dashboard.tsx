@@ -171,9 +171,11 @@ function SettingsTab(): React.JSX.Element {
         <input
           value={autoEnd}
           onChange={(event) => {
-            setAutoEnd(event.target.value)
-            const minutes = Number(event.target.value)
-            if (Number.isFinite(minutes)) void window.api.timer.setAutoEnd(minutes)
+            const next = event.target.value
+            // Whole minutes only; empty is allowed so the field can be cleared.
+            if (!/^\d{0,4}$/.test(next)) return
+            setAutoEnd(next)
+            if (next !== '') void window.api.timer.setAutoEnd(Number(next))
           }}
           inputMode="numeric"
         />
