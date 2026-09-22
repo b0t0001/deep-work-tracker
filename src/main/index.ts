@@ -52,9 +52,26 @@ interface TimerInstance {
   engine: TimerEngine
   lastCompleted: { id: number; snapshot: TimerSnapshot } | null
   minimum: { width: number; height: number }
+  /**
+   * The pace loop's own window: a small circle beside the timer it belongs to.
+   * It is a view onto the parent's engine, not a second clock - it holds no
+   * state and records nothing.
+   */
+  paceWindow: BrowserWindow | null
+  /**
+   * The pace the last completed run was carrying, kept so undo can bring it
+   * back. Undo restores timing exactly; the pace it was run against is part of
+   * that, not a setting to be typed again.
+   */
+  lastPace: PaceConfig | null
 }
 
+/** Small, circular, and deliberately almost empty. */
+const PACE_SIZE = 132
+
 const instances = new Map<number, TimerInstance>()
+/** Pace windows resolve back to the timer they belong to. */
+const paceWindows = new Map<number, TimerInstance>()
 let dashboardWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
@@ -66,16 +83,7 @@ let tray: Tray | null = null
 const settings = {
   loop: true,
   autoEndMinutes: 180,
-  pace: null as PaceConfig | null,
   shortcuts: { ...DEFAULT_SHORTCUTS }
-}
-
-/**
- * Settings live in the main process but are edited in the dashboard, so every
- * timer window is told when they change rather than polling or going stale.
- */
-function broadcastSettings(): void {
-  instances.forEach((i) => send(i, 'settings:changed', { pace: settings.pace }))
 }
 
 function instanceFor(event: IpcMainInvokeEvent): TimerInstance | undefined {
@@ -92,6 +100,93 @@ function activeInstance(): TimerInstance | undefined {
 
 function send(instance: TimerInstance, channel: string, payload: unknown): void {
   if (!instance.window.isDestroyed()) instance.window.webContents.send(channel, payload)
+}
+
+/**
+ * Ends the pace loop with the session.
+ *
+ * Distinct from the user closing the pace window: that means "remove this", and
+ * clears what was typed. This means "the session it belonged to is over", so
+ * the values stay in the panel and re-arming is one click.
+ */
+function endPace(instance: TimerInstance): void {
+  const config = instance.engine.paceConfig()
+  if (!config) return
+  instance.lastPace = config
+  instance.engine.setPace(null)
+  syncPaceWindow(instance)
+  send(instance, 'pace:ended', null)
+}
+
+function sendToPace(instance: TimerInstance, channel: string, payload: unknown): void {
+  const target = instance.paceWindow
+  if (target && !target.isDestroyed()) target.webContents.send(channel, payload)
+}
+
+/**
+ * Opens or closes the pace window to match the configuration.
+ *
+ * The window exists exactly when a pace loop does, so there is no separate
+ * on/off to keep in step with the settings - clearing the interval closes it.
+ */
+function syncPaceWindow(instance: TimerInstance): void {
+  const config = instance.engine.paceConfig()
+
+  if (!config) {
+    if (instance.paceWindow && !instance.paceWindow.isDestroyed()) instance.paceWindow.close()
+    return
+  }
+  if (instance.paceWindow && !instance.paceWindow.isDestroyed()) {
+    sendToPace(instance, 'pace:config', config)
+    return
+  }
+
+  // Opens beside its parent, so the pair reads as one thing.
+  const [px, py] = instance.window.getPosition()
+  const [pw] = instance.window.getSize()
+
+  const paceWindow = new BrowserWindow({
+    width: PACE_SIZE,
+    height: PACE_SIZE,
+    x: px + pw + 8,
+    y: py,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    autoHideMenuBar: true,
+    ...(process.platform === 'linux' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  paceWindow.setAlwaysOnTop(true, 'screen-saver')
+  instance.paceWindow = paceWindow
+  paceWindows.set(paceWindow.id, instance)
+
+  paceWindow.on('ready-to-show', () => {
+    // Shown without being activated: it opens while the user is still typing
+    // the interval, and taking focus would pull the caret out of the field.
+    paceWindow.showInactive()
+    sendToPace(instance, 'pace:config', config)
+    sendToPace(instance, 'timer:update', instance.engine.snapshot())
+  })
+  paceWindow.on('closed', () => {
+    paceWindows.delete(paceWindow.id)
+    if (instance.paceWindow === paceWindow) instance.paceWindow = null
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    void paceWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#/pace`)
+  } else {
+    void paceWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: '/pace' })
+  }
 }
 
 function createTimerWindow(): BrowserWindow {
@@ -125,13 +220,24 @@ function createTimerWindow(): BrowserWindow {
   const engine = new TimerEngine()
   engine.setLoop(settings.loop)
   engine.setAutoEndMinutes(settings.autoEndMinutes)
-  engine.setPace(settings.pace)
 
-  const instance: TimerInstance = { window, engine, lastCompleted: null, minimum: BAR_MIN }
+  const instance: TimerInstance = {
+    window,
+    engine,
+    lastCompleted: null,
+    minimum: BAR_MIN,
+    paceWindow: null,
+    lastPace: null
+  }
   instances.set(window.id, instance)
 
   engine.on('update', (snapshot: TimerSnapshot) => {
     send(instance, 'timer:update', snapshot)
+    sendToPace(instance, 'timer:update', snapshot)
+    // A pace belongs to the session it was set for, so it ends with it. Looping
+    // does not pass through idle - expiry starts the next run directly - so a
+    // repeating session keeps its pace across laps.
+    if (snapshot.status === 'idle' || snapshot.status === 'expired') endPace(instance)
     updateTray()
   })
 
@@ -143,7 +249,9 @@ function createTimerWindow(): BrowserWindow {
     send(instance, 'timer:completed', null)
   })
 
-  engine.on('pace', (event: PaceEvent) => send(instance, 'timer:pace', event))
+  // The pace window owns its own cue and flash: it is the thing that fires, so
+  // cueing from the main window as well would double every tick.
+  engine.on('pace', (event: PaceEvent) => sendToPace(instance, 'timer:pace', event))
   engine.on('autoEnded', () => send(instance, 'timer:autoEnded', null))
 
   engine.on('expired', (snapshot: TimerSnapshot) => {
@@ -164,6 +272,10 @@ function createTimerWindow(): BrowserWindow {
   window.on('leave-full-screen', () => send(instance, 'window:fullscreen', false))
   window.on('closed', () => {
     engine.dispose()
+    // The pace window belongs to this timer and has no meaning without it.
+    if (instance.paceWindow && !instance.paceWindow.isDestroyed()) {
+      instance.paceWindow.destroy()
+    }
     instances.delete(window.id)
     updateTray()
   })
@@ -275,6 +387,14 @@ function registerIpc(): void {
     deleteSession(instance.lastCompleted.id)
     const restored = instance.engine.restore(instance.lastCompleted.snapshot)
     instance.lastCompleted = null
+
+    // The pace comes back with it. Lap position needs no restoring: it is
+    // derived from running time, which the snapshot already carries.
+    if (instance.lastPace) {
+      instance.engine.setPace(instance.lastPace)
+      instance.lastPace = null
+      syncPaceWindow(instance)
+    }
     return restored
   })
 
@@ -284,11 +404,52 @@ function registerIpc(): void {
     settings.loop = value
     instances.forEach((i) => i.engine.setLoop(value))
   })
-  ipcMain.handle('timer:getPace', () => settings.pace)
-  ipcMain.handle('timer:setPace', (_event, config: PaceConfig | null) => {
-    settings.pace = config
-    instances.forEach((i) => i.engine.setPace(config))
-    broadcastSettings()
+  // Pace belongs to one timer, not to the app: a writing sprint and a problem
+  // set running side by side keep different rates.
+  ipcMain.handle('timer:getPace', (event) => instanceFor(event)?.engine.paceConfig() ?? null)
+  ipcMain.handle('timer:setPace', (event, config: PaceConfig | null) => {
+    const instance = instanceFor(event)
+    if (!instance) return
+    instance.engine.setPace(config)
+    syncPaceWindow(instance)
+  })
+
+  // The pace window reads its parent's clock; it owns nothing of its own.
+  ipcMain.handle('pace:state', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const instance = window ? paceWindows.get(window.id) : undefined
+    if (!instance) return null
+    return { snapshot: instance.engine.snapshot(), config: instance.engine.paceConfig() }
+  })
+  /**
+   * Closing the pace window means different things depending on the session.
+   *
+   * Mid-session it is dismissing a window, not abandoning the pace - the run is
+   * still being paced against it - so the values stay and reopening restores
+   * the same loop. Its position needs nothing kept: lap and remaining both
+   * derive from running time, so re-arming lands exactly where it left off.
+   *
+   * With no session running there is nothing to come back to, so closing means
+   * remove it, and the fields clear.
+   */
+  ipcMain.handle('pace:close', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const instance = window ? paceWindows.get(window.id) : undefined
+    if (!instance) return
+
+    const config = instance.engine.paceConfig()
+    const { status } = instance.engine.snapshot()
+    const midSession = status === 'running' || status === 'paused'
+
+    instance.engine.setPace(null)
+    syncPaceWindow(instance)
+
+    if (midSession && config) {
+      instance.lastPace = config
+      send(instance, 'pace:ended', null)
+    } else {
+      send(instance, 'pace:cleared', null)
+    }
   })
   ipcMain.handle('timer:getAutoEnd', () => settings.autoEndMinutes)
   ipcMain.handle('timer:setAutoEnd', (_event, minutes: number) => {

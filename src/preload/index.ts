@@ -49,17 +49,30 @@ const api = {
     onExpired: (handler: (snapshot: TimerSnapshot) => void): Unsubscribe =>
       subscribe('timer:expired', handler)
   },
+  pace: {
+    state: (): Promise<{ snapshot: TimerSnapshot; config: PaceConfig } | null> =>
+      ipcRenderer.invoke('pace:state'),
+    close: (): Promise<void> => ipcRenderer.invoke('pace:close'),
+    onConfig: (handler: (config: PaceConfig) => void): Unsubscribe => {
+      const listener = (_e: unknown, config: PaceConfig): void => handler(config)
+      ipcRenderer.on('pace:config', listener)
+      return () => ipcRenderer.removeListener('pace:config', listener)
+    },
+    onCleared: (handler: () => void): Unsubscribe => {
+      const listener = (): void => handler()
+      ipcRenderer.on('pace:cleared', listener)
+      return () => ipcRenderer.removeListener('pace:cleared', listener)
+    },
+    onEnded: (handler: () => void): Unsubscribe => {
+      const listener = (): void => handler()
+      ipcRenderer.on('pace:ended', listener)
+      return () => ipcRenderer.removeListener('pace:ended', listener)
+    }
+  },
   shortcuts: {
     get: (): Promise<Record<string, string>> => ipcRenderer.invoke('shortcuts:get'),
     set: (next: Record<string, string>): Promise<Record<string, boolean>> =>
       ipcRenderer.invoke('shortcuts:set', next)
-  },
-  settings: {
-    onChanged: (handler: (payload: { pace: PaceConfig | null }) => void): Unsubscribe => {
-      const listener = (_e: unknown, payload: { pace: PaceConfig | null }): void => handler(payload)
-      ipcRenderer.on('settings:changed', listener)
-      return () => ipcRenderer.removeListener('settings:changed', listener)
-    }
   },
   sessions: {
     recent: (limit?: number): Promise<unknown[]> => ipcRenderer.invoke('sessions:recent', limit)

@@ -87,24 +87,127 @@ Never decrement a counter on an interval.** A decrementing counter drifts and
 breaks outright when the machine sleeps or the window is hidden. The renderer
 ticks only to repaint; if renderer and main disagree, main wins.
 
-### Two independent timers
+### Two independent timers, two windows
 
-The user ran two Hourglass windows at once. The app must reproduce that.
+The user ran two Hourglass windows at once. The app reproduces that literally.
 
-1. **Session timer** — the countdown for the work session. Freely settable;
-   presets 60, 90, 30, 120, 20 min. On expiry it notifies and auto-starts
-   another run of the same length (Hourglass's loop). Each run is its own
-   `sessions` row. No break interval — breaks are not tracked.
-2. **Pace loop** — an independent repeating interval, often short (3, 5, 10,
-   20 min), expressing a target rate such as "100 words per 20 minutes". On each
-   loop it plays a **subtle, short** sound and briefly shows the **cumulative
-   target** (third 20-minute loop reads `target: 300 words`). Session expiry
-   uses a clearly different and more prominent sound — the two events mean
-   different things and must never be confused by ear. A 3-minute pace loop
-   fires often, so its cue must be hearable without breaking focus.
+**1. The session timer** — the countdown for the work session, one per timer
+window. On expiry it cues and auto-starts another run of the same length
+(Hourglass's loop, on by default). Each run is its own `sessions` row.
+No break interval — breaks are not tracked.
 
-**The pace loop never asks for input.** The user's words: they will not log data
-mid-essay. It cues; they judge. Quantity is entered once, at stop.
+A run that reaches zero records **exactly its planned duration**, not the
+polling overshoot. Expiry is noticed by a 100 ms tick, so recording elapsed
+time would inflate every completed session by up to one tick — and those are
+the sessions whose duration is least in doubt.
+
+**2. The pace loop** — a target rate such as "100 words per 20 minutes",
+expressed as **its own small circular window** beside the timer it belongs to.
+It shows time to the next cue and the cumulative target by then (`300 words` on
+the third lap).
+
+Rules that hold it together:
+
+- **It belongs to one timer, not to the app.** A writing sprint and a problem
+  set running side by side keep different rates. It is configured from the pace
+  button beside start, never from settings.
+- **It is a view onto its parent's clock, not a second clock.** Everything it
+  shows is derived from the parent's snapshot, so the two cannot drift apart.
+- **It counts running time**, so pausing suspends it. A cue at an empty desk is
+  worse than no cue.
+- **The window exists exactly when a pace loop does.** Clearing the interval
+  closes it; closing it clears the interval. There is no separate on/off to
+  fall out of step. It closes with its parent and is skipped in the taskbar.
+- **It records nothing.** The session it paces is the only row written.
+  `pace_target_qty` / `pace_target_interval_s` are stored *on that session*, so
+  prediction can later be compared against what actually happened.
+- **It never asks for input.** The user will not log data mid-essay. It cues;
+  they judge. Quantity is entered once, at stop.
+
+### The pace window's lifetime and state
+
+The pace window is part of a timer, not a window in its own right, and
+everything about it follows from that.
+
+- **Its accent is the app's accent.** Every window reads the same stored value
+  through the shared `useAccentSync` hook and follows the same storage event, so
+  they cannot disagree. Do not give any window its own copy.
+- **It dims with its parent** when the session pauses — a paused session is not
+  being paced. **Only the ring and the reading fade.** The card *is* the
+  window's background, so fading the element itself makes the whole window
+  see-through rather than quiet.
+- **It ends with the session it was set for.** Looping does not pass through
+  idle — expiry starts the next run directly — so a repeating session keeps its
+  pace across laps, while stopping, auto-ending, or expiring without loop closes
+  it.
+- **Ending is not the same as the user closing it.** Closing means "remove
+  this" and clears the panel fields. Ending means "that session is over", so the
+  values stay and the same pace re-arms with one click.
+- **Undo brings it back.** The pace a completed run was carrying is kept, and
+  undoing the stop restores it with the window. Lap position needs no special
+  handling: it derives from running time, which the restored snapshot already
+  carries, so it resumes mid-lap rather than from zero.
+- **It opens without taking focus** (`showInactive`). It appears as soon as the
+  interval parses, which is while the user is still typing it, and activating
+  would pull the caret out of the field mid-word.
+- **Its close control is always visible**, not hover-only. A control that
+  appears only once you happen to hover the right spot is one nobody knows
+  exists.
+
+### The pace panel
+
+Opened from the button beside start, never from settings.
+
+- **Opening it applies whatever the fields already hold.** Values left behind by
+  a finished session are exactly the case where re-arming should be one click;
+  requiring an edit meant retyping a value already on screen.
+- **Enter walks the fields** — interval, quantity, unit — then closes the panel
+  and focuses the clock, so the next Enter starts the session and its pace
+  together. A pace can be set and started without the mouse.
+- **The confirm button is a checkmark, not an X.** Settings apply as they are
+  typed, so it confirms rather than dismisses.
+
+### The two cues must differ in timbre, not volume
+
+Session expiry plays **Hourglass's own beep**, extracted from `BeepNormal` in
+its binary's embedded resources (`Hourglass.Properties.Resources`) and bundled
+at `renderer/src/assets/sounds/`. The loop therefore sounds exactly as it
+always has.
+
+The pace cue is **synthesised**: a short double tick at a much higher pitch.
+
+This is deliberate and must not be "simplified" back to one sound at two
+volumes. The same waveform quieter is exactly the confusable case — in a loud
+room a quiet beep and a loud beep are the same sound. Different timbre and
+rhythm stay distinct however loud the room is.
+
+### The clock is the duration field
+
+There are no preset buttons. They crowded a 250 px window and Hourglass has
+none: you type the time into the clock itself and press Enter.
+
+Parsing follows Hourglass's TimeSpanToken, and what the clock displays is
+always something you can type back:
+
+| Input | Reads as |
+|---|---|
+| `90` | 90 minutes — a bare number is minutes |
+| `5:30`, `1:30:00` | mm:ss, h:mm:ss |
+| `one hour`, `1 HR`, `1hr`, `1h` | 1 hour |
+| `onem`, `one min` | 1 minute |
+| `1h30m`, `2 hours 15 min` | combined units |
+| `twenty five min` | spelled-out numbers, including tens plus ones |
+| `half an hour` | fractions and articles |
+| `90 sec`, `30s` | seconds |
+
+Enter starts the timer and rewrites the field into canonical form; leaving the
+field does the same. While typing, the caption shows how the input was read, so
+`one hour` confirms itself as `1:00:00` before it is committed.
+
+**The word matcher uses `(^|[^a-z])`, not `\b`.** Not style: the escape kept
+collapsing through the tooling between source and file, leaving a literal
+backspace that silently matched nothing. A pattern with no escape in it cannot
+fail that way.
 
 ### Pause and stop are different actions
 
@@ -127,18 +230,107 @@ hitting stop instead of pause must never lose timing data.
 
 ### Windows
 
-- **Compact window** — small, frameless, draggable, `alwaysOnTop: true`. Shows
-  the task label and the countdown. A setting toggles the progress visual
-  between a **bar** and a **circular ring** (like the Windows Clock app).
-  The ring defaults to the project's colour, and **the colour is user-editable
-  in settings** — the default is a starting point, not a constraint.
-- **Dashboard window** — normal window with analytics and session history.
+Four kinds, from one renderer bundle routed by URL hash.
 
-**The compact window appears in timelapse videos the user posts to social
-media.** Its visual design is a functional requirement, not polish. It should
-look good on camera: clean typography, a genuinely attractive ring, no visual
-debris. When trading off between information density and looking good, lean
-toward looking good — the user can open the dashboard for detail.
+- **Timer window** — small, frameless, draggable, `alwaysOnTop: true` at
+  `screen-saver` level, which is what keeps it above full-screen apps rather
+  than merely above normal ones. **Several can be open at once**: each carries
+  its own `TimerEngine`, so two timers never touch each other's clock and an
+  undo in one cannot reach into another's session. New windows cascade so a
+  second is not hidden behind the first.
+- **Pace window** — see above. A child of a timer window.
+- **Dashboard** — one window, tabs for Settings, Data, Analytics and Import.
+- Settings that belong to the *app* (loop, auto-end, shortcuts) apply to every
+  open timer and are inherited by later ones. Settings that belong to a *timer*
+  (the pace loop) do not.
+
+**Sizing is taken from Hourglass, not guessed.** The user's Hourglass config
+runs it at 250x150 — its own minimum — and its XAML caps the timer text at
+18 pt (~24 px) with 10 px padding. An earlier attempt rendered a 40 px clock in
+a 216 px window, which read as cramped no matter how the spacing was tuned: the
+window was never the problem, the type was. Current minimums are 250x136 for
+the bar and 250x220 for the ring, which needs more height because a circle is
+bounded by the shorter dimension while a bar is not.
+
+**The bar's fill spans the whole window**, edge to edge, as Hourglass paints
+it. Inset inside the card's padding it read as a panel with air trapped in it.
+
+**The ring's face box must fit inside the stroke.** The dial is squared so the
+circle and its container are the same thing, then the face sits at 66% x 54% —
+half-diagonal 0.85r against a clear radius of 0.88r. Sizing the face against
+the *dial* instead of the circle is the bug to avoid: the dial is as wide as
+the window while the circle is only as wide as the window is tall.
+
+**The timer window appears in timelapse videos the user posts to social media.**
+Its visual design is a functional requirement, not polish. Clean typography, a
+genuinely attractive ring, no visual debris. When trading off information
+density against looking good, lean toward looking good — the dashboard carries
+the detail.
+
+### Electron drag regions: check this before adding any control
+
+This has now broken the build three separate times. It is not background
+reading — it is a check to run **before** writing the JSX, not a thing to
+remember afterwards.
+
+**The rule that keeps being broken:**
+
+> Any interactive element that visually overlaps a draggable surface must be
+> the **last sibling** in its container.
+
+Electron resolves overlapping drag regions by **document order, not
+`z-index`**. Writing chrome first and content second is the natural reading
+order and it is wrong here: the later element wins, so a button declared before
+the thing it sits on top of is silently dead. It renders, it highlights in
+devtools, it never receives a click and never fires `:hover`.
+
+Every occurrence so far was the same shape — an interactive control added to
+the top of a component that overlays the dial:
+
+| What broke | Why |
+| --- | --- |
+| Ring-mode header never appeared on hover | declared before the dial |
+| Ring mode could not be dragged at all | drag zone declared before the dial |
+| Pace window's close button did nothing | declared before the ring |
+
+**Before adding a control that overlays a dial, ring or card, ask:**
+
+1. Does it sit on top of a draggable surface? If no, stop — this does not apply.
+2. Is it declared **after** that surface in the markup? If not, move it.
+3. Does it need `-webkit-app-region: no-drag`? Buttons and inputs get this
+   automatically; a plain `div` or the container around them does not.
+4. If the visual order now disagrees with the markup order, fix it with flexbox
+   `order`, never by moving the element back.
+
+**Two more rules that follow from the same mechanism:**
+
+- **A drag region consumes mouse events at the OS level** — no hover, no
+  clicks, no `mousedown`. This is why a full-width clock input once turned the
+  middle of the window into a dead band nothing could drag, and why the card
+  drops `-webkit-app-region: drag` entirely while a field is focused.
+- **`no-drag` nests inside `drag`, but `drag` does not nest inside `no-drag`.**
+  Inverting the card to make a floating panel hoverable killed dragging
+  outright.
+
+**Symptom-to-cause, since these look like unrelated bugs:**
+
+| Symptom | Cause |
+| --- | --- |
+| Button visible but clicks do nothing | declared before the draggable surface |
+| `:hover` styles never apply | same |
+| A region of the window cannot be dragged | a `no-drag` element covers it |
+| Dragging stopped everywhere | `drag` nested inside `no-drag` |
+
+### Global shortcuts
+
+Bindings for pause/resume, stop and new-timer, set in the dashboard by pressing
+the keys rather than typing an accelerator — nobody should have to know
+Electron spells it `CommandOrControl+Shift+Space`. Backspace clears, Escape
+cancels.
+
+Registration **fails silently** when another application owns a combination
+(and throws on a malformed one), so failures are reported back and shown in
+red. A shortcut that quietly does nothing is worse than one you know is taken.
 
 ## Source data and its quirks
 
@@ -211,13 +403,28 @@ be recomputed, lost detail cannot.
   A real row, not a string, so renaming fixes history and drift cannot recur.
 - `tags` — id, name, project_id (nullable). The optional second dimension,
   chiefly course codes such as `WRIT 0580`.
-- `presets` — saved session durations and saved pace-loop intervals.
-- `sessions` — id, project_id, tag_id (nullable), task (free text), started_at,
-  ended_at, planned_duration_s, **running_duration_s** (excludes paused time),
-  stop_reason, work_quantity, work_unit, unquantifiable, notes,
-  pace_target_qty, pace_target_interval_s, source (`app` | `manual` | `import`)
+- `presets` — saved session durations and pace-loop intervals. **Unused so
+  far**: preset buttons were removed from the timer and return only as a
+  settings toggle if asked for. The table exists for that.
+- `sessions` — id, project_id, tag_id (nullable), task (free text),
+  **session_date**, started_at, ended_at, planned_duration_s,
+  **running_duration_s** (excludes paused time), stop_reason, stop_reason_note,
+  work_quantity, work_unit, unquantifiable, notes, pace_target_qty,
+  pace_target_interval_s, source (`app` | `manual` | `import`)
+
+`session_date` is the local calendar date, separate from `started_at`.
+Imported rows know their date but not their time of day, so without it the date
+would have been lost and every trend with it. It is the local date rather than
+UTC because a session at 11pm belongs to that day as lived, which is how daily
+totals and streaks are read.
 - `pauses` — session_id, paused_at, resumed_at. Makes `running_duration_s`
   auditable rather than a number nobody can check.
+
+**Every finished run flows through one path.** Stopped by hand, expired, or
+auto-ended, each emits `completed` and is recorded in the same place, so no
+path can silently fail to record. That is also what makes undo possible: the
+last completed run is held per timer window, and undoing deletes the row and
+restores the timing exactly rather than making it be re-entered.
 
 `stop_reason` is a small set the user defined from their own behaviour:
 `finished_early`, `tired`, `interrupted`, a free-text `other` for cases none of
@@ -303,6 +510,12 @@ npm run format
 No test runner yet — Vitest arrives in Phase 2, alongside the first real
 logic worth testing. Do not reference `npm run test` until it exists.
 
+The timer engine is exercised directly in the meantime — see
+**Working practices**.
+
+`npm run dist` produces an installer; it does not update the installed app.
+See **Working practices**.
+
 `package.json` carries an `allowScripts` field. npm 11 blocks install scripts
 by default, and Electron's postinstall is what downloads the 246 MB binary —
 without the approval a fresh `npm install` silently yields an app that cannot
@@ -317,6 +530,34 @@ start. If that happens, run `node node_modules/electron/install.js`.
   migration that has already run; add a new one.
 - Keep business logic (streaks, totals, trend math) in plain testable functions
   under `src/shared/`, not inside components.
+
+## Working practices
+
+Three things learned by getting them wrong here, not general advice:
+
+**Work on a branch, never commit straight to `main`.** Eight commits went onto
+`main` directly before this was noticed, which also cost the user the
+added/removed line counter in the desktop app — it measures a branch against its
+base, and on `main` there is no base to measure against. Branch before starting
+a piece of work.
+
+**`npm run dist` does not update the installed app.** The copy under
+`AppData\Local\Programs\deep-work-tracker` is a snapshot taken at build time
+with no link to the source. Changes reach it only by rebuilding *and* running
+the installer again, which upgrades in place. The user tests from the desktop
+icon, so **rebuild and reinstall as part of the change** rather than telling
+them to — a day was lost to them looking at a stale build and reporting bugs
+that were already fixed.
+
+**Exercise the timer engine rather than assuming it.** Bundling it standalone
+and driving it from Node has already caught two real defects that review did
+not: completed runs recording the polling overshoot, and every spelled-out
+duration silently failing to parse. Anything touching the engine gets a script:
+
+```
+npx esbuild src/main/timer.ts --bundle --platform=node --format=esm --outfile=<tmp>/t.mjs
+node <tmp>/your-test.mjs
+```
 
 ## Working with the user
 

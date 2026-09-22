@@ -7,9 +7,9 @@ import {
   type TimerSnapshot
 } from '@shared/timer'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
-import { ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import TimerDial from './components/TimerDial'
-import { expiryCue, paceCue, primeAudio } from './lib/sounds'
+import { expiryCue, primeAudio } from './lib/sounds'
+import { useAccentSync } from './lib/accent'
 import Icon from './components/Icon'
 
 /**
@@ -77,36 +77,6 @@ function useFullScreen(): [boolean, (value: boolean) => void] {
   return [full, (value) => void window.api.window.setFullScreen(value)]
 }
 
-/**
- * Browser storage can throw or come back empty, so every access is guarded.
- * The `storage` event is what keeps this window in step with the settings
- * panel, which lives in a separate window sharing the same origin.
- */
-function useAccent(): string {
-  const [accent, setAccent] = useState<string>(() => {
-    try {
-      const stored = localStorage.getItem(ACCENT_KEY)
-      return isKnownAccent(stored) ? stored : DEFAULT_ACCENT
-    } catch {
-      return DEFAULT_ACCENT
-    }
-  })
-
-  useEffect(() => {
-    document.documentElement.style.setProperty('--accent', accent)
-  }, [accent])
-
-  useEffect(() => {
-    const onStorage = (event: StorageEvent): void => {
-      if (event.key === ACCENT_KEY && isKnownAccent(event.newValue)) setAccent(event.newValue)
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
-
-  return accent
-}
-
 const CAPTIONS: Record<TimerSnapshot['status'], string> = {
   idle: 'ready',
   running: 'running',
@@ -117,40 +87,80 @@ const CAPTIONS: Record<TimerSnapshot['status'], string> = {
 export default function App(): React.JSX.Element {
   const { snapshot, now } = useTimer()
   const [full, setFullScreen] = useFullScreen()
-  useAccent()
+  useAccentSync()
   const [label, setLabel] = useState('')
   const [labelFocused, setLabelFocused] = useState(false)
-  const [draft, setDraft] = useState('60:00')
+  const [draft, setDraft] = useState('1:00:00')
   const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
   const [flashing, setFlashing] = useState(false)
-  const [paceNotice, setPaceNotice] = useState<string | null>(null)
   const [pace, setPace] = useState<{
     intervalMs: number
     quantity: number | null
     unit: string | null
   } | null>(null)
 
-  // A pace loop configured in settings was invisible from here, so it was easy
-  // to conclude the feature did not exist. The timer now says when one is on.
+  const [paceOpen, setPaceOpen] = useState(false)
+  const paceEveryRef = useRef<HTMLInputElement>(null)
+  const paceQtyRef = useRef<HTMLInputElement>(null)
+  const paceUnitRef = useRef<HTMLInputElement>(null)
+  const [paceEvery, setPaceEvery] = useState('')
+  const [paceQty, setPaceQty] = useState('')
+  const [paceUnit, setPaceUnit] = useState('')
+
+  // The pace loop belongs to this window, so it is read back on mount in case
+  // the renderer reloaded while one was running.
+  // Opening the panel puts the caret in the first field, so it can be filled
+  // without reaching for the mouse.
   useEffect(() => {
-    void window.api.timer.getPace().then(setPace)
-    return window.api.settings.onChanged((next) => setPace(next.pace))
+    if (paceOpen) paceEveryRef.current?.focus()
+  }, [paceOpen])
+
+  useEffect(() => {
+    void window.api.timer.getPace().then((config) => {
+      if (!config) return
+      setPace(config)
+      setPaceEvery(String(Math.round(config.intervalMs / 60_000)))
+      setPaceQty(config.quantity === null ? '' : String(config.quantity))
+      setPaceUnit(config.unit ?? '')
+    })
   }, [])
+
+  function closePace(): void {
+    setPaceOpen(false)
+    clockRef.current?.focus()
+  }
+
+  /** An interval with no number is not a pace loop, so it switches off. */
+  function applyPace(every: string, quantity: string, unit: string): void {
+    const intervalMs = parseDurationMs(every)
+    const config =
+      intervalMs === null
+        ? null
+        : {
+            intervalMs,
+            quantity: quantity.trim() === '' ? null : Number(quantity),
+            unit: unit.trim() === '' ? null : unit.trim()
+          }
+    setPace(config)
+    void window.api.timer.setPace(config)
+  }
   const [stopPrompt, setStopPrompt] = useState(false)
   const clockRef = useRef<HTMLInputElement>(null)
 
-  // The pace loop cues and shows what should be done by now. It never asks for
-  // anything: quantity is entered once, at stop, not mid-essay.
+  // Closing the pace window means "remove this", so the fields clear with it.
   useEffect(() => {
-    return window.api.timer.onPace((event) => {
-      paceCue()
-      setPaceNotice(
-        event.cumulativeTarget === null
-          ? `pace ${event.loops}`
-          : `target ${event.cumulativeTarget}${event.unit ? ` ${event.unit}` : ''}`
-      )
-      window.setTimeout(() => setPaceNotice(null), 4000)
+    return window.api.pace.onCleared(() => {
+      setPace(null)
+      setPaceEvery('')
+      setPaceQty('')
+      setPaceUnit('')
     })
+  }, [])
+
+  // Ending with the session means "that one is over" - the values stay, so the
+  // same pace can be re-armed for the next run with one click.
+  useEffect(() => {
+    return window.api.pace.onEnded(() => setPace(null))
   }, [])
 
   // Expiry cue: sound plus a flash, matching Hourglass - three flashes at 0.2s.
@@ -170,20 +180,20 @@ export default function App(): React.JSX.Element {
   // While a field is focused the card stops being a drag region. Electron drag
   // regions swallow mouse events outright, so without this a click on the card
   // body never reaches the handler that drops focus.
-  const editing = labelFocused
+  const editing = labelFocused || paceOpen
 
   const canonical = plannedMs === null ? null : formatDurationInput(plannedMs)
 
-  const clockMs = idle ? (plannedMs ?? 0) : remainingMs(snapshot, now)
-  const fraction = idle ? 0 : progressOf(snapshot, now)
-  // While typing, the caption shows how the input was read, so `one hour`
-  // confirms itself as 1:00:00 before you commit to it.
   const paceLabel =
     pace === null
       ? null
       : `${pace.quantity ?? ''}${pace.unit ? ` ${pace.unit}` : ''}`.trim() +
         `/${Math.round(pace.intervalMs / 60_000)}m`
 
+  const clockMs = idle ? (plannedMs ?? 0) : remainingMs(snapshot, now)
+  const fraction = idle ? 0 : progressOf(snapshot, now)
+  // While typing, the caption shows how the input was read, so `one hour`
+  // confirms itself as 1:00:00 before you commit to it.
   const caption = idle
     ? canonical === null
       ? 'enter a time'
@@ -217,7 +227,10 @@ export default function App(): React.JSX.Element {
   }
 
   function undoStop(): void {
-    void window.api.timer.undoStop()
+    void window.api.timer.undoStop().then(() => {
+      // Undo may have brought a pace loop back with the session.
+      void window.api.timer.getPace().then(setPace)
+    })
     setStopPrompt(false)
   }
 
@@ -252,6 +265,20 @@ export default function App(): React.JSX.Element {
           <Icon name="stop" />
         </button>
       )}
+      <button
+        className={`ghost ghost--pace${pace ? ' is-on' : ''}`}
+        onClick={() => {
+          const opening = !paceOpen
+          setPaceOpen(opening)
+          // Re-arm from whatever the fields already hold. A pace that ended
+          // with its session leaves its values behind, and requiring an edit to
+          // bring it back meant retyping a value that was already on screen.
+          if (opening) applyPace(paceEvery, paceQty, paceUnit)
+        }}
+        title={pace ? `Pace loop: ${paceLabel}` : 'Add a pace loop'}
+      >
+        <Icon name="pace" />
+      </button>
     </div>
   )
 
@@ -272,7 +299,7 @@ export default function App(): React.JSX.Element {
       <TimerDial
         progress={fraction}
         clock={formatClock(clockMs)}
-        caption={paceNotice ?? caption}
+        caption={caption}
         variant={variant}
         dimmed={snapshot.status === 'paused'}
         editable={idle}
@@ -283,6 +310,67 @@ export default function App(): React.JSX.Element {
         inputRef={clockRef}
         controls={controls}
       />
+
+      {paceOpen && (
+        <div className="pace-panel">
+          <div className="pace-panel__row">
+            <span>every</span>
+            <input
+              ref={paceEveryRef}
+              value={paceEvery}
+              placeholder="20"
+              onChange={(event) => {
+                setPaceEvery(event.target.value)
+                applyPace(event.target.value, paceQty, paceUnit)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') paceQtyRef.current?.focus()
+              }}
+              aria-label="Pace interval"
+            />
+            <span>do</span>
+            <input
+              ref={paceQtyRef}
+              value={paceQty}
+              placeholder="100"
+              inputMode="numeric"
+              onChange={(event) => {
+                const next = event.target.value
+                // A count, so only digits and at most one decimal point. The
+                // partial forms `1.` and `` have to be allowed or the field
+                // cannot be typed into or cleared.
+                if (!/^\d{0,6}(\.\d{0,2})?$/.test(next)) return
+                setPaceQty(next)
+                applyPace(paceEvery, next, paceUnit)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') paceUnitRef.current?.focus()
+              }}
+              aria-label="Pace target"
+            />
+            <input
+              ref={paceUnitRef}
+              value={paceUnit}
+              placeholder="words"
+              onChange={(event) => {
+                // Digits here are always meant for the field beside this one,
+                // so they are dropped rather than rejected - the rest of what
+                // was typed still lands.
+                const next = event.target.value.replace(/\d/g, '')
+                setPaceUnit(next)
+                applyPace(paceEvery, paceQty, next)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') closePace()
+              }}
+              aria-label="Pace unit"
+            />
+          </div>
+          <button className="pace-panel__close" onClick={() => setPaceOpen(false)} title="Done">
+            &times;
+          </button>
+        </div>
+      )}
 
       {stopPrompt && (
         <div className="stop-prompt">

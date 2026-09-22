@@ -434,7 +434,7 @@ input {
   position: absolute;
   inset: 0;
   /* Translucent so the digits stay readable straight through it. */
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: color-mix(in srgb, var(--accent) 37%, transparent);
   transform-origin: left center;
   will-change: transform;
 }
@@ -1001,9 +1001,13 @@ input {
 
 /* ---------- tables ---------- */
 
+/* `separate` rather than `collapse`: a collapsed border belongs to the table
+   rather than the cell, so it scrolls away from a sticky header and leaves the
+   heading floating over the rows with no rule under it. */
 .grid {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
 }
 
@@ -1014,12 +1018,16 @@ input {
   text-align: left;
 }
 
+/* Sticky alone is not enough. Table cells paint in document order, so without
+   a stacking context the rows scrolling past are drawn over the header - which
+   reads as the header failing to freeze at all. */
 .grid th {
-  color: var(--text-dim);
-  font-weight: 500;
   position: sticky;
   top: 0;
+  z-index: 2;
   background: var(--surface);
+  color: var(--text-dim);
+  font-weight: 500;
 }
 
 .grid .num {
@@ -1418,4 +1426,213 @@ code {
 .shortcut__key.is-failed {
   border-color: #fca5a5;
   color: #fca5a5;
+}
+
+/* ---------- pace panel ---------- */
+
+/* Set from the timer rather than from settings: a pace belongs to the session
+   you are about to run, not to the application. */
+.pace-panel {
+  position: absolute;
+  right: var(--pad);
+  bottom: var(--pad);
+  left: var(--pad);
+  z-index: 3;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 5px 6px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-app-region: no-drag;
+}
+
+.pace-panel__row {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+
+.pace-panel span {
+  color: var(--text-dim);
+  font-size: clamp(8px, 4.4vmin, 14px);
+  flex: 0 0 auto;
+}
+
+.pace-panel input {
+  min-width: 0;
+  flex: 1 1 0;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: clamp(9px, 4.6vmin, 15px);
+  text-align: center;
+  outline: none;
+}
+
+.pace-panel input:focus {
+  border-color: var(--accent);
+}
+
+.pace-panel__close {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: clamp(11px, 5vmin, 18px);
+  cursor: pointer;
+}
+
+.pace-panel__close:hover {
+  color: var(--text);
+}
+
+/* The icon carries the state, so a configured pace is visible without opening
+   the panel to check. */
+.icon.is-on {
+  color: var(--accent);
+}
+
+/* ---------- pace control ---------- */
+
+/* Sits beside start because that is where the decision is made: you set a pace
+   for the session you are about to run, not in a menu beforehand. */
+.ghost--pace {
+  padding-right: clamp(5px, 4vmin, 24px);
+  padding-left: clamp(5px, 4vmin, 24px);
+  color: var(--text-dim);
+}
+
+.ghost--pace svg {
+  width: clamp(11px, 8vmin, 30px);
+  height: clamp(11px, 8vmin, 30px);
+}
+
+.ghost--pace:hover {
+  color: var(--text);
+}
+
+/* Accent while armed, so a configured pace is visible at a glance. */
+.ghost--pace.is-on {
+  color: var(--accent);
+}
+
+/* ---------- pace window ---------- */
+
+/* A small circle beside the timer it belongs to: the same idea as running a
+   second Hourglass, but visibly attached and carrying only what a pace needs -
+   time to the next cue, and what should be done by then. */
+.pace-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  -webkit-app-region: drag;
+}
+
+.pace-card svg {
+  width: 100%;
+  height: 100%;
+}
+
+.pace-card__face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.pace-card__clock {
+  font-size: 23px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.pace-card__target {
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Visible rather than hover-only. A control that appears only once you happen
+   to hover over the right spot is a control nobody knows exists. */
+.pace-card__close {
+  position: absolute;
+  top: 23px;
+  right: 50%;
+  z-index: 2;
+  padding: 1px 7px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.5;
+  transform: translateX(50%);
+  transition:
+    opacity 140ms ease,
+    color 140ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.pace-card:hover .pace-card__close {
+  opacity: 1;
+}
+
+.pace-card__close:hover {
+  color: #f87171;
+  opacity: 1;
+}
+
+.pace-card.is-flashing svg {
+  animation: expiry-flash 0.2s ease-in-out 3;
+}
+
+/* The pace window dims with its parent: a paused session is not being paced.
+   Only the ring and the reading fade - the card is the window's background, so
+   fading it would make the whole thing see-through rather than quiet. */
+.pace-card svg,
+.pace-card__face {
+  transition: opacity 200ms ease;
+}
+
+.pace-card.is-dimmed svg,
+.pace-card.is-dimmed .pace-card__face {
+  opacity: 0.4;
+}
+
+/* Confirming, not dismissing - the panel applies as you type, so the button
+   says the settings are finished rather than discarded. */
+.pace-panel__close {
+  display: flex;
+  align-items: center;
+  padding: 3px 5px;
+  color: var(--accent);
+}
+
+.pace-panel__close svg {
+  width: clamp(11px, 5.4vmin, 20px);
+  height: clamp(11px, 5.4vmin, 20px);
+}
+
+.pace-panel__close:hover {
+  color: var(--text);
 }
