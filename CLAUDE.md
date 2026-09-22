@@ -140,9 +140,14 @@ everything about it follows from that.
   idle — expiry starts the next run directly — so a repeating session keeps its
   pace across laps, while stopping, auto-ending, or expiring without loop closes
   it.
-- **Ending is not the same as the user closing it.** Closing means "remove
-  this" and clears the panel fields. Ending means "that session is over", so the
-  values stay and the same pace re-arms with one click.
+- **Closing it is session-aware.** Mid-session, closing dismisses a window
+  rather than abandoning the pace — the run is still being paced against it — so
+  the values stay and clicking the pace icon brings the same loop back. With
+  nothing running there is nothing to return to, so closing means remove it and
+  the fields clear. Ending with a session behaves like the first case.
+- **Re-arming needs no stored position.** Lap and remaining both derive from
+  running time, so a pace switched off and back on lands wherever the session
+  has got to — no replayed laps, no restart from zero.
 - **Undo brings it back.** The pace a completed run was carrying is kept, and
   undoing the stop restores it with the window. Lap position needs no special
   handling: it derives from running time, which the restored snapshot already
@@ -166,6 +171,20 @@ Opened from the button beside start, never from settings.
   together. A pace can be set and started without the mouse.
 - **The confirm button is a checkmark, not an X.** Settings apply as they are
   typed, so it confirms rather than dismisses.
+
+### Which fields constrain input, and which must not
+
+- **Digits only:** the pace quantity and the auto-end minutes. Both are counts.
+- **No digits:** the pace unit. A digit there is always meant for the quantity
+  box beside it, so it is dropped rather than rejected — the rest of the word
+  still lands.
+- **Deliberately unconstrained:** the clock and the pace interval. Both read
+  durations like `one hour` and `20 min`, so letters are valid input. Do not
+  "fix" these to numeric.
+
+Partial forms stay allowed everywhere — an empty field, and `1.` mid-decimal.
+Rejecting those makes a field impossible to clear or type a decimal into, which
+is the same bug as the old duration field forcing a `1` back in.
 
 ### The two cues must differ in timbre, not volume
 
@@ -243,6 +262,11 @@ Four kinds, from one renderer bundle routed by URL hash.
 - Settings that belong to the *app* (loop, auto-end, shortcuts) apply to every
   open timer and are inherited by later ones. Settings that belong to a *timer*
   (the pace loop) do not.
+
+**Accents are named after stones** — Diamond, Ruby, Sapphire, Turquoise, Jade,
+Amber, Moonstone — defined once in `shared/accents.ts` and read by every window
+through `useAccentSync`. The hex value is what gets stored, so renaming one
+cannot orphan a saved choice.
 
 **Sizing is taken from Hourglass, not guessed.** The user's Hourglass config
 runs it at 250x150 — its own minimum — and its XAML caps the timer text at
@@ -558,6 +582,33 @@ duration silently failing to parse. Anything touching the engine gets a script:
 npx esbuild src/main/timer.ts --bundle --platform=node --format=esm --outfile=<tmp>/t.mjs
 node <tmp>/your-test.mjs
 ```
+
+**The user does not run git commands.** Branch, commit, push and merge are all
+done here, without being asked each time. Give them the result, not the
+instructions.
+
+**Editing gotchas that have each cost a wasted turn more than once:**
+
+- **Large heredocs fail.** Writing a long file in one `cat <<'EOF'` block dies
+  with `unexpected EOF while looking for matching quote` and writes nothing.
+  Split it across two appends, or stage the content in a temp file and splice
+  it in with Python. Check the file afterwards — a failed write leaves the
+  original untouched, which is easy to mistake for success.
+- **Prettier runs after every change, so exact-match patches go stale.** It
+  collapses multi-line imports to one line, reflows ternaries, and rewraps JSX.
+  A patch written against what was authored will not match what is on disk.
+  Re-read the region before patching by exact string.
+- **Backslash escapes collapse in transit.** `\b` in a regex has arrived in the
+  file as a literal backspace character, which silently matches nothing and
+  looks like a logic bug. Prefer patterns with no escape at all — `[^a-z]`
+  rather than `\b` — and when one is unavoidable, read the line back and
+  confirm what actually landed.
+
+**Sticky table headers need three things, not one.** `position: sticky` alone
+looks like it should work and does not: table cells paint in document order, so
+rows are drawn over the header without a `z-index`, and `border-collapse:
+collapse` gives the border to the table rather than the cell so it scrolls away.
+Sticky, a z-index, and `border-collapse: separate` together.
 
 ## Working with the user
 
