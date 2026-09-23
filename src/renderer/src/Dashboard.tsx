@@ -406,17 +406,44 @@ function SessionForm({
   )
 }
 
+interface SessionPage {
+  rows: SessionRow[]
+  total: number
+  totalRunningS: number
+  offset: number
+  earliest: string | null
+  latest: string | null
+}
+
+/** `null` is "show all" - the query reads a null limit as no limit. */
+const PAGE_SIZES: Array<{ id: string; label: string; size: number | null }> = [
+  { id: '50', label: '50', size: 50 },
+  { id: '100', label: '100', size: 100 },
+  { id: '250', label: '250', size: 250 },
+  { id: 'all', label: 'All', size: null }
+]
+
 function DataTab(): React.JSX.Element {
-  const [rows, setRows] = useState<SessionRow[] | null>(null)
+  const [page, setPage] = useState<SessionPage | null>(null)
   const [history, setHistory] = useState<HistoryState>(EMPTY_HISTORY)
   const [editing, setEditing] = useState<SessionRow | 'new' | null>(null)
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [sizeId, setSizeId] = useState('100')
+  const [offset, setOffset] = useState(0)
+
+  const limit = PAGE_SIZES.find((entry) => entry.id === sizeId)?.size ?? null
 
   async function refresh(): Promise<void> {
     const [next, state] = await Promise.all([
-      window.api.sessions.recent(200),
+      window.api.sessions.query({ from: from || null, to: to || null, limit, offset }),
       window.api.history.state()
     ])
-    setRows(next as SessionRow[])
+    const loaded = next as SessionPage
+    // Deleting the last row of the last page would otherwise leave the view
+    // sitting past the end of the results, showing an empty table.
+    if (offset > 0 && loaded.total <= offset) setOffset(0)
+    setPage(loaded)
     setHistory(state)
   }
 
@@ -424,13 +451,27 @@ function DataTab(): React.JSX.Element {
   // cannot see that refresh awaits before it sets state, and reads the call as
   // a synchronous setState inside an effect.
   useEffect(() => {
-    void Promise.all([window.api.sessions.recent(200), window.api.history.state()]).then(
-      ([next, state]) => {
-        setRows(next as SessionRow[])
-        setHistory(state)
-      }
-    )
-  }, [])
+    let live = true
+    void Promise.all([
+      window.api.sessions.query({ from: from || null, to: to || null, limit, offset }),
+      window.api.history.state()
+    ]).then(([next, state]) => {
+      if (!live) return
+      setPage(next as SessionPage)
+      setHistory(state)
+    })
+    return () => {
+      live = false
+    }
+  }, [from, to, limit, offset])
+
+  // Any change to what is being shown returns to the first page. Staying on
+  // page 14 of a range that now has three pages shows nothing at all.
+  function setRange(nextFrom: string, nextTo: string): void {
+    setFrom(nextFrom)
+    setTo(nextTo)
+    setOffset(0)
+  }
 
   async function save(patch: Record<string, unknown>): Promise<void> {
     if (editing === 'new') await window.api.sessions.create(patch)
@@ -450,6 +491,23 @@ This can be undone.`,
     })
     if (!confirmed) return
 
+    // Imported rows are asked about twice. They are 3.5 years of history the
+    // app did not record and cannot reconstruct, sitting in the same table as
+    // a session from ten minutes ago with the same Delete button beside them.
+    // It is the one place where a misclick costs something that did not come
+    // from this app.
+    if (row.source === 'import') {
+      const again = await window.api.ui.confirm({
+        title: 'This row came from the spreadsheet',
+        message: 'Delete imported history?',
+        detail: `${row.session_date ?? 'no date'} · ${row.task ?? 'unlabelled'}
+
+Undo brings it back, and so does re-importing the CSV — but re-importing replaces every imported row, so it would discard any edits made to the others.`,
+        confirmLabel: 'Delete imported row'
+      })
+      if (!again) return
+    }
+
     const id = row.id
     await window.api.sessions.remove(id)
     if (editing !== 'new' && editing?.id === id) setEditing(null)
@@ -462,18 +520,97 @@ This can be undone.`,
     await refresh()
   }
 
-  if (rows === null) return <section className="panel">Loading…</section>
+  if (page === null) return <section className="panel">Loading…</section>
 
-  const total = rows.reduce((sum, row) => sum + row.running_duration_s, 0)
+  const { rows, total, totalRunningS, earliest, latest } = page
+  const filtered = from !== '' || to !== ''
+  const firstShown = total === 0 ? 0 : offset + 1
+  const lastShown = Math.min(offset + rows.length, total)
+  const pageCount = limit === null ? 1 : Math.max(1, Math.ceil(total / limit))
+  const pageNumber = limit === null ? 1 : Math.floor(offset / limit) + 1
 
   return (
     <section className="panel">
       <h2>Sessions</h2>
       <p className="muted">
-        {rows.length === 0
-          ? 'Nothing recorded yet. Run a timer and stop it, add one by hand, or bring in the spreadsheet from the Import tab.'
-          : `${rows.length} most recent \u00b7 ${hours(total)} in view`}
+        {total === 0
+          ? filtered
+            ? 'No sessions in that date range.'
+            : 'Nothing recorded yet. Run a timer and stop it, add one by hand, or bring in the spreadsheet from the Import tab.'
+          : `${firstShown.toLocaleString()}–${lastShown.toLocaleString()} of ${total.toLocaleString()} · ${hours(totalRunningS)} in range`}
       </p>
+
+      <div className="row filters">
+        <label className="filter-field">
+          <span>From</span>
+          <input
+            type="date"
+            value={from}
+            min={earliest ?? undefined}
+            max={latest ?? undefined}
+            onChange={(event) => setRange(event.target.value, to)}
+          />
+        </label>
+        <label className="filter-field">
+          <span>To</span>
+          <input
+            type="date"
+            value={to}
+            min={earliest ?? undefined}
+            max={latest ?? undefined}
+            onChange={(event) => setRange(from, event.target.value)}
+          />
+        </label>
+        <button className="action" disabled={!filtered} onClick={() => setRange('', '')}>
+          Clear
+        </button>
+        {earliest && latest && (
+          <span className="muted">
+            recorded {earliest} to {latest}
+          </span>
+        )}
+      </div>
+
+      {/* Above the table, not below it: "All" runs to thousands of rows, and a
+          pager at the bottom of that is a pager nobody reaches. */}
+      <div className="row pager">
+        <span className="muted">Rows</span>
+        <div className="pager__sizes">
+          {PAGE_SIZES.map((entry) => (
+            <button
+              key={entry.id}
+              className={entry.id === sizeId ? 'is-active' : ''}
+              onClick={() => {
+                setSizeId(entry.id)
+                setOffset(0)
+              }}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+        {limit !== null && total > limit && (
+          <>
+            <button
+              className="action"
+              disabled={offset === 0}
+              onClick={() => setOffset(Math.max(0, offset - limit))}
+            >
+              Previous
+            </button>
+            <span className="muted">
+              page {pageNumber} of {pageCount.toLocaleString()}
+            </span>
+            <button
+              className="action"
+              disabled={offset + limit >= total}
+              onClick={() => setOffset(offset + limit)}
+            >
+              Next
+            </button>
+          </>
+        )}
+      </div>
 
       <div className="row">
         <button className="action action--primary" onClick={() => setEditing('new')}>
@@ -542,7 +679,7 @@ This can be undone.`,
                   <button
                     className="row-actions__danger"
                     onClick={() => void remove(row)}
-                    title="Delete \u2014 undoable"
+                    title="Delete — undoable"
                   >
                     Delete
                   </button>

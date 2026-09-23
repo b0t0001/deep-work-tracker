@@ -17,10 +17,10 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { TimerEngine, type PaceConfig, type PaceEvent } from './timer'
 import { closeDatabase, openDatabase } from './db'
-import { deleteSession, recentSessions, recordSession, setStopReason } from './db/sessions'
+import { deleteSession, querySessions, recordSession, setStopReason } from './db/sessions'
 import { importRows, importedSessionCount } from './db/import'
 import { createSession, historyState, redo, removeSession, undo, updateSession } from './db/history'
-import type { SessionPatch } from './db/sessions'
+import type { SessionPatch, SessionQuery } from './db/sessions'
 import { readImportRows, summarize } from './import/csv'
 import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
 
@@ -459,7 +459,7 @@ function registerIpc(): void {
     instances.forEach((i) => i.engine.setAutoEndMinutes(minutes))
   })
 
-  ipcMain.handle('sessions:recent', (_event, limit?: number) => recentSessions(limit))
+  ipcMain.handle('sessions:query', (_event, query: SessionQuery) => querySessions(query))
 
   // Edits from the Data tab go through the history module rather than the
   // repository, so every one of them is undoable by construction.

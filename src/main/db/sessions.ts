@@ -111,14 +111,79 @@ export function recordSession(snapshot: TimerSnapshot, pace?: PaceTarget | null)
   }
 }
 
-export function recentSessions(limit = 200): SessionRow[] {
-  return openDatabase()
-    .prepare(
-      `SELECT * FROM sessions
-        ORDER BY COALESCE(session_date, '') DESC, COALESCE(started_at, '') DESC, id DESC
-        LIMIT ?`
-    )
-    .all(limit) as unknown as SessionRow[]
+export interface SessionQuery {
+  /** Inclusive local dates, `YYYY-MM-DD`. Null means unbounded on that side. */
+  from?: string | null
+  to?: string | null
+  /** Null is "show all" - SQLite reads a negative LIMIT as no limit at all. */
+  limit?: number | null
+  offset?: number
+}
+
+export interface SessionPage {
+  rows: SessionRow[]
+  /** Rows matching the filter, not rows on this page. */
+  total: number
+  /** Recorded time across the whole filter, so paging cannot change the total. */
+  totalRunningS: number
+  offset: number
+  /** The dates the table actually spans, for bounding the filter inputs. */
+  earliest: string | null
+  latest: string | null
+}
+
+const ORDER = `ORDER BY COALESCE(session_date, '') DESC, COALESCE(started_at, '') DESC, id DESC`
+
+/**
+ * A date filter excludes undated rows rather than guessing where they belong.
+ *
+ * `session_date` arrived in a later migration, so rows written before it can be
+ * null. Comparing those through COALESCE puts them before every real date,
+ * which means an open-ended `to` silently sweeps them in while a `from`
+ * silently drops them - the same row appearing or vanishing depending on which
+ * end of the range was typed. Filtering by date only over rows that have one is
+ * the only reading that stays consistent; with no filter they all show.
+ */
+function where(query: SessionQuery): { sql: string; params: (string | number)[] } {
+  const clauses: string[] = []
+  const params: (string | number)[] = []
+  if (query.from) {
+    clauses.push('session_date IS NOT NULL AND session_date >= ?')
+    params.push(query.from)
+  }
+  if (query.to) {
+    clauses.push('session_date IS NOT NULL AND session_date <= ?')
+    params.push(query.to)
+  }
+  return { sql: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params }
+}
+
+export function querySessions(query: SessionQuery = {}): SessionPage {
+  const db = openDatabase()
+  const { sql, params } = where(query)
+  const offset = Math.max(0, query.offset ?? 0)
+  const limit = query.limit == null ? -1 : Math.max(0, query.limit)
+
+  const rows = db
+    .prepare(`SELECT * FROM sessions ${sql} ${ORDER} LIMIT ? OFFSET ?`)
+    .all(...params, limit, offset) as unknown as SessionRow[]
+
+  const totals = db
+    .prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(running_duration_s), 0) AS s FROM sessions ${sql}`)
+    .get(...params) as { n: number; s: number }
+
+  const span = db
+    .prepare('SELECT MIN(session_date) AS lo, MAX(session_date) AS hi FROM sessions')
+    .get() as { lo: string | null; hi: string | null }
+
+  return {
+    rows,
+    total: Number(totals.n),
+    totalRunningS: Number(totals.s),
+    offset,
+    earliest: span.lo,
+    latest: span.hi
+  }
 }
 
 export function getSession(id: number): SessionRow | null {

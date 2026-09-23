@@ -504,6 +504,47 @@ work quantity, and no pace data. **Time-of-day analytics should weight or
 exclude them** — a remembered "about six hours" is not evidence about when focus
 happens. Charts must never silently mix precise and remembered timings.
 
+### Browsing the data
+
+The table holds thousands of rows, so it is filtered and paged rather than
+capped. A fixed cap is the failure mode to avoid: it silently hides the rest
+and leaves no way to reach it.
+
+- **Date range and page size, both server-side.** `querySessions` takes
+  `from` / `to` / `limit` / `offset` and returns the rows plus the total and
+  the summed hours **for the whole filter**, not the page. A footer that
+  totalled only what was on screen would change every time you turned a page.
+- **"All" is a real option.** A null limit means no limit — SQLite reads a
+  negative `LIMIT` as unbounded. The page-size control therefore offers
+  50 / 100 / 250 / All rather than pretending 250 is enough.
+- **The pager sits above the table**, because "All" runs to thousands of rows
+  and a control below that is one nobody reaches.
+- **Any change to the filter or page size returns to page one.** Staying on
+  page 14 of a range that now has three shows an empty table.
+- **A date filter excludes undated rows rather than guessing.**
+  `session_date` arrived in a later migration, so rows can be null. Comparing
+  those through `COALESCE` sorts them before every real date, which means an
+  open-ended `to` sweeps them in while a `from` drops them — the same row
+  appearing or vanishing depending on which end of the range was typed. They
+  show only when nothing is filtered.
+- **Date inputs need `color-scheme: dark`.** Chromium otherwise paints the
+  native calendar glyph for a light page: a black icon on a near-black field.
+
+**Deleting an imported row asks twice.** Imported rows are 3.5 years the app
+did not record, sitting in the same table as a session from ten minutes ago
+with the same Delete button beside them — the only place where a misclick costs
+something this app cannot reconstruct. App-recorded and manual rows keep the
+single confirmation; a second dialog on every delete would train the reflex
+that makes both meaningless.
+
+**The import must report its failures.** `commit()` once had no `catch`, so a
+rejected invoke left the button disabled forever and said nothing — the import
+never ran, the Data tab stayed empty, and nothing on screen connected the two.
+The button also sat below the full projects table, which at 66 projects is a
+scroll long enough that choosing a file looks like the whole interaction. Any
+destructive or long-running action in the dashboard needs both: a visible
+trigger and a visible failure.
+
 ### Labeling must be fast
 
 The user labels every session and it costs roughly 30 seconds each — about

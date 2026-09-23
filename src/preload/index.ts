@@ -76,7 +76,12 @@ const api = {
       ipcRenderer.invoke('shortcuts:set', next)
   },
   sessions: {
-    recent: (limit?: number): Promise<unknown[]> => ipcRenderer.invoke('sessions:recent', limit),
+    query: (query: {
+      from?: string | null
+      to?: string | null
+      limit?: number | null
+      offset?: number
+    }): Promise<unknown> => ipcRenderer.invoke('sessions:query', query),
     create: (patch: Record<string, unknown>): Promise<number> =>
       ipcRenderer.invoke('sessions:create', patch),
     update: (id: number, patch: Record<string, unknown>): Promise<void> =>

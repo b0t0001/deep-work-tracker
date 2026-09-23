@@ -1083,6 +1083,70 @@ input {
   margin: 16px 0;
 }
 
+/* ---------- data tab: filtering and paging ---------- */
+
+.filters,
+.pager {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.filter-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+/* Without an explicit dark color-scheme Chromium paints the native calendar
+   picker and its icon for a light page, which on this surface is a black glyph
+   on a near-black field. */
+.filter-field input {
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 13px;
+  color-scheme: dark;
+}
+
+.filter-field input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.pager__sizes {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.pager__sizes button {
+  padding: 8px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pager__sizes button + button {
+  border-left: 1px solid var(--border);
+}
+
+.pager__sizes button:hover {
+  color: var(--text);
+}
+
+.pager__sizes button.is-active {
+  background: var(--accent);
+  color: #0b0d10;
+  font-weight: 600;
+}
+
 .action {
   padding: 9px 17px;
   border: 1px solid var(--border);
