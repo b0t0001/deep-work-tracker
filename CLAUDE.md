@@ -236,7 +236,13 @@ This distinction is load-bearing and was missed in the first draft.
   afterwards. **Paused time is not work time**: `running_duration_s` counts only
   time the clock was actually running, never the wall-clock span from
   `started_at` to `ended_at`. Pause intervals are recorded so this is auditable.
-- **Stop** — the session is over. Only stop prompts for work quantity.
+- **Stop** — the session is over, and the only point that asks for anything.
+  The strip that appears offers Undo, a quantity and unit, and the one-click
+  reasons. The unit arrives pre-filled from the last one this task was measured
+  in, falling back to the most recent unit used at all, so the common case is
+  typing one number. Both fields write as they are typed rather than behind a
+  confirm button, and **touching either cancels the 30-second auto-dismiss** —
+  a prompt that vanishes mid-word is one you stop bothering with.
 - **A session paused longer than the auto-end threshold ends automatically**,
   recording time up to the pause. Default 3 hours, configurable. This exists
   because the user's habit is to pause and close the window rather than stop.
@@ -437,6 +443,16 @@ single label. **Only the category matters.** Do not store `block_index`.
 Grouping consecutive runs into a working stretch is a _derived_ analytic,
 computed from wall-clock gaps between sessions. It is never something the user
 labels by hand.
+
+**Consolidated to 36 projects on 2026-09-23**, from 66, with the session count
+and the hour total unchanged — every merge was a rename, nothing was dropped.
+The map lives in `PROJECT_ALIASES` in `main/import/csv.ts` with the reasoning
+beside it. Most of the tail was mechanical: a `Block N:` prefix, a digit stuck
+on with no space (the ordinal stripper only catches ` 1`), and two typos. The
+judgement calls were put to the user rather than guessed — Entrepreneurship and
+Startup stay separate, every application-shaped project stays distinct, summer
+homework is homework, and `Tutor` joins `Job` while `Work` does not, because
+Work's tasks are a valedictorian speech and thank-you cards rather than a job.
 
 Stripping the number leaves 68 categories across the full history, but 2026 use
 is concentrated: HW (153), College Apps (75), Startup (70), Entrepreneurship
@@ -673,6 +689,45 @@ the folder, the schedule and what is currently kept.
 - **An empty database is not backed up.** Eight slots at 3.5 days is a month of
   history; filling one with a snapshot of nothing pushes a real one out.
 
+### Committed is not the same as safe: checkpoint after writing
+
+In WAL mode a committed row lives in `deepwork.db-wal` until a checkpoint
+copies it into `deepwork.db`. Normally invisible — SQLite reads both as one and
+checkpoints on the last clean close. But if the `-wal` is ever separated from
+the `.db` while nothing is running, the database opens perfectly and is simply
+missing everything since the last checkpoint. **No error, no corruption
+warning, just rows that are gone.**
+
+This is not hypothetical. On 2026-09-23 the database held 2,363 imported
+sessions — proven by a backup taken while they existed — and afterwards the
+main file reported `page_count 13` and `freelist_count 0`, meaning it had never
+grown past an empty schema. The rows had only ever been in a `-wal` that was
+later lost. **The cause was never established**, which is the point: the window
+should not exist to be exploited by causes nobody has identified.
+
+So **anything that writes rows worth keeping calls `checkpoint()` immediately
+after committing** — `recordSession` and `importRows` today. It costs
+milliseconds. `TRUNCATE` rather than `PASSIVE` because the aim is to leave
+nothing behind, and it is allowed to fail quietly since a concurrent reader can
+refuse it and the next write will try again.
+
+### Restoring from a backup
+
+`main/restore.ts` rebuilds the database from a backup CSV, which is what makes
+the loss above survivable rather than merely detectable.
+
+- **It replaces, never merges.** A backup is a whole-history snapshot; half of
+  one grafted onto a different half is worse than either.
+- **It takes a backup of what it is about to discard, first.** Restoring the
+  wrong file is then an inconvenience rather than a second loss.
+- **It keeps the original ids**, so a restored database is the same database
+  rather than a renumbered copy.
+- **It validates the header before touching anything** and names the missing
+  columns, so pointing it at the *source spreadsheet* by mistake is refused
+  rather than half-applied.
+- **Projects and tags are rebuilt from their names**, which is why the backup
+  writes names rather than ids.
+
 ### Labeling must be fast
 
 The user labels every session and it costs roughly 30 seconds each — about
@@ -802,11 +857,12 @@ Sticky, a z-index, and `border-collapse: separate` together.
 Kept here deliberately: a spec that quietly disagrees with the build is worse
 than no spec.
 
-- **Stopping does not prompt for work quantity.** The stop prompt offers Undo
-  and the three reasons, nothing else, so every session this app has recorded
-  has a null `work_quantity`. Output tracking is described above as a
-  first-class feature and 97% of the imported history carries it; right now the
-  app itself captures none of it. This is the largest divergence.
+- **Nothing labels a session with a project.** The timer has a task field and
+  no project selector, and `recordSession` does not write `project_id`, so
+  every app-recorded session has a null project. The plan is project at start
+  (defaulted to the last one used) and output at stop, neither blocking, with
+  an `Unlabeled` filter in the Data tab making gaps visible instead of
+  mandatory. Only the output half is built.
 - **The backup folder can be changed but not from the UI.**
   `setBackupDirectory` and its `app_settings` key work; no picker calls them.
   The automatic default is what matters and it is correct, so this is a

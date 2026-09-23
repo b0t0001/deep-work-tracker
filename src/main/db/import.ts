@@ -1,4 +1,4 @@
-import { openDatabase } from './index'
+import { checkpoint, openDatabase } from './index'
 import type { ImportRow } from '../import/csv'
 
 export interface ImportResult {
@@ -68,6 +68,8 @@ export function importRows(rows: ImportRow[]): ImportResult {
     }
 
     db.exec('COMMIT')
+    // Thousands of rows is exactly the case that must not sit in the -wal.
+    checkpoint()
     return { sessions: rows.length, projectsCreated, replaced: Number(replaced) }
   } catch (error) {
     db.exec('ROLLBACK')

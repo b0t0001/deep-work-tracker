@@ -1,4 +1,4 @@
-import { openDatabase } from './index'
+import { checkpoint, openDatabase } from './index'
 import { runningMs, type TimerSnapshot } from '../../shared/timer'
 
 /** Every column, so a deleted row can be restored exactly as it was. */
@@ -104,6 +104,8 @@ export function recordSession(snapshot: TimerSnapshot, pace?: PaceTarget | null)
     }
 
     db.exec('COMMIT')
+    // A finished run is worth keeping; do not leave it in the -wal.
+    checkpoint()
     return sessionId
   } catch (error) {
     db.exec('ROLLBACK')

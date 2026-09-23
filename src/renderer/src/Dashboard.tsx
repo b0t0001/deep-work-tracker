@@ -275,6 +275,66 @@ function Backups(): React.JSX.Element {
 
   useEffect(load, [])
 
+  /**
+   * Restoring replaces the whole history, so it asks with the numbers in hand -
+   * how many rows are coming in against how many are going out - rather than a
+   * generic warning nobody reads.
+   */
+  async function restore(): Promise<void> {
+    const file = await window.api.backups.pickRestore()
+    if (!file) return
+    setResult(null)
+
+    const preview = (await window.api.backups.previewRestore(file)) as {
+      ok: boolean
+      problem: string | null
+      rows: number
+      hours: number
+      firstDate: string
+      lastDate: string
+      projects: number
+      replaces: number
+    }
+    if (!preview.ok) {
+      setResult(`Cannot restore: ${preview.problem ?? 'unreadable file'}`)
+      return
+    }
+
+    const confirmed = await window.api.ui.confirm({
+      title: 'Restore from a backup',
+      message:
+        `Replace everything with ${preview.rows.toLocaleString()} sessions ` +
+        `(${preview.hours.toFixed(1)} h, ${preview.projects} projects)?`,
+      detail:
+        `The backup covers ${preview.firstDate} to ${preview.lastDate}.\n\n` +
+        (preview.replaces > 0
+          ? `${preview.replaces.toLocaleString()} sessions currently in the app will be replaced. A backup of them is written first, so this is reversible.`
+          : 'There is nothing in the app to replace.'),
+      confirmLabel: 'Restore'
+    })
+    if (!confirmed) return
+
+    setBusy(true)
+    try {
+      const done = (await window.api.backups.restore(file)) as {
+        sessions: number
+        projects: number
+        pauses: number
+        replaced: number
+        safetyBackup: string | null
+      }
+      setResult(
+        `Restored ${done.sessions.toLocaleString()} sessions across ${done.projects} projects.` +
+          (done.safetyBackup ? ' The previous contents were backed up first.' : '')
+      )
+      load()
+    } catch (error) {
+      setResult(`Restore failed, nothing was changed. ${String(error)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function backupNow(): Promise<void> {
     setBusy(true)
     setResult(null)
@@ -324,7 +384,10 @@ function Backups(): React.JSX.Element {
 
       <div className="row">
         <button className="action action--primary" disabled={busy} onClick={() => void backupNow()}>
-          {busy ? 'Backing up…' : 'Back up now'}
+          {busy ? 'Working…' : 'Back up now'}
+        </button>
+        <button className="action" disabled={busy} onClick={() => void restore()}>
+          Restore from a backup…
         </button>
         <span className="muted">
           {newest

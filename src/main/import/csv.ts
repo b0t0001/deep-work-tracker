@@ -37,16 +37,78 @@ export interface ImportPreview {
  * project spelled several ways, and merging them is the whole reason projects
  * became rows rather than strings.
  */
+/**
+ * Three and a half years of free-text labels, collapsed to the categories the
+ * user actually means. Confirmed with them 2026-09-23.
+ *
+ * Most of the tail is mechanical: a `Block N:` prefix from the 2023 habit of
+ * numbering blocks, a digit stuck to the end with no space (the ordinal
+ * stripper only catches ` 1`), and two outright typos. The judgement calls were
+ * put to the user rather than guessed:
+ *
+ * - Entrepreneurship and Startup stay separate. Both are large and mean
+ *   different things - coursework against the actual venture.
+ * - Every application-shaped project stays distinct. College Apps, Scholarships,
+ *   Internship Applications, Officer Apps, Leadership Application and Resume
+ *   Building are not one category.
+ * - Summer homework is homework, including the Chinese variety.
+ * - Tutor joins Job: it is the same paid teaching, and Job already contains a
+ *   `Tutor Jocelyn` session. Work does NOT - its tasks are a valedictorian
+ *   speech, thank-you cards and an itinerary, which is personal admin rather
+ *   than a job, and folding it in would pollute a clean teaching record.
+ */
 const PROJECT_ALIASES = new Map<string, string>([
+  // College applications drifted across four spellings.
   ['college applications', 'College Apps'],
   ['college application', 'College Apps'],
   ['college', 'College Apps'],
   ['applications', 'College Apps'],
+
   ['study ap', 'Study for APs'],
   ['study aps', 'Study for APs'],
   ['study for ap', 'Study for APs'],
+
+  // Homework, including the summer and per-subject variants.
+  ['block 1: hw', 'HW'],
+  ['block 2: hw', 'HW'],
+  ['hw1', 'HW'],
+  ['block 1: chem hw', 'HW'],
+  ['block 1: summer hw', 'HW'],
+  ['block 2: summer hw', 'HW'],
+  ['chinese summer hw', 'HW'],
+  ['block 1: chinese summer hw', 'HW'],
+  ['block 2: chinese summer hw', 'HW'],
+
+  ['block 1: chinese', 'Chinese'],
+  ['block 2: chinese', 'Chinese'],
+  ['chinese 1: 三体', 'Chinese'],
+  ['block 1: chinese city project', 'Chinese'],
+  ['block 2: chinese city project', 'Chinese'],
+
+  ['study', 'Studying'],
+  ['block 1: studying', 'Studying'],
+  ['block 2: studying', 'Studying'],
+
+  ['officer app', 'Officer Apps'],
+  ['officer applications', 'Officer Apps'],
+  ['block 1: officer apps', 'Officer Apps'],
+  ['block 2: officer apps', 'Officer Apps'],
+  ['block 2: usabo officer app', 'Officer Apps'],
+
+  // A digit with no space in front of it escapes the ordinal stripper.
+  ['sprocket1', 'Sprocket'],
+  ['scholarships1', 'Scholarships'],
+  ['internship7', 'Internship'],
   ['internships', 'Internship'],
-  ['block 1: hw', 'HW']
+
+  ['entpreneurship', 'Entrepreneurship'],
+  ['bt', 'Brahma Tech'],
+  ['tutor', 'Job'],
+  ['practice saxophone', 'Saxophone'],
+  ["driver's ed", 'Driving'],
+  ["driver's test", 'Driving'],
+  ['jpl invention challenge', 'JPL'],
+  ['math r&d', 'R&D']
 ])
 
 /** Minimal RFC 4180 reader: the export contains quoted fields with commas. */

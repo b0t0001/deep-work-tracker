@@ -59,6 +59,32 @@ function migrate(connection: DatabaseSync): void {
   }
 }
 
+/**
+ * Forces the write-ahead log into the database file.
+ *
+ * In WAL mode a committed row lives in `deepwork.db-wal` until a checkpoint
+ * copies it across. That is normally invisible - SQLite reads both files as
+ * one, and checkpoints on the last clean close. But if the `-wal` is ever
+ * separated from the `.db` while nothing is running, the database opens fine
+ * and is simply missing everything since the last checkpoint: no error, no
+ * corruption, just rows that are gone. That is the shape of the loss seen on
+ * 2026-09-23, where the main file had never grown past an empty schema while a
+ * backup proved 2,363 rows had existed.
+ *
+ * So anything that writes rows worth keeping calls this immediately after
+ * committing. It costs milliseconds and removes the window entirely. TRUNCATE
+ * rather than PASSIVE because the point is to leave nothing behind; a reader
+ * can refuse it, which is why it is allowed to fail quietly - the next write
+ * will try again, and a clean close still checkpoints.
+ */
+export function checkpoint(): void {
+  try {
+    db?.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+  } catch {
+    /* a concurrent reader can block it; the next attempt or a clean close wins */
+  }
+}
+
 export function closeDatabase(): void {
   db?.close()
   db = null

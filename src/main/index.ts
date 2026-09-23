@@ -30,7 +30,14 @@ import { importRows, importedSessionCount } from './db/import'
 import { createSession, historyState, redo, removeSession, undo, updateSession } from './db/history'
 import type { SessionPatch, SessionQuery } from './db/sessions'
 import { readImportRows, summarize } from './import/csv'
-import { backupStatus, revealBackups, runBackup, startBackupSchedule } from './backup'
+import {
+  backupDirectory,
+  backupStatus,
+  revealBackups,
+  runBackup,
+  startBackupSchedule
+} from './backup'
+import { previewRestore, restoreFromCsv } from './restore'
 import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
 
 /** Actions a global shortcut can drive, and what they start out bound to. */
@@ -574,6 +581,31 @@ function registerIpc(): void {
   ipcMain.handle('backup:status', () => backupStatus())
   ipcMain.handle('backup:now', () => runBackup())
   ipcMain.handle('backup:reveal', () => revealBackups())
+
+  ipcMain.handle('backup:pickRestore', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose a backup to restore',
+      defaultPath: backupDirectory(),
+      filters: [{ name: 'Backup CSV', extensions: ['csv'] }],
+      properties: ['openFile']
+    })
+    return result.canceled ? null : result.filePaths[0]
+  })
+
+  ipcMain.handle('backup:previewRestore', (_event, filePath: string) =>
+    previewRestore(readFileSync(filePath, 'utf8'))
+  )
+
+  /**
+   * Takes a backup of what is about to be discarded before discarding it, so
+   * restoring the wrong file is an inconvenience rather than a second loss.
+   */
+  ipcMain.handle('backup:restore', async (_event, filePath: string) => {
+    const csv = readFileSync(filePath, 'utf8')
+    const safety = await runBackup()
+    const result = restoreFromCsv(csv)
+    return { ...result, safetyBackup: safety.written ? safety.file : null }
+  })
 }
 
 function togglePause(): void {
