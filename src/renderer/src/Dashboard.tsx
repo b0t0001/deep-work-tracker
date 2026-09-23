@@ -1006,6 +1006,25 @@ function ImportTab(): React.JSX.Element {
    */
   async function commit(): Promise<void> {
     if (!file) return
+
+    // Only when there is something to lose. A first import adds rows and can
+    // be undone by importing again; a replace deletes every imported row
+    // first, which is the largest destructive action in the app and the only
+    // one that happens behind a button labelled as an import.
+    if (existing > 0) {
+      const confirmed = await window.api.ui.confirm({
+        title: 'Replace the imported history',
+        message:
+          `Delete ${existing.toLocaleString()} imported sessions and write ` +
+          `${preview?.importable.toLocaleString() ?? 'the'} from this file?`,
+        detail:
+          'Sessions recorded by the timer and entered by hand are not touched.\n\n' +
+          'Any edits made to imported rows are discarded \u2014 the file replaces them as it stands.',
+        confirmLabel: 'Replace'
+      })
+      if (!confirmed) return
+    }
+
     setBusy(true)
     setFailed(null)
     try {

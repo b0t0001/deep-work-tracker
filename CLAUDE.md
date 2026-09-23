@@ -556,6 +556,11 @@ something this app cannot reconstruct. App-recorded and manual rows keep the
 single confirmation; a second dialog on every delete would train the reflex
 that makes both meaningless.
 
+**Replacing an import is confirmed; a first import is not.** Replace deletes
+every imported row before writing the new ones, which is the largest
+destructive action in the app and the only one hiding behind a button labelled
+as an import. A first import has nothing to lose, so it goes straight through.
+
 **The import must report its failures.** `commit()` once had no `catch`, so a
 rejected invoke left the button disabled forever and said nothing — the import
 never ran, the Data tab stayed empty, and nothing on screen connected the two.
