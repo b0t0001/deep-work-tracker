@@ -115,13 +115,21 @@ export interface SessionQuery {
   /** Inclusive local dates, `YYYY-MM-DD`. Null means unbounded on that side. */
   from?: string | null
   to?: string | null
+  /** Substring of the task or the project name, case-insensitive. */
+  search?: string | null
+  /** `app` | `manual` | `import`. Null is all three. */
+  source?: string | null
+  projectId?: number | null
   /** Null is "show all" - SQLite reads a negative LIMIT as no limit at all. */
   limit?: number | null
   offset?: number
 }
 
+/** The project name is joined in for display; it is not a column of the row. */
+export type SessionListRow = SessionRow & { project_name: string | null }
+
 export interface SessionPage {
-  rows: SessionRow[]
+  rows: SessionListRow[]
   /** Rows matching the filter, not rows on this page. */
   total: number
   /** Recorded time across the whole filter, so paging cannot change the total. */
@@ -132,7 +140,14 @@ export interface SessionPage {
   latest: string | null
 }
 
-const ORDER = `ORDER BY COALESCE(session_date, '') DESC, COALESCE(started_at, '') DESC, id DESC`
+export interface ProjectOption {
+  id: number
+  name: string
+  sessions: number
+}
+
+const FROM = `FROM sessions s LEFT JOIN projects p ON p.id = s.project_id`
+const ORDER = `ORDER BY COALESCE(s.session_date, '') DESC, COALESCE(s.started_at, '') DESC, s.id DESC`
 
 /**
  * A date filter excludes undated rows rather than guessing where they belong.
@@ -147,14 +162,34 @@ const ORDER = `ORDER BY COALESCE(session_date, '') DESC, COALESCE(started_at, ''
 function where(query: SessionQuery): { sql: string; params: (string | number)[] } {
   const clauses: string[] = []
   const params: (string | number)[] = []
+
   if (query.from) {
-    clauses.push('session_date IS NOT NULL AND session_date >= ?')
+    clauses.push('s.session_date IS NOT NULL AND s.session_date >= ?')
     params.push(query.from)
   }
   if (query.to) {
-    clauses.push('session_date IS NOT NULL AND session_date <= ?')
+    clauses.push('s.session_date IS NOT NULL AND s.session_date <= ?')
     params.push(query.to)
   }
+  if (query.source) {
+    clauses.push('s.source = ?')
+    params.push(query.source)
+  }
+  if (query.projectId != null) {
+    clauses.push('s.project_id = ?')
+    params.push(query.projectId)
+  }
+  // Task or project, because the two are used interchangeably when looking for
+  // something: "the essay" is a task, "College Apps" is a project, and nobody
+  // remembers which one a given label ended up in. LIKE is case-insensitive
+  // for ASCII in SQLite by default, and the escapes keep a literal % or _ in
+  // the search box from turning into a wildcard.
+  if (query.search) {
+    const term = '%' + query.search.replace(/[\\%_]/g, (c) => '\\' + c) + '%'
+    clauses.push("(s.task LIKE ? ESCAPE '\\' OR p.name LIKE ? ESCAPE '\\')")
+    params.push(term, term)
+  }
+
   return { sql: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params }
 }
 
@@ -165,12 +200,12 @@ export function querySessions(query: SessionQuery = {}): SessionPage {
   const limit = query.limit == null ? -1 : Math.max(0, query.limit)
 
   const rows = db
-    .prepare(`SELECT * FROM sessions ${sql} ${ORDER} LIMIT ? OFFSET ?`)
-    .all(...params, limit, offset) as unknown as SessionRow[]
+    .prepare(`SELECT s.*, p.name AS project_name ${FROM} ${sql} ${ORDER} LIMIT ? OFFSET ?`)
+    .all(...params, limit, offset) as unknown as SessionListRow[]
 
   const totals = db
-    .prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(running_duration_s), 0) AS s FROM sessions ${sql}`)
-    .get(...params) as { n: number; s: number }
+    .prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(s.running_duration_s), 0) AS t ${FROM} ${sql}`)
+    .get(...params) as { n: number; t: number }
 
   const span = db
     .prepare('SELECT MIN(session_date) AS lo, MAX(session_date) AS hi FROM sessions')
@@ -179,11 +214,30 @@ export function querySessions(query: SessionQuery = {}): SessionPage {
   return {
     rows,
     total: Number(totals.n),
-    totalRunningS: Number(totals.s),
+    totalRunningS: Number(totals.t),
     offset,
     earliest: span.lo,
     latest: span.hi
   }
+}
+
+/**
+ * Only projects that have sessions, and ordered by how many.
+ *
+ * The import leaves 66 projects, most of them a handful of rows from years
+ * ago. Alphabetical would bury the nine that account for most of the recent
+ * history behind a list nobody scrolls.
+ */
+export function listProjects(): ProjectOption[] {
+  return openDatabase()
+    .prepare(
+      `SELECT p.id AS id, p.name AS name, COUNT(s.id) AS sessions
+         FROM projects p
+         JOIN sessions s ON s.project_id = p.id
+        GROUP BY p.id, p.name
+        ORDER BY sessions DESC, p.name ASC`
+    )
+    .all() as unknown as ProjectOption[]
 }
 
 export function getSession(id: number): SessionRow | null {

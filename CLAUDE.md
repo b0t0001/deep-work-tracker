@@ -510,17 +510,36 @@ The table holds thousands of rows, so it is filtered and paged rather than
 capped. A fixed cap is the failure mode to avoid: it silently hides the rest
 and leaves no way to reach it.
 
-- **Date range and page size, both server-side.** `querySessions` takes
-  `from` / `to` / `limit` / `offset` and returns the rows plus the total and
-  the summed hours **for the whole filter**, not the page. A footer that
-  totalled only what was on screen would change every time you turned a page.
+**The default view is the 100 most recent sessions**, newest first, no filters.
+That is the question the tab is opened to answer — what have I been doing
+lately — so it must be what you land on without touching a control.
+
+Filters, all applied in SQL rather than by slicing an array in the renderer:
+
+- **Search** over task *or* project name, debounced 200 ms. Both, because the
+  two are used interchangeably when looking for something: "the essay" is a
+  task, "College Apps" is a project, and nobody remembers which one a given
+  label ended up in. `%` and `_` in the box are escaped so they stay literal.
+- **Project**, listed most-used first and only for projects that have sessions.
+  The import leaves 66, most of them a handful of rows from years ago;
+  alphabetical would bury the nine that carry the recent history.
+- **Source** — Any / Timed / Manual / Imported. `source` already drives which
+  rows analytics may use, so being able to see each set is how that gets
+  checked.
+- **Date range**, as From/To plus 7 days / 30 days / 90 days / 12 months.
+- **Rows per page** — 100 / 250 / 1000 / All, with Previous and Next.
+
+Rules that hold it together:
+
+- **Totals cover the filter, not the page.** `querySessions` returns the row
+  count and summed hours for the whole filter, so turning a page cannot change
+  the figure in the header.
 - **"All" is a real option.** A null limit means no limit — SQLite reads a
-  negative `LIMIT` as unbounded. The page-size control therefore offers
-  50 / 100 / 250 / All rather than pretending 250 is enough.
+  negative `LIMIT` as unbounded.
 - **The pager sits above the table**, because "All" runs to thousands of rows
   and a control below that is one nobody reaches.
-- **Any change to the filter or page size returns to page one.** Staying on
-  page 14 of a range that now has three shows an empty table.
+- **Any change to a filter or page size returns to page one.** Staying on page
+  14 of a filter that now has three shows an empty table.
 - **A date filter excludes undated rows rather than guessing.**
   `session_date` arrived in a later migration, so rows can be null. Comparing
   those through `COALESCE` sorts them before every real date, which means an
@@ -544,6 +563,37 @@ The button also sat below the full projects table, which at 66 projects is a
 scroll long enough that choosing a file looks like the whole interaction. Any
 destructive or long-running action in the dashboard needs both: a visible
 trigger and a visible failure.
+
+### Automatic backups
+
+`main/backup.ts` writes the whole history to a CSV twice a week. Settings shows
+the folder, the schedule and what is currently kept.
+
+- **Twice a week is an interval, not two named days.** A "Monday and Thursday"
+  schedule needs the app running on Monday and Thursday. Every 3.5 days only
+  needs it running at some point in between, which is how the app is used. It
+  is checked ten seconds after launch and every six hours after that, so a
+  backup that came due while the app was closed happens at the next launch
+  rather than being skipped.
+- **The schedule is derived from the files, not from remembered state.** "Is
+  the newest backup older than 3.5 days?" cannot drift out of step with what is
+  on disk, and needs nothing persisted — which matters, because app settings
+  are currently in memory only and do not survive a restart.
+- **They live in `Documents/Deep Work Tracker/Backups`, not in userData.**
+  userData is where the database already is, so a copy beside it survives
+  neither an uninstall nor a wiped profile — the two cases a backup exists for.
+- **One file restores everything.** Projects and tags are written as names
+  rather than ids, because ids mean nothing without the tables that define
+  them, and pauses are packed into one column as `paused|resumed` pairs
+  separated by semicolons. A backup needing three files is a backup with three
+  ways to go missing.
+- **Eight are kept, and the rest go to the Recycle Bin.** `shell.trashItem`,
+  not `unlink` — deleting outright means a bug in the retention rule destroys
+  data silently, while the bin holds them for 30 days. Only files matching
+  `deep-work-backup-YYYY-MM-DD-HHMM.csv` are ever listed or pruned, so anything
+  else in that folder is left alone.
+- **An empty database is not backed up.** Eight slots at 3.5 days is a month of
+  history; filling one with a snapshot of nothing pushes a real one out.
 
 ### Labeling must be fast
 

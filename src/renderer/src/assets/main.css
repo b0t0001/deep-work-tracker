@@ -1117,34 +1117,83 @@ input {
   outline: none;
 }
 
-.pager__sizes {
+.search {
+  flex: 1 1 220px;
+  min-width: 160px;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.search:focus,
+.picker:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.picker {
+  max-width: 230px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.segmented {
   display: inline-flex;
   border: 1px solid var(--border);
   border-radius: 9px;
   overflow: hidden;
 }
 
-.pager__sizes button {
+.segmented button {
   padding: 8px 14px;
   border: 0;
   background: transparent;
   color: var(--text-dim);
+  font-family: inherit;
   font-size: 13px;
   cursor: pointer;
 }
 
-.pager__sizes button + button {
+.segmented button + button {
   border-left: 1px solid var(--border);
 }
 
-.pager__sizes button:hover {
+.segmented button:hover {
   color: var(--text);
 }
 
-.pager__sizes button.is-active {
+/* The accent can be any of the seven stones, several of them light, so the
+   selected label is dark against it rather than taking --text. */
+.segmented button.is-active {
   background: var(--accent);
   color: #0b0d10;
   font-weight: 600;
+}
+
+.backup-path {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.backup-path code {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  overflow-wrap: anywhere;
+  font-size: 12px;
 }
 
 .action {

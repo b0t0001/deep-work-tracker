@@ -15,6 +15,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
 interface SessionRow {
   id: number
   task: string | null
+  project_name: string | null
   session_date: string | null
   started_at: string | null
   planned_duration_s: number
@@ -229,7 +230,135 @@ function SettingsTab(): React.JSX.Element {
           </button>
         ))}
       </div>
+
+      <h2 className="spaced">Backups</h2>
+      <Backups />
     </section>
+  )
+}
+
+interface BackupFile {
+  name: string
+  path: string
+  bytes: number
+  modified: string
+}
+
+interface BackupStatus {
+  directory: string
+  intervalDays: number
+  kept: number
+  backups: BackupFile[]
+  nextDue: string | null
+  sessions: number
+}
+
+function when(iso: string): string {
+  const date = new Date(iso)
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+}
+
+function size(bytes: number): string {
+  return bytes < 1024 * 1024
+    ? `${Math.round(bytes / 1024)} KB`
+    : `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function Backups(): React.JSX.Element {
+  const [status, setStatus] = useState<BackupStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+
+  function load(): void {
+    void window.api.backups.status().then((next) => setStatus(next as BackupStatus))
+  }
+
+  useEffect(load, [])
+
+  async function backupNow(): Promise<void> {
+    setBusy(true)
+    setResult(null)
+    try {
+      const outcome = (await window.api.backups.now()) as {
+        written: boolean
+        rows?: number
+        reason?: string
+      }
+      setResult(
+        outcome.written
+          ? `Backed up ${outcome.rows?.toLocaleString()} sessions.`
+          : `Nothing written — ${outcome.reason}.`
+      )
+      load()
+    } catch (error) {
+      setResult(`Backup failed. ${String(error)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (status === null) return <p className="muted">Loading…</p>
+
+  const newest = status.backups[0]
+
+  return (
+    <>
+      <p className="muted">
+        A CSV of every session — dates, durations, project, task, output, pauses and all — written
+        automatically every {status.intervalDays} days, which works out to twice a week. The app
+        checks when it starts and every few hours while it runs, so a backup that came due while it
+        was closed is taken at the next launch rather than skipped.
+      </p>
+
+      <div className="backup-path">
+        <code>{status.directory}</code>
+        <button className="action" onClick={() => void window.api.backups.reveal()}>
+          Open folder
+        </button>
+      </div>
+
+      <p className="muted">
+        The {status.kept} most recent are kept. Older ones go to the Recycle Bin rather than being
+        deleted outright, so a mistake in the retention rule is recoverable for 30 days.
+      </p>
+
+      <div className="row">
+        <button className="action action--primary" disabled={busy} onClick={() => void backupNow()}>
+          {busy ? 'Backing up…' : 'Back up now'}
+        </button>
+        <span className="muted">
+          {newest
+            ? `last backup ${when(newest.modified)}`
+            : status.sessions === 0
+              ? 'nothing to back up yet'
+              : 'no backup taken yet'}
+          {status.nextDue && ` · next due ${when(status.nextDue)}`}
+        </span>
+      </div>
+
+      {result && <p className="notice notice--good">{result}</p>}
+
+      {status.backups.length > 0 && (
+        <table className="grid">
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Taken</th>
+              <th className="num">Size</th>
+            </tr>
+          </thead>
+          <tbody>
+            {status.backups.map((file) => (
+              <tr key={file.name}>
+                <td className="mono">{file.name}</td>
+                <td>{when(file.modified)}</td>
+                <td className="num">{size(file.bytes)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
   )
 }
 
@@ -415,28 +544,101 @@ interface SessionPage {
   latest: string | null
 }
 
-/** `null` is "show all" - the query reads a null limit as no limit. */
+interface ProjectOption {
+  id: number
+  name: string
+  sessions: number
+}
+
+/**
+ * 100 newest first is the default, and the first entry for a reason: it is the
+ * view that answers "what have I been doing lately", which is what the tab is
+ * opened for. `null` is "show all" - the query reads a null limit as no limit.
+ */
 const PAGE_SIZES: Array<{ id: string; label: string; size: number | null }> = [
-  { id: '50', label: '50', size: 50 },
   { id: '100', label: '100', size: 100 },
   { id: '250', label: '250', size: 250 },
+  { id: '1000', label: '1000', size: 1000 },
   { id: 'all', label: 'All', size: null }
+]
+
+const SOURCES: Array<{ id: string; label: string; value: string | null }> = [
+  { id: 'any', label: 'Any', value: null },
+  { id: 'app', label: 'Timed', value: 'app' },
+  { id: 'manual', label: 'Manual', value: 'manual' },
+  { id: 'import', label: 'Imported', value: 'import' }
+]
+
+function today(): Date {
+  return new Date()
+}
+
+function isoDay(date: Date): string {
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+function daysAgo(days: number): string {
+  const date = today()
+  date.setDate(date.getDate() - days)
+  return isoDay(date)
+}
+
+function monthsAgo(months: number): string {
+  const date = today()
+  date.setMonth(date.getMonth() - months)
+  return isoDay(date)
+}
+
+const RANGES: Array<{ id: string; label: string; from: () => string }> = [
+  { id: '7d', label: '7 days', from: () => daysAgo(6) },
+  { id: '30d', label: '30 days', from: () => daysAgo(29) },
+  { id: '90d', label: '90 days', from: () => daysAgo(89) },
+  { id: '12m', label: '12 months', from: () => monthsAgo(12) }
 ]
 
 function DataTab(): React.JSX.Element {
   const [page, setPage] = useState<SessionPage | null>(null)
+  const [projects, setProjects] = useState<ProjectOption[]>([])
   const [history, setHistory] = useState<HistoryState>(EMPTY_HISTORY)
   const [editing, setEditing] = useState<SessionRow | 'new' | null>(null)
+
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+  const [typed, setTyped] = useState('')
+  const [search, setSearch] = useState('')
+  const [sourceId, setSourceId] = useState('any')
+  const [projectId, setProjectId] = useState('')
   const [sizeId, setSizeId] = useState('100')
   const [offset, setOffset] = useState(0)
 
   const limit = PAGE_SIZES.find((entry) => entry.id === sizeId)?.size ?? null
+  const source = SOURCES.find((entry) => entry.id === sourceId)?.value ?? null
+  const filtered = from !== '' || to !== '' || search !== '' || source !== null || projectId !== ''
+
+  const criteria = {
+    from: from || null,
+    to: to || null,
+    search: search || null,
+    source,
+    projectId: projectId === '' ? null : Number(projectId),
+    limit,
+    offset
+  }
+
+  // A query per keystroke would be one IPC round trip per letter. Short enough
+  // that typing never feels like it is waiting on the table.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setSearch(typed)
+      setOffset(0)
+    }, 200)
+    return () => clearTimeout(id)
+  }, [typed])
 
   async function refresh(): Promise<void> {
     const [next, state] = await Promise.all([
-      window.api.sessions.query({ from: from || null, to: to || null, limit, offset }),
+      window.api.sessions.query(criteria),
       window.api.history.state()
     ])
     const loaded = next as SessionPage
@@ -445,6 +647,7 @@ function DataTab(): React.JSX.Element {
     if (offset > 0 && loaded.total <= offset) setOffset(0)
     setPage(loaded)
     setHistory(state)
+    setProjects(await window.api.sessions.projects())
   }
 
   // Written as a promise chain rather than calling refresh(): the lint rule
@@ -453,23 +656,43 @@ function DataTab(): React.JSX.Element {
   useEffect(() => {
     let live = true
     void Promise.all([
-      window.api.sessions.query({ from: from || null, to: to || null, limit, offset }),
-      window.api.history.state()
-    ]).then(([next, state]) => {
+      window.api.sessions.query({
+        from: from || null,
+        to: to || null,
+        search: search || null,
+        source,
+        projectId: projectId === '' ? null : Number(projectId),
+        limit,
+        offset
+      }),
+      window.api.history.state(),
+      window.api.sessions.projects()
+    ]).then(([next, state, options]) => {
       if (!live) return
       setPage(next as SessionPage)
       setHistory(state)
+      setProjects(options)
     })
     return () => {
       live = false
     }
-  }, [from, to, limit, offset])
+  }, [from, to, search, source, projectId, limit, offset])
 
   // Any change to what is being shown returns to the first page. Staying on
-  // page 14 of a range that now has three pages shows nothing at all.
+  // page 14 of a filter that now has three pages shows nothing at all.
   function setRange(nextFrom: string, nextTo: string): void {
     setFrom(nextFrom)
     setTo(nextTo)
+    setOffset(0)
+  }
+
+  function clearFilters(): void {
+    setFrom('')
+    setTo('')
+    setTyped('')
+    setSearch('')
+    setSourceId('any')
+    setProjectId('')
     setOffset(0)
   }
 
@@ -523,11 +746,11 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
   if (page === null) return <section className="panel">Loading…</section>
 
   const { rows, total, totalRunningS, earliest, latest } = page
-  const filtered = from !== '' || to !== ''
   const firstShown = total === 0 ? 0 : offset + 1
   const lastShown = Math.min(offset + rows.length, total)
   const pageCount = limit === null ? 1 : Math.max(1, Math.ceil(total / limit))
   const pageNumber = limit === null ? 1 : Math.floor(offset / limit) + 1
+  const activeRange = RANGES.find((range) => range.from() === from && to === '')
 
   return (
     <section className="panel">
@@ -535,10 +758,57 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
       <p className="muted">
         {total === 0
           ? filtered
-            ? 'No sessions in that date range.'
+            ? 'Nothing matches those filters.'
             : 'Nothing recorded yet. Run a timer and stop it, add one by hand, or bring in the spreadsheet from the Import tab.'
-          : `${firstShown.toLocaleString()}–${lastShown.toLocaleString()} of ${total.toLocaleString()} · ${hours(totalRunningS)} in range`}
+          : `${firstShown.toLocaleString()}–${lastShown.toLocaleString()} of ${total.toLocaleString()} · ${hours(totalRunningS)} ${filtered ? 'in this filter' : 'in total'}`}
       </p>
+
+      <div className="row filters">
+        <input
+          className="search"
+          value={typed}
+          placeholder="Search task or project"
+          onChange={(event) => setTyped(event.target.value)}
+        />
+        <select
+          className="picker"
+          value={projectId}
+          onChange={(event) => {
+            setProjectId(event.target.value)
+            setOffset(0)
+          }}
+        >
+          <option value="">All projects</option>
+          {projects.map((option) => (
+            <option key={option.id} value={String(option.id)}>
+              {option.name} ({option.sessions.toLocaleString()})
+            </option>
+          ))}
+        </select>
+        <div className="segmented">
+          {SOURCES.map((entry) => (
+            <button
+              key={entry.id}
+              className={entry.id === sourceId ? 'is-active' : ''}
+              onClick={() => {
+                setSourceId(entry.id)
+                setOffset(0)
+              }}
+              title={
+                entry.value === 'app'
+                  ? 'Recorded by the timer'
+                  : entry.value === 'manual'
+                    ? 'Entered by hand afterwards'
+                    : entry.value === 'import'
+                      ? 'Brought in from the spreadsheet'
+                      : 'Every source'
+              }
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="row filters">
         <label className="filter-field">
@@ -561,8 +831,19 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
             onChange={(event) => setRange(from, event.target.value)}
           />
         </label>
-        <button className="action" disabled={!filtered} onClick={() => setRange('', '')}>
-          Clear
+        <div className="segmented">
+          {RANGES.map((range) => (
+            <button
+              key={range.id}
+              className={activeRange?.id === range.id ? 'is-active' : ''}
+              onClick={() => setRange(range.from(), '')}
+            >
+              {range.label}
+            </button>
+          ))}
+        </div>
+        <button className="action" disabled={!filtered} onClick={clearFilters}>
+          Clear filters
         </button>
         {earliest && latest && (
           <span className="muted">
@@ -575,7 +856,7 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
           pager at the bottom of that is a pager nobody reaches. */}
       <div className="row pager">
         <span className="muted">Rows</span>
-        <div className="pager__sizes">
+        <div className="segmented">
           {PAGE_SIZES.map((entry) => (
             <button
               key={entry.id}
@@ -648,6 +929,7 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
           <thead>
             <tr>
               <th>Date</th>
+              <th>Project</th>
               <th>Task</th>
               <th className="num">Planned</th>
               <th className="num">Actual</th>
@@ -663,6 +945,7 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
                 className={editing !== 'new' && editing?.id === row.id ? 'is-editing-row' : ''}
               >
                 <td>{row.session_date ?? '—'}</td>
+                <td>{row.project_name ?? <span className="muted">—</span>}</td>
                 <td>{row.task ?? <span className="muted">unlabelled</span>}</td>
                 <td className="num">{hours(row.planned_duration_s)}</td>
                 <td className="num">{hours(row.running_duration_s)}</td>

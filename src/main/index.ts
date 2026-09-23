@@ -17,11 +17,18 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { TimerEngine, type PaceConfig, type PaceEvent } from './timer'
 import { closeDatabase, openDatabase } from './db'
-import { deleteSession, querySessions, recordSession, setStopReason } from './db/sessions'
+import {
+  deleteSession,
+  listProjects,
+  querySessions,
+  recordSession,
+  setStopReason
+} from './db/sessions'
 import { importRows, importedSessionCount } from './db/import'
 import { createSession, historyState, redo, removeSession, undo, updateSession } from './db/history'
 import type { SessionPatch, SessionQuery } from './db/sessions'
 import { readImportRows, summarize } from './import/csv'
+import { backupStatus, revealBackups, runBackup, startBackupSchedule } from './backup'
 import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
 
 /** Actions a global shortcut can drive, and what they start out bound to. */
@@ -460,6 +467,7 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('sessions:query', (_event, query: SessionQuery) => querySessions(query))
+  ipcMain.handle('sessions:projects', () => listProjects())
 
   // Edits from the Data tab go through the history module rather than the
   // repository, so every one of them is undoable by construction.
@@ -553,6 +561,10 @@ function registerIpc(): void {
     return importRows(rows)
   })
   ipcMain.handle('import:existingCount', () => importedSessionCount())
+
+  ipcMain.handle('backup:status', () => backupStatus())
+  ipcMain.handle('backup:now', () => runBackup())
+  ipcMain.handle('backup:reveal', () => revealBackups())
 }
 
 function togglePause(): void {
@@ -604,6 +616,7 @@ app.whenReady().then(() => {
 
   openDatabase()
   registerIpc()
+  startBackupSchedule()
   createTimerWindow()
   createTray()
 
