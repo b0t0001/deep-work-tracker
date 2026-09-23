@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { TimerSnapshot } from '../shared/timer'
 import type { PaceConfig, PaceEvent } from '../main/timer'
+import type { HistoryState } from '../main/db/history'
 
 type Unsubscribe = () => void
 
@@ -75,7 +76,40 @@ const api = {
       ipcRenderer.invoke('shortcuts:set', next)
   },
   sessions: {
-    recent: (limit?: number): Promise<unknown[]> => ipcRenderer.invoke('sessions:recent', limit)
+    query: (query: {
+      from?: string | null
+      to?: string | null
+      search?: string | null
+      source?: string | null
+      projectId?: number | null
+      limit?: number | null
+      offset?: number
+    }): Promise<unknown> => ipcRenderer.invoke('sessions:query', query),
+    projects: (): Promise<Array<{ id: number; name: string; sessions: number }>> =>
+      ipcRenderer.invoke('sessions:projects'),
+    create: (patch: Record<string, unknown>): Promise<number> =>
+      ipcRenderer.invoke('sessions:create', patch),
+    update: (id: number, patch: Record<string, unknown>): Promise<void> =>
+      ipcRenderer.invoke('sessions:update', id, patch),
+    remove: (id: number): Promise<void> => ipcRenderer.invoke('sessions:remove', id)
+  },
+  ui: {
+    confirm: (options: {
+      title: string
+      message: string
+      detail?: string
+      confirmLabel: string
+    }): Promise<boolean> => ipcRenderer.invoke('ui:confirm', options)
+  },
+  history: {
+    state: (): Promise<HistoryState> => ipcRenderer.invoke('history:state'),
+    undo: (): Promise<HistoryState> => ipcRenderer.invoke('history:undo'),
+    redo: (): Promise<HistoryState> => ipcRenderer.invoke('history:redo')
+  },
+  backups: {
+    status: (): Promise<unknown> => ipcRenderer.invoke('backup:status'),
+    now: (): Promise<unknown> => ipcRenderer.invoke('backup:now'),
+    reveal: (): Promise<void> => ipcRenderer.invoke('backup:reveal')
   },
   importer: {
     pickFile: (): Promise<string | null> => ipcRenderer.invoke('import:pickFile'),

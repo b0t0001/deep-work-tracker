@@ -45,7 +45,7 @@ label; Phase 2 adds the structure.
 - Compact, frameless, draggable, `alwaysOnTop: true`
 - Task label + countdown
 - Setting toggles the progress visual between a **bar** and a **circular ring**
-- Ring defaults to the project's colour; **colour is editable in settings**
+- Accent colour is editable in settings and shared by every window
 - **This window is filmed for timelapse videos posted to social media.** Visual
   quality is a requirement, not polish. Clean type, a genuinely good-looking
   ring, no debris. Favour looking good over information density.
@@ -100,22 +100,31 @@ on top after other apps steal focus, and two timers drifting apart.
 
 Now make it worth more than the old timer.
 
-- SQLite via `better-sqlite3`, numbered migrations applied at startup
-- Schema per CLAUDE.md: `projects`, `presets`, `cycles`, `sessions`
+- SQLite via `node:sqlite`, numbered migrations applied at startup
+- Schema per CLAUDE.md: `projects`, `tags`, `presets`, `sessions`, `pauses`,
+  `app_settings`
 - Every completed interval writes a `sessions` row automatically
-- Distinguish sessions that ran to term from ones stopped early
+- `planned_duration_s` vs `running_duration_s` says whether a run went to term.
+  There is deliberately no `completed` boolean — see CLAUDE.md.
 - Pick a project + type a task label before (or during) a session
 - **Capture work done on every segment: quantity + unit** ("19 problems",
   "126 words"), and show the derived rate. 97% of historical segments have this,
   so the prompt must be fast — remember the last unit used per task and default
   to it. Allow an explicit "unquantifiable" value.
-- Optional end-of-session prompt: focus rating 1–5, notes
+- Optional end-of-session prompt: `stop_reason`, notes. No focus rating — cut
+  at the user's request.
 - Session history list: view, edit, delete. **Every field of every session is
   editable**, reachable from settings and from history — this data informs real
   decisions, so it has to be correctable.
 - **Retroactive session entry** for untimed work (a six-hour club meeting
   entered from memory). Marked `source = 'manual'`, and deliberately _not_ the
   default surface when the app opens — the timer is the primary path.
+
+**Status: mostly complete.** Migrations, the full schema, automatic session
+writes, the editable history table with add / delete / undo / redo, and
+retroactive manual entry are all built. **Outstanding: nothing captures work
+quantity at stop time**, so every app-recorded session has a null
+`work_quantity`. That is the one thing standing between this phase and done.
 
 **Done when:** a full day of work is captured with zero manual transcription.
 
@@ -144,10 +153,17 @@ blocks, 2,545 hours, 2023-03-27 to 2026-09-19.
   `College Applications` / `College` / `Applications` are one project, as are
   `Study for APs` / `Study AP` and `Internship` / `Internships`. 68 raw
   categories should collapse to roughly 15. Confirm the mapping with the user.
-- Rows with `Block = N/A` (376) become `rest_days`, not zero-hour sessions
-- Skip the ~325 empty future-dated scaffold rows
+- Rows with `Block = N/A` are skipped entirely. There is no `rest_days` table —
+  a day with no work is a day with no sessions.
+- Skip empty future-dated scaffold rows
 - Imported rows get `source = 'import'` and null wall-clock times
-- Dry-run preview before committing; then assert total imported hours = 2,544.8
+- Dry-run preview before committing
+
+**Status: complete.** 2,362 sessions, 2,577.79 hours, 2023-03-27 to 2026-09-22,
+reconciled against the spreadsheet's own total to within its rounding. A blank
+`End` is read as a run that reached zero. Re-importing replaces rather than
+appends, behind a confirmation. **Project consolidation was never done** — the
+import still yields 66 projects where the plan expected ~15.
 
 ## Phase 4 — Analytics dashboard
 
@@ -184,11 +200,16 @@ extend — that ease is the entire point of leaving the spreadsheet.
 
 ## Phase 5 — Polish and packaging
 
-- Settings: default presets, daily goal, notification sound, launch on startup
-- Light/dark theme
-- Keyboard shortcuts, including a global hotkey for start/stop
-- Automatic database backup to a dated file
-- Package a Windows installer with `electron-builder`
+Partly done already, out of order, because these came up in use.
+
+- ~~Keyboard shortcuts, including a global hotkey for start/stop~~ — done,
+  rebindable from the dashboard by pressing the keys
+- ~~Automatic database backup to a dated file~~ — done, CSV every 3.5 days,
+  eight kept, older ones to the Recycle Bin
+- ~~Package a Windows installer with `electron-builder`~~ — done, per-user NSIS
+  with a desktop shortcut
+- Still open: default presets, daily goal, notification sound, launch on
+  startup, light theme, and a folder picker for the backup directory
 
 ---
 
@@ -218,9 +239,14 @@ Still open:
    history is the answer; the `tags` table captures the stable part (course
    codes) while `task` stays free text.
 
-## Note on OneDrive
+## Note on OneDrive — resolved 2026-09-23
 
-This folder is under OneDrive. Once `node_modules` exists (~50,000 files for
-Electron), OneDrive will sync-thrash and may lock files mid-build. Recommended:
-move the project to a non-synced path such as `C:/Users/jamwa/code/` and rely on
-GitHub for backup instead. Cheap now, painful after the first install.
+Windows had silently redirected Desktop, Documents and Pictures into OneDrive
+via Folder Backup (`SCOOBESilent`), so the project sat inside a synced tree.
+All three known folders are now local, `KFMBlockOptIn` is set so it cannot
+recur, and the repo lives at `C:\Users\jamwa\Documents\deep-work-tracker`
+outside any sync root. Do not move it back: `node_modules` and `dist` are about
+a gigabyte across 19,000 files, and OneDrive takes file handles mid-build.
+
+The app's backups deliberately resolve Documents to the local profile folder
+even if the redirect ever returns — see CLAUDE.md.

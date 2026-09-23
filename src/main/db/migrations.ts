@@ -80,5 +80,19 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE sessions ADD COLUMN session_date TEXT;
       CREATE INDEX idx_sessions_date ON sessions (session_date);
     `
+  },
+  {
+    id: 3,
+    name: 'app_settings for choices that must survive a restart',
+    sql: `
+      -- App settings have lived in a plain object in the main process, which
+      -- means every one of them resets when the app closes. That is tolerable
+      -- for the loop toggle; it is not tolerable for a backup folder, where
+      -- forgetting the choice sends the next backup somewhere else entirely.
+      CREATE TABLE app_settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `
   }
 ]

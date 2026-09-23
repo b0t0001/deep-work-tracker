@@ -291,6 +291,39 @@ genuinely attractive ring, no visual debris. When trading off information
 density against looking good, lean toward looking good — the dashboard carries
 the detail.
 
+### The timer window's chrome
+
+Everything here was arrived at by iteration and is easy to undo by accident.
+
+- **Fullscreen exists for projecting the clock onto a big screen**, not for
+  everyday use. While fullscreen, switching between ring and bar is ignored -
+  the variant carries a minimum size, and applying one to a fullscreen window
+  resizes it out of fullscreen.
+- **Each dial has its own minimum, and switching carries the window with it.**
+  A window sitting *at* the old minimum snaps to the new one, which is what
+  makes the ring shrink back on the way to bar. A size the user chose
+  deliberately is left alone unless it is now below the new minimum. The test is
+  `width <= minimum.width + 2`, not equality, because the OS rounds.
+- **Minimize and close live on the timer window itself.** It is frameless, so
+  without them there is no way to get rid of it but the tray.
+- **Chrome is hover-revealed in both modes.** The header tools and the
+  pause/stop controls fade in on hover and are otherwise invisible, because the
+  window is filmed. In ring mode the title is suppressed entirely while the
+  controls are showing - there is no room for both, and overlapping them was
+  the bug that took the longest to settle.
+- **The dial is declared before the chrome and reordered with flexbox.** This
+  is a drag-region consequence, not a styling preference. See below.
+
+### The tray
+
+One icon for the whole app, not one per timer.
+
+- **Its tooltip is every running timer**, joined - `25:00 running | 04:12
+  paused` - so two timers can be read without focusing either.
+- **Clicking it hides or shows all timers at once**, choosing by whether *any*
+  is currently hidden, so one click always resolves a mixed state.
+- The menu covers New timer, Show timers, Settings and data, and Quit.
+
 ### Electron drag regions: check this before adding any control
 
 This has now broken the build three separate times. It is not background
@@ -366,6 +399,13 @@ The old timer is **Hourglass** for Windows — a _countdown_ timer with loop and
 always-on-top. `Start` and `End` in the CSV are **time remaining on the
 countdown, not wall-clock time**. Every one of the 2,336 rows has `end < start`,
 and `|start - end|` matches the recorded hours exactly.
+
+**A blank `End` means the countdown reached 0:00:00** — the sheet leaves it
+empty when a run went to term and computes the duration from `Start` alone. Its
+own Total Time column agrees on all 19 such rows. Reading a blank End as
+missing data instead discards 19 real sessions and 23 hours. A row with neither
+reading is genuinely untimed and gets no row: an absence of timing is not a
+zero-length session.
 
 **Consequence: the historical data contains no time-of-day information.**
 Time-of-day analytics can only ever cover sessions recorded by this app. Never
@@ -443,6 +483,11 @@ UTC because a session at 11pm belongs to that day as lived, which is how daily
 totals and streaks are read.
 - `pauses` — session_id, paused_at, resumed_at. Makes `running_duration_s`
   auditable rather than a number nobody can check.
+- `app_settings` — key/value text, added in migration 3. Everything else the
+  app calls a setting lives in a plain object in the main process and resets on
+  close, which is fine for a toggle the user can see and flip again. It is not
+  fine for anything the app acts on unattended: forgetting the backup folder
+  means the next unattended backup goes somewhere else in silence.
 
 **Every finished run flows through one path.** Stopped by hand, expired, or
 auto-ended, each emits `completed` and is recorded in the same place, so no
@@ -496,6 +541,137 @@ primary path and must stay uncluttered.
 work quantity, and no pace data. **Time-of-day analytics should weight or
 exclude them** — a remembered "about six hours" is not evidence about when focus
 happens. Charts must never silently mix precise and remembered timings.
+
+### Browsing the data
+
+The table holds thousands of rows, so it is filtered and paged rather than
+capped. A fixed cap is the failure mode to avoid: it silently hides the rest
+and leaves no way to reach it.
+
+**The default view is the 100 most recent sessions**, newest first, no filters.
+That is the question the tab is opened to answer — what have I been doing
+lately — so it must be what you land on without touching a control.
+
+Filters, all applied in SQL rather than by slicing an array in the renderer:
+
+- **Search** over task *or* project name, debounced 200 ms. Both, because the
+  two are used interchangeably when looking for something: "the essay" is a
+  task, "College Apps" is a project, and nobody remembers which one a given
+  label ended up in. `%` and `_` in the box are escaped so they stay literal.
+- **Project**, listed most-used first and only for projects that have sessions.
+  The import leaves 66, most of them a handful of rows from years ago;
+  alphabetical would bury the nine that carry the recent history.
+- **Source** — Any / Timed / Manual / Imported. `source` already drives which
+  rows analytics may use, so being able to see each set is how that gets
+  checked.
+- **Date range**, as From/To plus 7 days / 30 days / 90 days / 12 months.
+- **Rows per page** — 100 / 250 / 1000 / All, as a dropdown.
+
+Project is a column in the table as well as a filter. Task alone does not say
+which category a session belonged to, and that is usually the question.
+
+**Source and rows-per-page are dropdowns, not segmented buttons.** Four buttons
+spend a row's worth of width to say one word each, and the selected one takes
+the accent fill - which made a filter state the loudest thing on the page,
+louder than Add session. The date presets stay as buttons because they are
+one-tap shortcuts rather than a persistent selection.
+
+**The pager is two arrows and `5 / 24`, kept small and on the left**, with
+Undo / Redo / Add session on the right of the same row. It reports a position;
+it should not look like the primary action of the page. Between the dropdowns
+and this, the controls went from five full-width rows to three.
+
+Rules that hold it together:
+
+- **Totals cover the filter, not the page.** `querySessions` returns the row
+  count and summed hours for the whole filter, so turning a page cannot change
+  the figure in the header.
+- **"All" is a real option.** A null limit means no limit — SQLite reads a
+  negative `LIMIT` as unbounded.
+- **The pager sits above the table**, because "All" runs to thousands of rows
+  and a control below that is one nobody reaches.
+- **Any change to a filter or page size returns to page one.** Staying on page
+  14 of a filter that now has three shows an empty table.
+- **A date filter excludes undated rows rather than guessing.**
+  `session_date` arrived in a later migration, so rows can be null. Comparing
+  those through `COALESCE` sorts them before every real date, which means an
+  open-ended `to` sweeps them in while a `from` drops them — the same row
+  appearing or vanishing depending on which end of the range was typed. They
+  show only when nothing is filtered.
+- **Date inputs need `color-scheme: dark`.** Chromium otherwise paints the
+  native calendar glyph for a light page: a black icon on a near-black field.
+
+Three layout faults that each looked like something else, all found by
+screenshotting the real dashboard rather than reading the markup:
+
+| Symptom | Cause |
+| --- | --- |
+| Every row twice as tall as it needs to be | `2026-02-20` wrapping; the date column needs `nowrap` |
+| Table cramped beside a third of an empty window | `.panel` caps at 900px, a reading width; the Data tab opts into `.panel--wide` |
+| A dead gap between the numeric columns | they were absorbing the spare width; give it to Task with `width: 100%` |
+
+Giving Task the slack then squeezes the numeric columns into wrapping
+`1.5 question` over two lines, which undoes the height saving - so `.num` is
+`nowrap` too. Fixing one of these without the others makes the table worse.
+
+**Deleting an imported row asks twice.** Imported rows are 3.5 years the app
+did not record, sitting in the same table as a session from ten minutes ago
+with the same Delete button beside them — the only place where a misclick costs
+something this app cannot reconstruct. App-recorded and manual rows keep the
+single confirmation; a second dialog on every delete would train the reflex
+that makes both meaningless.
+
+**Replacing an import is confirmed; a first import is not.** Replace deletes
+every imported row before writing the new ones, which is the largest
+destructive action in the app and the only one hiding behind a button labelled
+as an import. A first import has nothing to lose, so it goes straight through.
+
+**The import must report its failures.** `commit()` once had no `catch`, so a
+rejected invoke left the button disabled forever and said nothing — the import
+never ran, the Data tab stayed empty, and nothing on screen connected the two.
+The button also sat below the full projects table, which at 66 projects is a
+scroll long enough that choosing a file looks like the whole interaction. Any
+destructive or long-running action in the dashboard needs both: a visible
+trigger and a visible failure.
+
+### Automatic backups
+
+`main/backup.ts` writes the whole history to a CSV twice a week. Settings shows
+the folder, the schedule and what is currently kept.
+
+- **Twice a week is an interval, not two named days.** A "Monday and Thursday"
+  schedule needs the app running on Monday and Thursday. Every 3.5 days only
+  needs it running at some point in between, which is how the app is used. It
+  is checked ten seconds after launch and every six hours after that, so a
+  backup that came due while the app was closed happens at the next launch
+  rather than being skipped.
+- **The schedule is derived from the files, not from remembered state.** "Is
+  the newest backup older than 3.5 days?" cannot drift out of step with what is
+  on disk, and needs nothing persisted — which matters, because app settings
+  are currently in memory only and do not survive a restart.
+- **They live in `Documents/Deep Work Tracker/Backups`, not in userData.**
+  userData is where the database already is, so a copy beside it survives
+  neither an uninstall nor a wiped profile — the two cases a backup exists for.
+- **Documents means the local profile folder, not whatever OneDrive redirected
+  it to.** `app.getPath('documents')` resolves the Documents known folder, and
+  with OneDrive Folder Backup on that folder is inside the OneDrive tree — so
+  the obvious call quietly puts the whole history into cloud sync. When the
+  redirect is in force, `%USERPROFILE%\Documents` is used instead. The folder
+  can also be overridden, stored in `app_settings` so the choice survives a
+  restart; most app settings are still in-memory only, which is tolerable for a
+  toggle the user can see but not for something the app acts on unattended.
+- **One file restores everything.** Projects and tags are written as names
+  rather than ids, because ids mean nothing without the tables that define
+  them, and pauses are packed into one column as `paused|resumed` pairs
+  separated by semicolons. A backup needing three files is a backup with three
+  ways to go missing.
+- **Eight are kept, and the rest go to the Recycle Bin.** `shell.trashItem`,
+  not `unlink` — deleting outright means a bug in the retention rule destroys
+  data silently, while the bin holds them for 30 days. Only files matching
+  `deep-work-backup-YYYY-MM-DD-HHMM.csv` are ever listed or pruned, so anything
+  else in that folder is left alone.
+- **An empty database is not backed up.** Eight slots at 3.5 days is a month of
+  history; filling one with a snapshot of nothing pushes a real one out.
 
 ### Labeling must be fast
 
@@ -583,6 +759,17 @@ npx esbuild src/main/timer.ts --bundle --platform=node --format=esm --outfile=<t
 node <tmp>/your-test.mjs
 ```
 
+**Screenshot the UI rather than reasoning about the markup.** Reading JSX and
+CSS predicted none of the three table faults above, and a night was lost
+diagnosing a missing desktop icon from window handles when one screenshot
+answered it immediately. The dashboard can be rendered headlessly against real
+data: bundle an entry that registers only the handlers the tab calls
+(`sessions:query`, `sessions:projects`, `history:state`), point `userData` at a
+copy of the database, load `out/renderer/index.html` with hash `/dashboard`,
+click through to the tab with `executeJavaScript`, and save
+`webContents.capturePage()`. It takes a minute and it is the only way to see
+what the user sees.
+
 **The user does not run git commands.** Branch, commit, push and merge are all
 done here, without being asked each time. Give them the result, not the
 instructions.
@@ -609,6 +796,23 @@ looks like it should work and does not: table cells paint in document order, so
 rows are drawn over the header without a `z-index`, and `border-collapse:
 collapse` gives the border to the table rather than the cell so it scrolls away.
 Sticky, a z-index, and `border-collapse: separate` together.
+
+## Known gaps between this document and the code
+
+Kept here deliberately: a spec that quietly disagrees with the build is worse
+than no spec.
+
+- **Stopping does not prompt for work quantity.** The stop prompt offers Undo
+  and the three reasons, nothing else, so every session this app has recorded
+  has a null `work_quantity`. Output tracking is described above as a
+  first-class feature and 97% of the imported history carries it; right now the
+  app itself captures none of it. This is the largest divergence.
+- **The backup folder can be changed but not from the UI.**
+  `setBackupDirectory` and its `app_settings` key work; no picker calls them.
+  The automatic default is what matters and it is correct, so this is a
+  convenience, not a hole.
+- **`presets` is still an unused table.** Named in the schema for the settings
+  toggle that would bring preset durations back. Nothing writes it.
 
 ## Working with the user
 

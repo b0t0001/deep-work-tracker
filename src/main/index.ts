@@ -17,9 +17,18 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { TimerEngine, type PaceConfig, type PaceEvent } from './timer'
 import { closeDatabase, openDatabase } from './db'
-import { deleteSession, recentSessions, recordSession, setStopReason } from './db/sessions'
+import {
+  deleteSession,
+  listProjects,
+  querySessions,
+  recordSession,
+  setStopReason
+} from './db/sessions'
 import { importRows, importedSessionCount } from './db/import'
+import { createSession, historyState, redo, removeSession, undo, updateSession } from './db/history'
+import type { SessionPatch, SessionQuery } from './db/sessions'
 import { readImportRows, summarize } from './import/csv'
+import { backupStatus, revealBackups, runBackup, startBackupSchedule } from './backup'
 import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
 
 /** Actions a global shortcut can drive, and what they start out bound to. */
@@ -457,7 +466,21 @@ function registerIpc(): void {
     instances.forEach((i) => i.engine.setAutoEndMinutes(minutes))
   })
 
-  ipcMain.handle('sessions:recent', (_event, limit?: number) => recentSessions(limit))
+  ipcMain.handle('sessions:query', (_event, query: SessionQuery) => querySessions(query))
+  ipcMain.handle('sessions:projects', () => listProjects())
+
+  // Edits from the Data tab go through the history module rather than the
+  // repository, so every one of them is undoable by construction.
+  ipcMain.handle('sessions:create', (_event, patch: SessionPatch) =>
+    createSession(patch, 'add session')
+  )
+  ipcMain.handle('sessions:update', (_event, id: number, patch: SessionPatch) =>
+    updateSession(id, patch, 'edit session')
+  )
+  ipcMain.handle('sessions:remove', (_event, id: number) => removeSession(id, 'delete session'))
+  ipcMain.handle('history:state', () => historyState())
+  ipcMain.handle('history:undo', () => undo())
+  ipcMain.handle('history:redo', () => redo())
 
   ipcMain.handle('shortcuts:get', () => settings.shortcuts)
   ipcMain.handle('shortcuts:set', (_event, next: Record<ShortcutAction, string>) => {
@@ -500,6 +523,28 @@ function registerIpc(): void {
     instance.minimum = next
   })
 
+  /** A real modal, attached to the window that asked, so it cannot be missed. */
+  ipcMain.handle(
+    'ui:confirm',
+    async (
+      event,
+      options: { title: string; message: string; detail?: string; confirmLabel: string }
+    ) => {
+      const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
+      const result = await dialog.showMessageBox(parent!, {
+        type: 'warning',
+        buttons: [options.confirmLabel, 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        title: options.title,
+        message: options.message,
+        detail: options.detail,
+        noLink: true
+      })
+      return result.response === 0
+    }
+  )
+
   ipcMain.handle('import:pickFile', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Choose the spreadsheet export',
@@ -516,6 +561,10 @@ function registerIpc(): void {
     return importRows(rows)
   })
   ipcMain.handle('import:existingCount', () => importedSessionCount())
+
+  ipcMain.handle('backup:status', () => backupStatus())
+  ipcMain.handle('backup:now', () => runBackup())
+  ipcMain.handle('backup:reveal', () => revealBackups())
 }
 
 function togglePause(): void {
@@ -567,6 +616,7 @@ app.whenReady().then(() => {
 
   openDatabase()
   registerIpc()
+  startBackupSchedule()
   createTimerWindow()
   createTray()
 
