@@ -556,14 +556,14 @@ interface ProjectOption {
  * opened for. `null` is "show all" - the query reads a null limit as no limit.
  */
 const PAGE_SIZES: Array<{ id: string; label: string; size: number | null }> = [
-  { id: '100', label: '100', size: 100 },
-  { id: '250', label: '250', size: 250 },
-  { id: '1000', label: '1000', size: 1000 },
-  { id: 'all', label: 'All', size: null }
+  { id: '100', label: '100 rows', size: 100 },
+  { id: '250', label: '250 rows', size: 250 },
+  { id: '1000', label: '1000 rows', size: 1000 },
+  { id: 'all', label: 'All rows', size: null }
 ]
 
 const SOURCES: Array<{ id: string; label: string; value: string | null }> = [
-  { id: 'any', label: 'Any', value: null },
+  { id: 'any', label: 'Any source', value: null },
   { id: 'app', label: 'Timed', value: 'app' },
   { id: 'manual', label: 'Manual', value: 'manual' },
   { id: 'import', label: 'Imported', value: 'import' }
@@ -753,17 +753,24 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
   const activeRange = RANGES.find((range) => range.from() === from && to === '')
 
   return (
-    <section className="panel">
-      <h2>Sessions</h2>
-      <p className="muted">
-        {total === 0
-          ? filtered
-            ? 'Nothing matches those filters.'
-            : 'Nothing recorded yet. Run a timer and stop it, add one by hand, or bring in the spreadsheet from the Import tab.'
-          : `${firstShown.toLocaleString()}–${lastShown.toLocaleString()} of ${total.toLocaleString()} · ${hours(totalRunningS)} ${filtered ? 'in this filter' : 'in total'}`}
-      </p>
+    <section className="panel panel--wide">
+      <header className="data-head">
+        <h2>Sessions</h2>
+        <p className="data-head__count">
+          {total === 0
+            ? filtered
+              ? 'Nothing matches those filters.'
+              : 'Nothing recorded yet. Run a timer and stop it, add one by hand, or bring in the spreadsheet from the Import tab.'
+            : `${firstShown.toLocaleString()}–${lastShown.toLocaleString()} of ${total.toLocaleString()} · ${hours(totalRunningS)} ${filtered ? 'in this filter' : 'in total'}`}
+        </p>
+        {earliest && latest && (
+          <p className="data-head__span">
+            recorded {earliest} to {latest}
+          </p>
+        )}
+      </header>
 
-      <div className="row filters">
+      <div className="toolbar">
         <input
           className="search"
           value={typed}
@@ -785,32 +792,24 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
             </option>
           ))}
         </select>
-        <div className="segmented">
+        <select
+          className="picker picker--source"
+          value={sourceId}
+          onChange={(event) => {
+            setSourceId(event.target.value)
+            setOffset(0)
+          }}
+          title="Timed was recorded by the timer, Manual was entered by hand, Imported came from the spreadsheet"
+        >
           {SOURCES.map((entry) => (
-            <button
-              key={entry.id}
-              className={entry.id === sourceId ? 'is-active' : ''}
-              onClick={() => {
-                setSourceId(entry.id)
-                setOffset(0)
-              }}
-              title={
-                entry.value === 'app'
-                  ? 'Recorded by the timer'
-                  : entry.value === 'manual'
-                    ? 'Entered by hand afterwards'
-                    : entry.value === 'import'
-                      ? 'Brought in from the spreadsheet'
-                      : 'Every source'
-              }
-            >
+            <option key={entry.id} value={entry.id}>
               {entry.label}
-            </button>
+            </option>
           ))}
-        </div>
+        </select>
       </div>
 
-      <div className="row filters">
+      <div className="toolbar">
         <label className="filter-field">
           <span>From</span>
           <input
@@ -831,7 +830,7 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
             onChange={(event) => setRange(from, event.target.value)}
           />
         </label>
-        <div className="segmented">
+        <div className="segmented segmented--sm">
           {RANGES.map((range) => (
             <button
               key={range.id}
@@ -842,78 +841,79 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
             </button>
           ))}
         </div>
-        <button className="action" disabled={!filtered} onClick={clearFilters}>
+        <button className="action action--sm" disabled={!filtered} onClick={clearFilters}>
           Clear filters
         </button>
-        {earliest && latest && (
-          <span className="muted">
-            recorded {earliest} to {latest}
-          </span>
-        )}
       </div>
 
-      {/* Above the table, not below it: "All" runs to thousands of rows, and a
-          pager at the bottom of that is a pager nobody reaches. */}
-      <div className="row pager">
-        <span className="muted">Rows</span>
-        <div className="segmented">
-          {PAGE_SIZES.map((entry) => (
-            <button
-              key={entry.id}
-              className={entry.id === sizeId ? 'is-active' : ''}
-              onClick={() => {
-                setSizeId(entry.id)
-                setOffset(0)
-              }}
-            >
-              {entry.label}
-            </button>
-          ))}
+      {/* Paging above the table, not below it: "All rows" runs to thousands, and
+          a pager at the bottom of that is a pager nobody reaches. */}
+      <div className="toolbar toolbar--split">
+        <div className="pager">
+          {limit !== null && total > limit && (
+            <>
+              <button
+                className="pager__step"
+                disabled={offset === 0}
+                onClick={() => setOffset(Math.max(0, offset - limit))}
+                title="Previous page"
+                aria-label="Previous page"
+              >
+                ‹
+              </button>
+              <span className="pager__at">
+                {pageNumber}
+                <span className="pager__of"> / {pageCount.toLocaleString()}</span>
+              </span>
+              <button
+                className="pager__step"
+                disabled={offset + limit >= total}
+                onClick={() => setOffset(offset + limit)}
+                title="Next page"
+                aria-label="Next page"
+              >
+                ›
+              </button>
+            </>
+          )}
+          <select
+            className="picker picker--rows"
+            value={sizeId}
+            onChange={(event) => {
+              setSizeId(event.target.value)
+              setOffset(0)
+            }}
+          >
+            {PAGE_SIZES.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.label}
+              </option>
+            ))}
+          </select>
         </div>
-        {limit !== null && total > limit && (
-          <>
-            <button
-              className="action"
-              disabled={offset === 0}
-              onClick={() => setOffset(Math.max(0, offset - limit))}
-            >
-              Previous
-            </button>
-            <span className="muted">
-              page {pageNumber} of {pageCount.toLocaleString()}
-            </span>
-            <button
-              className="action"
-              disabled={offset + limit >= total}
-              onClick={() => setOffset(offset + limit)}
-            >
-              Next
-            </button>
-          </>
-        )}
-      </div>
 
-      <div className="row">
-        <button className="action action--primary" onClick={() => setEditing('new')}>
-          Add session
-        </button>
-        <button
-          className="action"
-          disabled={!history.canUndo}
-          onClick={() => void step('undo')}
-          title={history.undoLabel ? `Undo ${history.undoLabel}` : 'Nothing to undo'}
-        >
-          Undo
-        </button>
-        <button
-          className="action"
-          disabled={!history.canRedo}
-          onClick={() => void step('redo')}
-          title={history.redoLabel ? `Redo ${history.redoLabel}` : 'Nothing to redo'}
-        >
-          Redo
-        </button>
-        {history.canUndo && <span className="muted">last: {history.undoLabel}</span>}
+        <div className="toolbar__end">
+          {history.canUndo && <span className="muted muted--sm">last: {history.undoLabel}</span>}
+          <button
+            className="action action--sm"
+            disabled={!history.canUndo}
+            onClick={() => void step('undo')}
+            title={history.undoLabel ? `Undo ${history.undoLabel}` : 'Nothing to undo'}
+          >
+            Undo
+          </button>
+          <button
+            className="action action--sm"
+            disabled={!history.canRedo}
+            onClick={() => void step('redo')}
+            title={history.redoLabel ? `Redo ${history.redoLabel}` : 'Nothing to redo'}
+          >
+            Redo
+          </button>
+          <button className="action action--primary action--sm" onClick={() => setEditing('new')}>
+            Add session
+          </button>
+        </div>
       </div>
 
       {editing !== null && (

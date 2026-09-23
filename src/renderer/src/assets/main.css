@@ -938,6 +938,13 @@ input {
   max-width: 900px;
 }
 
+/* 900px is a reading width, which is right for the prose-shaped tabs and
+   wrong for a nine-column table - it left the columns cramped and a third of
+   the window empty beside them. */
+.panel--wide {
+  max-width: 1500px;
+}
+
 .panel h2 {
   margin: 0 0 6px;
   font-size: 19px;
@@ -1030,9 +1037,35 @@ input {
   font-weight: 500;
 }
 
+.grid tbody tr:hover td {
+  background: #ffffff08;
+}
+
+/* `2026-02-20` was wrapping to two lines and doubling every row's height. */
+.grid td:first-child {
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.grid th,
+.grid td {
+  padding: 6px 10px;
+}
+
+/* Task takes every spare pixel so the numeric columns pack together on the
+   right instead of drifting apart with a dead gap between them. */
+.grid th:nth-child(3),
+.grid td:nth-child(3) {
+  width: 100%;
+}
+
 .grid .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+  /* Task is width:100%, which squeezes these; without nowrap `1.5 question`
+     breaks over two lines and doubles the row height it was meant to save. */
+  white-space: nowrap;
 }
 
 .badge {
@@ -1083,44 +1116,57 @@ input {
   margin: 16px 0;
 }
 
-/* ---------- data tab: filtering and paging ---------- */
+/* ---------- data tab: heading, toolbars, pager ---------- */
 
-.filters,
-.pager {
-  flex-wrap: wrap;
-  gap: 10px;
+/* The three facts about what you are looking at, stacked tight: what the
+   table holds, then the span it covers. Previously the span sat orphaned at
+   the end of a filter row, reading as a control rather than a caption. */
+.data-head {
+  margin-bottom: 14px;
 }
 
-.filter-field {
+.data-head h2 {
+  margin: 0 0 4px;
+}
+
+.data-head__count {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.data-head__span {
+  margin: 2px 0 0;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* Replaces `.row` here. `.row` carries 16px vertical margins, and three of
+   them stacked pushed the first data row ~340px down the page. */
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+.toolbar--split {
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.toolbar__end {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--text-dim);
-  font-size: 13px;
-}
-
-/* Without an explicit dark color-scheme Chromium paints the native calendar
-   picker and its icon for a light page, which on this surface is a black glyph
-   on a near-black field. */
-.filter-field input {
-  padding: 7px 9px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--surface-raised);
-  color: var(--text);
-  font-size: 13px;
-  color-scheme: dark;
-}
-
-.filter-field input:focus {
-  border-color: var(--accent);
-  outline: none;
 }
 
 .search {
-  flex: 1 1 220px;
-  min-width: 160px;
-  padding: 7px 11px;
+  flex: 1 1 200px;
+  min-width: 150px;
+  max-width: 320px;
+  padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--surface-raised);
@@ -1135,8 +1181,8 @@ input {
 }
 
 .picker {
-  max-width: 230px;
-  padding: 7px 9px;
+  max-width: 200px;
+  padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--surface-raised);
@@ -1145,21 +1191,59 @@ input {
   font-size: 13px;
 }
 
+.picker--source {
+  max-width: 130px;
+}
+
+.picker--rows {
+  max-width: 110px;
+}
+
+.filter-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* Without an explicit dark color-scheme Chromium paints the native calendar
+   picker and its icon for a light page, which on this surface is a black glyph
+   on a near-black field. */
+.filter-field input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 12px;
+  color-scheme: dark;
+}
+
+.filter-field input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
 .segmented {
   display: inline-flex;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: 7px;
   overflow: hidden;
 }
 
 .segmented button {
-  padding: 8px 14px;
+  padding: 6px 11px;
   border: 0;
   background: transparent;
   color: var(--text-dim);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
+}
+
+.segmented--sm button {
+  padding: 6px 9px;
 }
 
 .segmented button + button {
@@ -1176,6 +1260,53 @@ input {
   background: var(--accent);
   color: #0b0d10;
   font-weight: 600;
+}
+
+/* Small and left, so it reads as a position indicator rather than as the
+   primary action of the page. */
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pager__step {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pager__step:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pager__step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.pager__at {
+  min-width: 46px;
+  text-align: center;
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pager__of {
+  color: var(--text-dim);
+}
+
+.muted--sm {
+  font-size: 12px;
 }
 
 .backup-path {
