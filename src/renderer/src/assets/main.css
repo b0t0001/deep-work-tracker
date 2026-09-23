@@ -1122,6 +1122,14 @@ input {
   border-left: 3px solid var(--accent);
 }
 
+/* Red rather than the accent: a failure must not be mistakable for the
+   success notice at a glance, and the accent is user-chosen so it cannot
+   be relied on to read as anything in particular. */
+.notice--bad {
+  color: var(--text);
+  border-left: 3px solid #e5484d;
+}
+
 /* ---------- expiry flash ---------- */
 
 /* Hourglass flashes its notification border from full opacity to nothing over

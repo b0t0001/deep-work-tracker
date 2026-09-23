@@ -562,6 +562,7 @@ function ImportTab(): React.JSX.Element {
   const [existing, setExisting] = useState(0)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<string | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
 
   useEffect(() => {
     void window.api.importer.existingCount().then(setExisting)
@@ -577,21 +578,33 @@ function ImportTab(): React.JSX.Element {
     setBusy(false)
   }
 
+  /**
+   * The failure path matters more than the happy one here. An unhandled
+   * rejection left `busy` true forever, so a failed import looked exactly like
+   * a disabled button and reported nothing - the import silently never
+   * happened and the Data tab stayed empty with no explanation.
+   */
   async function commit(): Promise<void> {
     if (!file) return
     setBusy(true)
-    const result = (await window.api.importer.commit(file)) as {
-      sessions: number
-      projectsCreated: number
-      replaced: number
+    setFailed(null)
+    try {
+      const result = (await window.api.importer.commit(file)) as {
+        sessions: number
+        projectsCreated: number
+        replaced: number
+      }
+      setDone(
+        `Imported ${result.sessions.toLocaleString()} sessions across ${result.projectsCreated} new projects` +
+          (result.replaced > 0
+            ? `, replacing ${result.replaced.toLocaleString()} from a previous import.`
+            : '.')
+      )
+    } catch (error) {
+      setFailed(`Nothing was imported. ${String(error)}`)
+    } finally {
+      setBusy(false)
     }
-    setBusy(false)
-    setDone(
-      `Imported ${result.sessions.toLocaleString()} sessions across ${result.projectsCreated} new projects` +
-        (result.replaced > 0
-          ? `, replacing ${result.replaced.toLocaleString()} from a previous import.`
-          : '.')
-    )
   }
 
   return (
@@ -646,6 +659,16 @@ function ImportTab(): React.JSX.Element {
             {preview.skippedNoTiming.toLocaleString()} without usable timings
           </p>
 
+          <div className="row">
+            <button
+              className="action action--primary"
+              onClick={() => void commit()}
+              disabled={busy}
+            >
+              {existing > 0 ? 'Replace import' : 'Import'}
+            </button>
+          </div>
+
           <h3>Projects</h3>
           <table className="grid">
             <thead>
@@ -665,20 +688,11 @@ function ImportTab(): React.JSX.Element {
               ))}
             </tbody>
           </table>
-
-          <div className="row">
-            <button
-              className="action action--primary"
-              onClick={() => void commit()}
-              disabled={busy}
-            >
-              {existing > 0 ? 'Replace import' : 'Import'}
-            </button>
-          </div>
         </>
       )}
 
       {done && <p className="notice notice--good">{done}</p>}
+      {failed && <p className="notice notice--bad">{failed}</p>}
     </section>
   )
 }
