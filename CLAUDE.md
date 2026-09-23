@@ -587,6 +587,14 @@ the folder, the schedule and what is currently kept.
 - **They live in `Documents/Deep Work Tracker/Backups`, not in userData.**
   userData is where the database already is, so a copy beside it survives
   neither an uninstall nor a wiped profile — the two cases a backup exists for.
+- **Documents means the local profile folder, not whatever OneDrive redirected
+  it to.** `app.getPath('documents')` resolves the Documents known folder, and
+  with OneDrive Folder Backup on that folder is inside the OneDrive tree — so
+  the obvious call quietly puts the whole history into cloud sync. When the
+  redirect is in force, `%USERPROFILE%\Documents` is used instead. The folder
+  can also be overridden, stored in `app_settings` so the choice survives a
+  restart; most app settings are still in-memory only, which is tolerable for a
+  toggle the user can see but not for something the app acts on unattended.
 - **One file restores everything.** Projects and tags are written as names
   rather than ids, because ids mean nothing without the tables that define
   them, and pauses are packed into one column as `paused|resumed` pairs

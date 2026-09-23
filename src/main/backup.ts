@@ -1,7 +1,8 @@
 import { app, shell } from 'electron'
 import { mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { openDatabase } from './db'
+import { clearSetting, getSetting, setSetting } from './db/settings'
 
 /**
  * Twice a week, expressed as an interval rather than as two named days.
@@ -26,6 +27,10 @@ export interface BackupFile {
 
 export interface BackupStatus {
   directory: string
+  /** False when the folder was chosen by hand, so the UI can offer a reset. */
+  isDefault: boolean
+  /** True when Documents is redirected into OneDrive and was stepped around. */
+  avoidedOneDrive: boolean
   intervalDays: number
   kept: number
   backups: BackupFile[]
@@ -34,16 +39,60 @@ export interface BackupStatus {
   sessions: number
 }
 
+const DIRECTORY_KEY = 'backup.directory'
+
+function isInside(child: string, parent: string): boolean {
+  const a = resolve(child).toLowerCase()
+  const b = resolve(parent).toLowerCase()
+  return a === b || a.startsWith(b.endsWith(sep) ? b : b + sep)
+}
+
 /**
- * Backups live in Documents, not in userData.
+ * The roots of every OneDrive the shell knows about.
  *
- * userData is where the database already is, so a copy beside it survives
- * neither an uninstall nor a wiped profile - the two cases a backup exists
- * for. Documents is also somewhere the file can be found without being told
- * where to look.
+ * Both variables are checked because a machine can have a personal OneDrive
+ * and a work one at the same time, under different names.
  */
+function oneDriveRoots(): string[] {
+  return [
+    process.env.OneDrive,
+    process.env.OneDriveConsumer,
+    process.env.OneDriveCommercial
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+}
+
+/**
+ * Documents, unless Documents is really OneDrive.
+ *
+ * `app.getPath('documents')` resolves the Documents known folder, and with
+ * OneDrive's Folder Backup switched on that folder is redirected into the
+ * OneDrive tree - so the obvious call quietly puts a gigabyte of history into
+ * cloud sync that nobody asked for. When the redirect is in force, the local
+ * profile folder is used instead, which is the Documents the user meant.
+ *
+ * userData is not a candidate either way: the database already lives there, so
+ * a copy beside it survives neither an uninstall nor a wiped profile, which
+ * are the two cases a backup exists for.
+ */
+export function defaultBackupDirectory(): string {
+  const documents = app.getPath('documents')
+  const redirected = oneDriveRoots().some((root) => isInside(documents, root))
+  const base = redirected ? join(app.getPath('home'), 'Documents') : documents
+  return join(base, 'Deep Work Tracker', 'Backups')
+}
+
 export function backupDirectory(): string {
-  return join(app.getPath('documents'), 'Deep Work Tracker', 'Backups')
+  return getSetting(DIRECTORY_KEY) ?? defaultBackupDirectory()
+}
+
+/**
+ * Only future backups move. Files already written stay where they are - this
+ * chooses a destination, it does not relocate a history that is the whole
+ * point of having been written down.
+ */
+export function setBackupDirectory(directory: string | null): void {
+  if (directory === null) clearSetting(DIRECTORY_KEY)
+  else setSetting(DIRECTORY_KEY, directory)
 }
 
 const HEADER = [
@@ -275,6 +324,8 @@ export function backupStatus(): BackupStatus {
   const due = dueAt()
   return {
     directory: backupDirectory(),
+    isDefault: getSetting(DIRECTORY_KEY) === null,
+    avoidedOneDrive: oneDriveRoots().some((root) => isInside(app.getPath('documents'), root)),
     intervalDays: BACKUP_INTERVAL_DAYS,
     kept: BACKUPS_KEPT,
     backups: listBackups(),
