@@ -313,6 +313,48 @@ export function setStopReason(id: number, reason: string | null, note: string | 
     .run(reason, note, id)
 }
 
+/**
+ * Output for a finished run, written after the fact like the stop reason.
+ *
+ * Quantity is REAL rather than an integer because the history is full of
+ * `1.5 question` and `0.5 question` - half a problem set counts.
+ */
+export function setWorkQuantity(id: number, quantity: number | null, unit: string | null): void {
+  openDatabase()
+    .prepare('UPDATE sessions SET work_quantity = ?, work_unit = ? WHERE id = ?')
+    .run(quantity, unit, id)
+}
+
+/**
+ * The unit this task was last measured in, so the field arrives pre-filled.
+ *
+ * Nearly every session is one of a handful of repeated shapes - a problem set
+ * is always questions, an essay is always words - so the right default is
+ * almost always the last answer. Falls back to the most recent unit used at
+ * all, which beats an empty box on the first session of a new task.
+ */
+export function lastUnitFor(task: string | null): string | null {
+  const db = openDatabase()
+  if (task && task.trim() !== '') {
+    const match = db
+      .prepare(
+        `SELECT work_unit FROM sessions
+          WHERE work_unit IS NOT NULL AND work_unit <> '' AND task = ?
+          ORDER BY id DESC LIMIT 1`
+      )
+      .get(task.trim()) as { work_unit: string } | undefined
+    if (match?.work_unit) return match.work_unit
+  }
+  const recent = db
+    .prepare(
+      `SELECT work_unit FROM sessions
+        WHERE work_unit IS NOT NULL AND work_unit <> ''
+        ORDER BY id DESC LIMIT 1`
+    )
+    .get() as { work_unit: string } | undefined
+  return recent?.work_unit ?? null
+}
+
 /** Used only by undo, which must leave no trace of the stop it reverses. */
 export function deleteSession(id: number): void {
   openDatabase().prepare('DELETE FROM sessions WHERE id = ?').run(id)

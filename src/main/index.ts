@@ -20,9 +20,11 @@ import { closeDatabase, openDatabase } from './db'
 import {
   deleteSession,
   listProjects,
+  lastUnitFor,
   querySessions,
   recordSession,
-  setStopReason
+  setStopReason,
+  setWorkQuantity
 } from './db/sessions'
 import { importRows, importedSessionCount } from './db/import'
 import { createSession, historyState, redo, removeSession, undo, updateSession } from './db/history'
@@ -389,6 +391,13 @@ function registerIpc(): void {
     const completed = instanceFor(event)?.lastCompleted
     if (completed) setStopReason(completed.id, reason, note)
   })
+
+  ipcMain.handle('sessions:setQuantity', (event, quantity: number | null, unit: string | null) => {
+    const completed = instanceFor(event)?.lastCompleted
+    if (completed) setWorkQuantity(completed.id, quantity, unit)
+  })
+
+  ipcMain.handle('sessions:lastUnit', (_event, task: string | null) => lastUnitFor(task))
 
   ipcMain.handle('timer:undoStop', (event) => {
     const instance = instanceFor(event)

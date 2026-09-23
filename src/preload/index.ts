@@ -34,6 +34,10 @@ const api = {
     undoStop: (): Promise<TimerSnapshot | null> => ipcRenderer.invoke('timer:undoStop'),
     setStopReason: (reason: string | null, note: string | null): Promise<void> =>
       ipcRenderer.invoke('sessions:setStopReason', reason, note),
+    setQuantity: (quantity: number | null, unit: string | null): Promise<void> =>
+      ipcRenderer.invoke('sessions:setQuantity', quantity, unit),
+    lastUnit: (task: string | null): Promise<string | null> =>
+      ipcRenderer.invoke('sessions:lastUnit', task),
     onCompleted: (handler: () => void): Unsubscribe => {
       const listener = (): void => handler()
       ipcRenderer.on('timer:completed', listener)

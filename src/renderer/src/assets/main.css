@@ -1494,6 +1494,51 @@ input {
    layout, and clears itself after 30 seconds. Roughly three quarters of
    sessions end early, so a prompt that demanded an answer would fire almost
    every time and the logging would simply stop happening. */
+/* Sits directly above the reason row, sharing its treatment. Both overlay the
+   card and both are declared after the dial, which is what keeps the card
+   draggable - see CLAUDE.md on drag regions. */
+.stop-output {
+  position: absolute;
+  right: var(--pad);
+  bottom: calc(var(--pad) + 36px);
+  left: var(--pad);
+  z-index: 3;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-app-region: no-drag;
+}
+
+.stop-output input {
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-family: inherit;
+  font-size: clamp(9px, 5vmin, 15px);
+}
+
+.stop-output input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.stop-output__qty {
+  flex: 0 0 36%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.stop-output__unit {
+  flex: 1 1 auto;
+}
+
 .stop-prompt {
   position: absolute;
   right: var(--pad);

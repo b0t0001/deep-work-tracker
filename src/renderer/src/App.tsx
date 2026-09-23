@@ -145,6 +145,11 @@ export default function App(): React.JSX.Element {
     void window.api.timer.setPace(config)
   }
   const [stopPrompt, setStopPrompt] = useState(false)
+  const [qty, setQty] = useState('')
+  const [qtyUnit, setQtyUnit] = useState('')
+  const qtyRef = useRef<HTMLInputElement>(null)
+  const qtyUnitRef = useRef<HTMLInputElement>(null)
+  const dismissRef = useRef<number | null>(null)
   const clockRef = useRef<HTMLInputElement>(null)
 
   // Closing the pace window means "remove this", so the fields clear with it.
@@ -214,16 +219,54 @@ export default function App(): React.JSX.Element {
     void window.api.timer.start(plannedMs)
   }
 
-  /** Stopping opens a short window to undo it or say why - never a blocking one. */
+  function closeStopPrompt(): void {
+    if (dismissRef.current !== null) window.clearTimeout(dismissRef.current)
+    dismissRef.current = null
+    setStopPrompt(false)
+  }
+
+  /**
+   * Stopping opens a short window to undo it, record what got done, or say why
+   * it ended - never a blocking one.
+   */
   function stop(): void {
+    const task = snapshot.task
     void window.api.timer.stop()
+    setQty('')
+    // Almost every session is one of a few repeated shapes, so the unit this
+    // task was last measured in is nearly always the right answer.
+    void window.api.timer.lastUnit(task).then((unit) => setQtyUnit(unit ?? ''))
     setStopPrompt(true)
-    window.setTimeout(() => setStopPrompt(false), 30_000)
+    dismissRef.current = window.setTimeout(() => setStopPrompt(false), 30_000)
+  }
+
+  /**
+   * The countdown to auto-dismiss stops the moment the output fields are
+   * touched. A prompt that vanishes mid-word while you are typing into it is
+   * one you stop bothering with.
+   */
+  function holdStopPrompt(): void {
+    if (dismissRef.current === null) return
+    window.clearTimeout(dismissRef.current)
+    dismissRef.current = null
+  }
+
+  /**
+   * Written as it is typed rather than behind a confirm button, matching the
+   * pace panel. There is no moment where what is on screen is not what is
+   * stored, so dismissing the prompt can never lose an entry.
+   */
+  function saveQuantity(nextQty: string, nextUnit: string): void {
+    const amount = nextQty.trim() === '' ? null : Number(nextQty)
+    void window.api.timer.setQuantity(
+      amount !== null && Number.isFinite(amount) ? amount : null,
+      nextUnit.trim() === '' ? null : nextUnit.trim()
+    )
   }
 
   function answerStop(reason: string | null): void {
     if (reason) void window.api.timer.setStopReason(reason, null)
-    setStopPrompt(false)
+    closeStopPrompt()
   }
 
   function undoStop(): void {
@@ -231,7 +274,11 @@ export default function App(): React.JSX.Element {
       // Undo may have brought a pace loop back with the session.
       void window.api.timer.getPace().then(setPace)
     })
-    setStopPrompt(false)
+    // The row it was written to is gone, so the fields must not carry over to
+    // whatever is stopped next.
+    setQty('')
+    setQtyUnit('')
+    closeStopPrompt()
   }
 
   function releaseFocus(event: React.MouseEvent): void {
@@ -369,6 +416,49 @@ export default function App(): React.JSX.Element {
           <button className="pace-panel__close" onClick={() => setPaceOpen(false)} title="Done">
             &times;
           </button>
+        </div>
+      )}
+
+      {stopPrompt && (
+        <div className="stop-output">
+          <input
+            ref={qtyRef}
+            className="stop-output__qty"
+            value={qty}
+            placeholder="340"
+            inputMode="decimal"
+            title="How much got done"
+            onFocus={holdStopPrompt}
+            onChange={(event) => {
+              // Decimals allowed: half a problem set is `0.5 question`.
+              if (!/^\d{0,7}(\.\d{0,2})?$/.test(event.target.value)) return
+              holdStopPrompt()
+              setQty(event.target.value)
+              saveQuantity(event.target.value, qtyUnit)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') qtyUnitRef.current?.focus()
+            }}
+          />
+          <input
+            ref={qtyUnitRef}
+            className="stop-output__unit"
+            value={qtyUnit}
+            placeholder="words"
+            title="Measured in"
+            onFocus={holdStopPrompt}
+            onChange={(event) => {
+              // A digit here was always meant for the box beside it, so it is
+              // dropped rather than rejected - the rest of the word still lands.
+              const next = event.target.value.replace(/[0-9]/g, '')
+              holdStopPrompt()
+              setQtyUnit(next)
+              saveQuantity(qty, next)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur()
+            }}
+          />
         </div>
       )}
 
