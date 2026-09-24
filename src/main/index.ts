@@ -20,6 +20,7 @@ import { closeDatabase, openDatabase } from './db'
 import {
   deleteSession,
   listProjects,
+  lastProjectName,
   lastUnitFor,
   querySessions,
   recordSession,
@@ -393,6 +394,12 @@ function registerIpc(): void {
   ipcMain.handle('timer:resume', (event) => instanceFor(event)?.engine.resume())
   ipcMain.handle('timer:stop', (event) => instanceFor(event)?.engine.stop())
   ipcMain.handle('timer:setTask', (event, task: string) => instanceFor(event)?.engine.setTask(task))
+
+  ipcMain.handle('timer:setProject', (event, project: string) =>
+    instanceFor(event)?.engine.setProject(project)
+  )
+
+  ipcMain.handle('sessions:lastProject', () => lastProjectName())
 
   ipcMain.handle('sessions:setStopReason', (event, reason: string | null, note: string | null) => {
     const completed = instanceFor(event)?.lastCompleted

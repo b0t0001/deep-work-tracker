@@ -48,6 +48,59 @@ input {
   flex: 0 0 auto;
 }
 
+/* Narrower than the task field and dimmer: the category is a short repeated
+   word you mostly accept rather than type, so it should not compete with what
+   you are actually working on. Shares the label treatment otherwise. */
+/* A thin strip under the head, present only while idle. */
+/* flex: 0 0 auto, because the dial above it is flex: 1 and will otherwise
+   squeeze this to zero height at the 136px minimum - the field was in the DOM
+   for two builds and simply had no room to draw. */
+.project-row {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 20px;
+  padding: 0 var(--pad) 3px;
+  -webkit-app-region: no-drag;
+}
+
+.project {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--control);
+  outline: none;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+/* No extra dimming. An empty project field is the case where the control most
+   needs to be noticed, and --text-dim at 60% on this surface is invisible. */
+.project::placeholder {
+  color: var(--text-dim);
+}
+
+.project:hover {
+  background: var(--surface-raised);
+}
+
+.project:focus {
+  border-color: var(--accent);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+/* Chromium paints the datalist arrow for a light page. */
+.project::-webkit-calendar-picker-indicator {
+  opacity: 0.35;
+  filter: invert(1);
+}
+
 .label {
   flex: 1;
   min-width: 0;

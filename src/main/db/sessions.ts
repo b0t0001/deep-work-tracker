@@ -65,6 +65,36 @@ export interface PaceTarget {
   intervalMs: number
 }
 
+/**
+ * The project row for a name, created if this is the first time it is used.
+ *
+ * Typing a new name in the timer is how projects come into existence - there is
+ * no separate "manage projects" step, because one more screen between deciding
+ * to work and starting is one more reason not to label.
+ */
+export function findOrCreateProject(name: string): number | null {
+  const trimmed = name.trim()
+  if (trimmed === '') return null
+  const db = openDatabase()
+  const existing = db.prepare('SELECT id FROM projects WHERE name = ?').get(trimmed) as
+    { id: number } | undefined
+  if (existing) return Number(existing.id)
+  return Number(db.prepare('INSERT INTO projects (name) VALUES (?)').run(trimmed).lastInsertRowid)
+}
+
+/** What the last recorded session was filed under, for defaulting the next. */
+export function lastProjectName(): string | null {
+  const row = openDatabase()
+    .prepare(
+      `SELECT p.name AS name
+         FROM sessions s JOIN projects p ON p.id = s.project_id
+        WHERE s.source = 'app'
+        ORDER BY s.id DESC LIMIT 1`
+    )
+    .get() as { name: string } | undefined
+  return row?.name ?? null
+}
+
 export function recordSession(snapshot: TimerSnapshot, pace?: PaceTarget | null): number | null {
   const runningSeconds = Math.round(runningMs(snapshot, Date.now()) / 1000)
   if (snapshot.startedAt === null || runningSeconds < 1) return null
@@ -77,12 +107,13 @@ export function recordSession(snapshot: TimerSnapshot, pace?: PaceTarget | null)
     const result = db
       .prepare(
         `INSERT INTO sessions
-           (task, session_date, started_at, ended_at,
+           (project_id, task, session_date, started_at, ended_at,
           planned_duration_s, running_duration_s,
           pace_target_qty, pace_target_interval_s, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'app')`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'app')`
       )
       .run(
+        findOrCreateProject(snapshot.project),
         snapshot.task.trim() || null,
         // Local date, not UTC: a session at 11pm belongs to that day as lived,
         // which is how every daily total and streak is read.
@@ -177,7 +208,12 @@ function where(query: SessionQuery): { sql: string; params: (string | number)[] 
     clauses.push('s.source = ?')
     params.push(query.source)
   }
-  if (query.projectId != null) {
+  // -1 is the sentinel for "no project at all". A real id cannot be negative,
+  // and it keeps the filter one control rather than two - unlabelled is a
+  // choice of project, not a separate axis.
+  if (query.projectId === -1) {
+    clauses.push('s.project_id IS NULL')
+  } else if (query.projectId != null) {
     clauses.push('s.project_id = ?')
     params.push(query.projectId)
   }

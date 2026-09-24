@@ -90,6 +90,9 @@ export default function App(): React.JSX.Element {
   useAccentSync()
   const [label, setLabel] = useState('')
   const [labelFocused, setLabelFocused] = useState(false)
+  const [project, setProject] = useState('')
+  const [projectFocused, setProjectFocused] = useState(false)
+  const [projectNames, setProjectNames] = useState<string[]>([])
   const [draft, setDraft] = useState('1:00:00')
   const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
   const [flashing, setFlashing] = useState(false)
@@ -144,6 +147,23 @@ export default function App(): React.JSX.Element {
     setPace(config)
     void window.api.timer.setPace(config)
   }
+  /**
+   * The project defaults to whatever the last session was filed under, because
+   * work comes in runs - several HW sessions, then several on the essay - so
+   * the previous answer is nearly always this one too. The list feeds a
+   * datalist rather than a dropdown: one control that both suggests what
+   * exists and accepts a name that does not, which is the only shape that fits
+   * a 250px window.
+   */
+  useEffect(() => {
+    void window.api.sessions.projects().then((rows) => setProjectNames(rows.map((r) => r.name)))
+    void window.api.timer.lastProject().then((name) => {
+      if (!name) return
+      setProject(name)
+      void window.api.timer.setProject(name)
+    })
+  }, [])
+
   const [stopPrompt, setStopPrompt] = useState(false)
   const [qty, setQty] = useState('')
   const [qtyUnit, setQtyUnit] = useState('')
@@ -185,7 +205,7 @@ export default function App(): React.JSX.Element {
   // While a field is focused the card stops being a drag region. Electron drag
   // regions swallow mouse events outright, so without this a click on the card
   // body never reaches the handler that drops focus.
-  const editing = labelFocused || paceOpen
+  const editing = labelFocused || projectFocused || paceOpen
 
   const canonical = plannedMs === null ? null : formatDurationInput(plannedMs)
 
@@ -549,6 +569,40 @@ export default function App(): React.JSX.Element {
           </button>
         </div>
       </header>
+
+      {/* Its own row, and only while idle. The head is six icons and the
+            task field already - at 250px a fourth control there pushes the
+            window buttons off the edge. Idle is also the only time it is
+            needed: the project is chosen before starting, and once running
+            the window is being filmed and should carry nothing spare. */}
+      {snapshot.status === 'idle' && (
+        <div className="project-row">
+          <input
+            className="project"
+            list="project-names"
+            value={project}
+            placeholder="Project"
+            spellCheck={false}
+            title="Which category this session counts towards"
+            onChange={(event) => {
+              setProject(event.target.value)
+              // Main owns it for the same reason it owns the task: auto-end can
+              // record a session this window never sees stop.
+              void window.api.timer.setProject(event.target.value)
+            }}
+            onFocus={() => setProjectFocused(true)}
+            onBlur={() => setProjectFocused(false)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur()
+            }}
+          />
+          <datalist id="project-names">
+            {projectNames.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+        </div>
+      )}
     </div>
   )
 }

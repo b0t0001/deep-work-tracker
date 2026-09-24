@@ -728,6 +728,41 @@ the loss above survivable rather than merely detectable.
 - **Projects and tags are rebuilt from their names**, which is why the backup
   writes names rather than ids.
 
+### Where labels are asked for, and why there
+
+Split by what can be known when: **project before starting, output at stop.**
+You know what you are about to work on; you cannot know how many questions you
+got through until you are done.
+
+- **Neither blocks.** A timer that will not start until a form is filled is
+  worse than Hourglass, and losing to Hourglass sinks the project. Enforcement
+  is by making gaps visible, not by refusing to run: the Data tab's project
+  filter carries an **Unlabelled** option, so a week of missed labels is one
+  filter and a few edits rather than archaeology.
+- **The project is a text field with a `datalist`, not a dropdown.** One control
+  that both suggests what exists and accepts a name that does not, which is the
+  only shape that fits a 250px window. Typing a new name is how projects come
+  into existence - there is no "manage projects" screen, because a step between
+  deciding to work and starting is a reason not to label.
+- **It defaults to the last session's project.** Work comes in runs - several
+  HW sessions, then several on the essay - so the previous answer is nearly
+  always this one, and the common case is touching nothing.
+- **It sits on its own row, and only while idle.** The head already holds six
+  icons and the task field; a fourth control there pushes the window buttons
+  off the edge at 250px. Idle is also the only time it is needed, and once
+  running the window is being filmed and should carry nothing spare.
+- **Its placeholder takes no extra dimming.** An empty project field is exactly
+  when the control most needs noticing, and `--text-dim` at 60% on this surface
+  is invisible - the field was there for a build and could not be seen.
+- **The name, not the id, rides on the snapshot**, resolved to a row only when
+  the session is written. That keeps the engine ignorant of the database and
+  survives a project being created after the timer started.
+- **A project set but never recorded is never created.** `findOrCreateProject`
+  runs at write time, so abandoning a run leaves no empty category behind.
+- **`projectId: -1` is the Unlabelled sentinel** in `querySessions`. A real id
+  cannot be negative, and it keeps the filter one control - unlabelled is a
+  choice of project, not a separate axis.
+
 ### Labeling must be fast
 
 The user labels every session and it costs roughly 30 seconds each — about
@@ -857,12 +892,9 @@ Sticky, a z-index, and `border-collapse: separate` together.
 Kept here deliberately: a spec that quietly disagrees with the build is worse
 than no spec.
 
-- **Nothing labels a session with a project.** The timer has a task field and
-  no project selector, and `recordSession` does not write `project_id`, so
-  every app-recorded session has a null project. The plan is project at start
-  (defaulted to the last one used) and output at stop, neither blocking, with
-  an `Unlabeled` filter in the Data tab making gaps visible instead of
-  mandatory. Only the output half is built.
+- **Tags are still unused.** `tags` exists for course codes such as
+  `WRIT 0580`, and nothing writes to it. Projects are labelled; the second
+  dimension is not.
 - **The backup folder can be changed but not from the UI.**
   `setBackupDirectory` and its `app_settings` key work; no picker calls them.
   The automatic default is what matters and it is correct, so this is a

@@ -849,6 +849,7 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
           }}
         >
           <option value="">All projects</option>
+          <option value="-1">— Unlabelled —</option>
           {projects.map((option) => (
             <option key={option.id} value={String(option.id)}>
               {option.name} ({option.sessions.toLocaleString()})
