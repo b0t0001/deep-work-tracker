@@ -739,11 +739,33 @@ got through until you are done.
   is by making gaps visible, not by refusing to run: the Data tab's project
   filter carries an **Unlabelled** option, so a week of missed labels is one
   filter and a few edits rather than archaeology.
-- **The project is a text field with a `datalist`, not a dropdown.** One control
-  that both suggests what exists and accepts a name that does not, which is the
-  only shape that fits a 250px window. Typing a new name is how projects come
-  into existence - there is no "manage projects" screen, because a step between
-  deciding to work and starting is a reason not to label.
+- **The project field never compares raw strings.** An exact, case-sensitive
+  lookup is what let `hw` become a second project beside `HW` and turned
+  fifteen real categories into sixty-six; reinstating it in the timer would
+  rebuild the mess by hand. `shared/projects.ts` ranks what is typed against
+  what exists, the field offers the best matches as a list, and only a
+  genuinely new name creates a row. `findOrCreateProject` resolves through the
+  same function, so even text that never passed through the UI lands correctly.
+- **Matching is lexical, not semantic.** It collapses case, spacing,
+  punctuation and the trailing ordinal, then scores exact, squashed, prefix,
+  word-prefix, initials, substring, edit distance and subsequence in that
+  order. It will not know `essay` belongs with `Writing` - that needs the LLM
+  work this project defers, and calling edit distance semantic would be a lie.
+- **Suggesting and snapping are deliberately different thresholds.**
+  `rankProjects` is generous, because a suggestion you ignore costs nothing.
+  `canonicalProjectName` only accepts a match differing by case, spacing,
+  punctuation or an ordinal, because silently filing a session under the wrong
+  project is what makes the data untrustworthy. The tests that matter are the
+  negative ones: `Job` must not become `JPL`, `SAT` must not become `Startup`,
+  `Scioly` must not become `Scholarships`, and `HW reading` must stay itself
+  rather than collapsing into `HW`.
+- **The list is a floating menu, not a `datalist`.** A datalist only does
+  literal prefixes, cannot be ranked, and cannot show which entry Enter will
+  take. The menu floats over the dial rather than pushing it, because at 136px
+  there is nowhere to grow, and it shows at most four.
+- **Typing a new name is still how projects come into existence** - there is no
+  "manage projects" screen, because a step between deciding to work and
+  starting is a reason not to label.
 - **It defaults to the last session's project.** Work comes in runs - several
   HW sessions, then several on the essay - so the previous answer is nearly
   always this one, and the common case is touching nothing.
@@ -752,7 +774,10 @@ got through until you are done.
   there - and on camera - is what the session is for. It borrows the clock's
   treatment rather than the caption's: inherited family, light weight, tight
   tracking, no uppercasing, sized between the two so it reads as a subtitle and
-  not a second headline. It must not go in the head: six icons and the task
+  not a second headline, and **white like the clock** - it is the answer to
+  what this session is for, which is the one thing besides the time worth
+  reading at a glance. Only the placeholder stays dim, because an empty field
+  is a prompt rather than a value. It must not go in the head: six icons and the task
   field already fill 250px, and a fourth control there pushed the window
   buttons off the edge.
 - **It yields only while a duration is being typed.** The echo confirming

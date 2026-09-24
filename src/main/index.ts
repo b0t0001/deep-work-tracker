@@ -20,6 +20,7 @@ import { closeDatabase, openDatabase } from './db'
 import {
   deleteSession,
   listProjects,
+  allProjectNames,
   lastProjectName,
   lastUnitFor,
   querySessions,
@@ -400,6 +401,7 @@ function registerIpc(): void {
   )
 
   ipcMain.handle('sessions:lastProject', () => lastProjectName())
+  ipcMain.handle('sessions:projectNames', () => allProjectNames())
 
   ipcMain.handle('sessions:setStopReason', (event, reason: string | null, note: string | null) => {
     const completed = instanceFor(event)?.lastCompleted

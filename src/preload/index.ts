@@ -27,6 +27,7 @@ const api = {
     setTask: (task: string): Promise<void> => ipcRenderer.invoke('timer:setTask', task),
     setProject: (project: string): Promise<void> => ipcRenderer.invoke('timer:setProject', project),
     lastProject: (): Promise<string | null> => ipcRenderer.invoke('sessions:lastProject'),
+    projectNames: (): Promise<string[]> => ipcRenderer.invoke('sessions:projectNames'),
     getLoop: (): Promise<boolean> => ipcRenderer.invoke('timer:getLoop'),
     getPace: (): Promise<PaceConfig | null> => ipcRenderer.invoke('timer:getPace'),
     setPace: (config: PaceConfig | null): Promise<void> =>

@@ -59,35 +59,77 @@ input {
    family, the same light weight and tight tracking, no uppercasing, because
    project names are words rather than a label. Sized between the caption and
    the clock so it reads as a subtitle and not a second headline. */
+/* The box the suggestion list hangs off. */
+.project-box {
+  position: relative;
+  width: 100%;
+}
+
 .dial__project {
   width: 100%;
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--text-dim);
+  /* White, like the clock above it. It is the answer to what this session is
+     for, which is the one thing besides the time worth reading at a glance. */
+  color: var(--text);
   font-family: inherit;
   font-size: calc(var(--caption) * 1.15);
   font-weight: 300;
   letter-spacing: -0.01em;
   text-align: center;
   outline: none;
-  transition: color 120ms ease;
 }
 
+/* The placeholder stays dim - an empty field is a prompt, not a value. */
 .dial__project::placeholder {
   color: var(--text-dim);
-  opacity: 0.55;
 }
 
-.dial__project:hover,
-.dial__project:focus {
-  color: var(--text);
+/* Floats over the dial rather than pushing it: the window is 136px at its
+   smallest and there is no room to grow. Four entries is the most that fits
+   above the controls. */
+.project-menu {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  z-index: 6;
+  min-width: 108px;
+  max-width: 190px;
+  margin: 0;
+  padding: 3px;
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px #0009;
+  list-style: none;
+  -webkit-app-region: no-drag;
 }
 
-/* Chromium paints the datalist arrow for a light page, and at this size it is
-   debris on a window that gets filmed. */
-.dial__project::-webkit-calendar-picker-indicator {
-  display: none;
+.project-menu button {
+  display: block;
+  width: 100%;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: clamp(9px, 4.4vmin, 14px);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+/* The highlighted row is the one Enter takes, so it has to be unmistakable. */
+.project-menu button.is-active {
+  background: var(--accent);
+  color: #0b0d10;
+  font-weight: 600;
 }
 
 .label {

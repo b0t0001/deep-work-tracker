@@ -1,5 +1,6 @@
 import { checkpoint, openDatabase } from './index'
 import { runningMs, type TimerSnapshot } from '../../shared/timer'
+import { canonicalProjectName } from '../../shared/projects'
 
 /** Every column, so a deleted row can be restored exactly as it was. */
 export interface SessionRow {
@@ -76,10 +77,39 @@ export function findOrCreateProject(name: string): number | null {
   const trimmed = name.trim()
   if (trimmed === '') return null
   const db = openDatabase()
-  const existing = db.prepare('SELECT id FROM projects WHERE name = ?').get(trimmed) as
+
+  // Never compare raw strings here. An exact, case-sensitive lookup is what
+  // let `hw` become a second project beside `HW` and turned fifteen real
+  // categories into sixty-six. The typed text resolves against what already
+  // exists first, and only a genuinely new name creates a row.
+  const names = (db.prepare('SELECT name FROM projects').all() as Array<{ name: string }>).map(
+    (row) => row.name
+  )
+  const target = canonicalProjectName(trimmed, names) ?? trimmed
+
+  const existing = db.prepare('SELECT id FROM projects WHERE name = ?').get(target) as
     { id: number } | undefined
   if (existing) return Number(existing.id)
-  return Number(db.prepare('INSERT INTO projects (name) VALUES (?)').run(trimmed).lastInsertRowid)
+  return Number(db.prepare('INSERT INTO projects (name) VALUES (?)').run(target).lastInsertRowid)
+}
+
+/**
+ * Every project name, most-used first, for the timer's suggestion list.
+ *
+ * Ordered by use rather than alphabetically so an empty field offers the
+ * handful that carry the recent history instead of whatever starts with A.
+ */
+export function allProjectNames(): string[] {
+  return (
+    openDatabase()
+      .prepare(
+        `SELECT p.name AS name, COUNT(s.id) AS uses
+           FROM projects p LEFT JOIN sessions s ON s.project_id = p.id
+          GROUP BY p.id, p.name
+          ORDER BY uses DESC, p.name ASC`
+      )
+      .all() as Array<{ name: string }>
+  ).map((row) => row.name)
 }
 
 /** What the last recorded session was filed under, for defaulting the next. */

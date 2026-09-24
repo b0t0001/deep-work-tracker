@@ -7,6 +7,7 @@ import {
   type TimerSnapshot
 } from '@shared/timer'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
+import { canonicalProjectName, rankProjects } from '@shared/projects'
 import TimerDial from './components/TimerDial'
 import { expiryCue, primeAudio } from './lib/sounds'
 import { useAccentSync } from './lib/accent'
@@ -86,6 +87,8 @@ export default function App(): React.JSX.Element {
   const [project, setProject] = useState('')
   const [projectFocused, setProjectFocused] = useState(false)
   const [projectNames, setProjectNames] = useState<string[]>([])
+  const [projectOpen, setProjectOpen] = useState(false)
+  const [highlight, setHighlight] = useState(0)
   const [draft, setDraft] = useState('1:00:00')
   const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
   const [flashing, setFlashing] = useState(false)
@@ -144,18 +147,41 @@ export default function App(): React.JSX.Element {
    * The project defaults to whatever the last session was filed under, because
    * work comes in runs - several HW sessions, then several on the essay - so
    * the previous answer is nearly always this one too. The list feeds a
-   * datalist rather than a dropdown: one control that both suggests what
-   * exists and accepts a name that does not, which is the only shape that fits
-   * a 250px window.
+   * ranked suggestion list rather than a plain dropdown: it both offers what
+   * exists and accepts a name that does not, and it matches on more than a
+   * literal prefix so `hw`, `HW 2` and a typo all find the same project.
    */
   useEffect(() => {
-    void window.api.sessions.projects().then((rows) => setProjectNames(rows.map((r) => r.name)))
+    void window.api.timer.projectNames().then(setProjectNames)
     void window.api.timer.lastProject().then((name) => {
       if (!name) return
       setProject(name)
       void window.api.timer.setProject(name)
     })
   }, [])
+
+  /**
+   * Ranked suggestions for what is in the field, best first.
+   *
+   * Recomputed every keystroke rather than debounced: the list is at most a
+   * few dozen names and the match runs in microseconds, so the lag of a
+   * debounce would be the only thing you could feel.
+   */
+  const matches = rankProjects(project, projectNames, 4)
+
+  /** Committing snaps to an existing name when one plainly means the same. */
+  function commitProject(value: string): void {
+    const canonical = canonicalProjectName(value, projectNames) ?? value
+    setProject(canonical)
+    void window.api.timer.setProject(canonical)
+    setProjectOpen(false)
+  }
+
+  function chooseProject(name: string): void {
+    setProject(name)
+    void window.api.timer.setProject(name)
+    setProjectOpen(false)
+  }
 
   const [stopPrompt, setStopPrompt] = useState(false)
   const [qty, setQty] = useState('')
@@ -225,25 +251,79 @@ export default function App(): React.JSX.Element {
   const caption: React.ReactNode = typingDuration ? (
     (canonical ?? 'enter a time')
   ) : (
-    <input
-      className="dial__project"
-      list="project-names"
-      value={project}
-      placeholder="project"
-      spellCheck={false}
-      title="Which category this session counts towards"
-      onChange={(event) => {
-        setProject(event.target.value)
-        // Main owns it for the same reason it owns the task: auto-end can
-        // record a session this window never sees stop.
-        void window.api.timer.setProject(event.target.value)
-      }}
-      onFocus={() => setProjectFocused(true)}
-      onBlur={() => setProjectFocused(false)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') event.currentTarget.blur()
-      }}
-    />
+    <div className="project-box">
+      <input
+        className="dial__project"
+        value={project}
+        placeholder="project"
+        spellCheck={false}
+        autoComplete="off"
+        title="Which category this session counts towards"
+        onChange={(event) => {
+          setProject(event.target.value)
+          setProjectOpen(true)
+          setHighlight(0)
+          // Main owns it for the same reason it owns the task: auto-end can
+          // record a session this window never sees stop.
+          void window.api.timer.setProject(event.target.value)
+        }}
+        onFocus={() => {
+          setProjectFocused(true)
+          setProjectOpen(true)
+          setHighlight(0)
+        }}
+        onBlur={() => {
+          setProjectFocused(false)
+          // A click on a suggestion fires blur first, so closing is deferred
+          // by a tick or the mousedown never lands.
+          window.setTimeout(() => setProjectOpen(false), 120)
+          commitProject(project)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault()
+            setProjectOpen(true)
+            setHighlight((h) => Math.min(h + 1, matches.length - 1))
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault()
+            setHighlight((h) => Math.max(h - 1, 0))
+          } else if (event.key === 'Escape') {
+            setProjectOpen(false)
+          } else if (event.key === 'Enter' || event.key === 'Tab') {
+            // Enter takes the highlighted suggestion when the list is open -
+            // that is what makes it behave like a dropdown - and otherwise
+            // just commits what was typed.
+            const pick = projectOpen ? matches[highlight] : undefined
+            if (pick) {
+              event.preventDefault()
+              chooseProject(pick.name)
+            } else {
+              commitProject(project)
+            }
+            if (event.key === 'Enter') event.currentTarget.blur()
+          }
+        }}
+      />
+      {projectOpen && matches.length > 0 && (
+        <ul className="project-menu">
+          {matches.map((match, index) => (
+            <li key={match.name}>
+              <button
+                className={index === highlight ? 'is-active' : ''}
+                // mousedown, not click: blur would close the list first.
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  chooseProject(match.name)
+                }}
+                onMouseEnter={() => setHighlight(index)}
+              >
+                {match.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 
   /** Rewrites the field into canonical form, so what was typed visibly took. */
@@ -588,12 +668,6 @@ export default function App(): React.JSX.Element {
           </button>
         </div>
       </header>
-
-      <datalist id="project-names">
-        {projectNames.map((name) => (
-          <option key={name} value={name} />
-        ))}
-      </datalist>
     </div>
   )
 }
