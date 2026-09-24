@@ -5,7 +5,12 @@ interface TimerDialProps {
   progress: number
   /** Pre-formatted countdown, shown when the clock is not editable. */
   clock: string
-  caption: string
+  /**
+   * The line under the clock. A node rather than a string because it normally
+   * holds the project field, and falls back to text only while a duration is
+   * being typed.
+   */
+  caption: React.ReactNode
   variant: 'ring' | 'bar'
   dimmed: boolean
   /** Idle: the clock itself is the duration field, as in Hourglass. */

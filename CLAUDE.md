@@ -747,13 +747,18 @@ got through until you are done.
 - **It defaults to the last session's project.** Work comes in runs - several
   HW sessions, then several on the essay - so the previous answer is nearly
   always this one, and the common case is touching nothing.
-- **It sits on its own row, and only while idle.** The head already holds six
-  icons and the task field; a fourth control there pushes the window buttons
-  off the edge at 250px. Idle is also the only time it is needed, and once
-  running the window is being filmed and should carry nothing spare.
-- **Its placeholder takes no extra dimming.** An empty project field is exactly
-  when the control most needs noticing, and `--text-dim` at 60% on this surface
-  is invisible - the field was there for a build and could not be seen.
+- **It lives under the clock, inside the dial, where the status word was.**
+  `ready` / `running` restated what the digits already showed; what belongs
+  there - and on camera - is what the session is for. It borrows the clock's
+  treatment rather than the caption's: inherited family, light weight, tight
+  tracking, no uppercasing, sized between the two so it reads as a subtitle and
+  not a second headline. It must not go in the head: six icons and the task
+  field already fill 250px, and a fourth control there pushed the window
+  buttons off the edge.
+- **It yields only while a duration is being typed.** The echo confirming
+  `one hour` as `1:00:00` before it is committed is load-bearing and has
+  nowhere else to go, so the caption slot reverts to plain text for exactly
+  that case and nothing else.
 - **The name, not the id, rides on the snapshot**, resolved to a row only when
   the session is written. That keeps the engine ignorant of the database and
   survives a project being created after the timer started.

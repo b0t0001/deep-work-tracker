@@ -77,13 +77,6 @@ function useFullScreen(): [boolean, (value: boolean) => void] {
   return [full, (value) => void window.api.window.setFullScreen(value)]
 }
 
-const CAPTIONS: Record<TimerSnapshot['status'], string> = {
-  idle: 'ready',
-  running: 'running',
-  paused: 'paused',
-  expired: 'time is up'
-}
-
 export default function App(): React.JSX.Element {
   const { snapshot, now } = useTimer()
   const [full, setFullScreen] = useFullScreen()
@@ -217,15 +210,41 @@ export default function App(): React.JSX.Element {
 
   const clockMs = idle ? (plannedMs ?? 0) : remainingMs(snapshot, now)
   const fraction = idle ? 0 : progressOf(snapshot, now)
-  // While typing, the caption shows how the input was read, so `one hour`
-  // confirms itself as 1:00:00 before you commit to it.
-  const caption = idle
-    ? canonical === null
-      ? 'enter a time'
-      : canonical !== draft.trim()
-        ? canonical
-        : (paceLabel ?? 'ready')
-    : CAPTIONS[snapshot.status]
+  /**
+   * The line under the clock is the project, not the status.
+   *
+   * `ready` / `running` told the user something the clock already says - the
+   * digits are counting or they are not - while the thing they actually need
+   * to see, and the thing that belongs on camera, is what the session is for.
+   *
+   * It yields only while a duration is being typed, because the echo that
+   * confirms `one hour` as `1:00:00` before it is committed is load-bearing
+   * and has nowhere else to go.
+   */
+  const typingDuration = idle && (canonical === null || canonical !== draft.trim())
+  const caption: React.ReactNode = typingDuration ? (
+    (canonical ?? 'enter a time')
+  ) : (
+    <input
+      className="dial__project"
+      list="project-names"
+      value={project}
+      placeholder="project"
+      spellCheck={false}
+      title="Which category this session counts towards"
+      onChange={(event) => {
+        setProject(event.target.value)
+        // Main owns it for the same reason it owns the task: auto-end can
+        // record a session this window never sees stop.
+        void window.api.timer.setProject(event.target.value)
+      }}
+      onFocus={() => setProjectFocused(true)}
+      onBlur={() => setProjectFocused(false)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur()
+      }}
+    />
+  )
 
   /** Rewrites the field into canonical form, so what was typed visibly took. */
   function normalizeDraft(): void {
@@ -570,39 +589,11 @@ export default function App(): React.JSX.Element {
         </div>
       </header>
 
-      {/* Its own row, and only while idle. The head is six icons and the
-            task field already - at 250px a fourth control there pushes the
-            window buttons off the edge. Idle is also the only time it is
-            needed: the project is chosen before starting, and once running
-            the window is being filmed and should carry nothing spare. */}
-      {snapshot.status === 'idle' && (
-        <div className="project-row">
-          <input
-            className="project"
-            list="project-names"
-            value={project}
-            placeholder="Project"
-            spellCheck={false}
-            title="Which category this session counts towards"
-            onChange={(event) => {
-              setProject(event.target.value)
-              // Main owns it for the same reason it owns the task: auto-end can
-              // record a session this window never sees stop.
-              void window.api.timer.setProject(event.target.value)
-            }}
-            onFocus={() => setProjectFocused(true)}
-            onBlur={() => setProjectFocused(false)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') event.currentTarget.blur()
-            }}
-          />
-          <datalist id="project-names">
-            {projectNames.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-        </div>
-      )}
+      <datalist id="project-names">
+        {projectNames.map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
     </div>
   )
 }
