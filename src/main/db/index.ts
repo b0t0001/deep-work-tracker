@@ -93,6 +93,28 @@ export function checkpoint(): void {
   }
 }
 
+/**
+ * Whether the file is readable, checked once at startup.
+ *
+ * `quick_check` is the cheap half of `integrity_check` - it verifies page
+ * structure and indexes without the full cross-reference - and it is run once
+ * rather than on every open so a large history does not pay for it repeatedly.
+ * A database that fails this will throw `database disk image is malformed`
+ * from whichever query happens to touch the damaged page first, which reads
+ * like a bug in that query rather than a damaged file.
+ */
+export function healthCheck(): string | null {
+  try {
+    const rows = openDatabase().prepare('PRAGMA quick_check').all() as Array<{
+      quick_check: string
+    }>
+    const first = rows[0]?.quick_check ?? 'no result'
+    return first === 'ok' ? null : first
+  } catch (error) {
+    return String(error)
+  }
+}
+
 export function closeDatabase(): void {
   db?.close()
   db = null

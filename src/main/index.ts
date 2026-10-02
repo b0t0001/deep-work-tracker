@@ -16,7 +16,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { TimerEngine, type PaceConfig, type PaceEvent } from './timer'
-import { closeDatabase, openDatabase } from './db'
+import { closeDatabase, healthCheck, openDatabase } from './db'
 import {
   deleteSession,
   listProjects,
@@ -104,6 +104,26 @@ const settings = {
   loop: true,
   autoEndMinutes: 180,
   shortcuts: { ...DEFAULT_SHORTCUTS }
+}
+
+/**
+ * Runs a read that the app can live without, and reports the first failure.
+ *
+ * Repeated identical errors are swallowed: a handler called on every window
+ * paint will otherwise print the same stack until the log is useless.
+ */
+const reported = new Set<string>()
+function safely<T>(read: () => T, fallback: T): T {
+  try {
+    return read()
+  } catch (error) {
+    const message = String(error)
+    if (!reported.has(message)) {
+      reported.add(message)
+      console.error('Read failed, continuing without it:', message)
+    }
+    return fallback
+  }
 }
 
 function instanceFor(event: IpcMainInvokeEvent): TimerInstance | undefined {
@@ -411,8 +431,13 @@ function registerIpc(): void {
     instanceFor(event)?.engine.setProject(project)
   )
 
-  ipcMain.handle('sessions:lastProject', () => lastProjectName())
-  ipcMain.handle('sessions:projectNames', () => allProjectNames())
+  // These two run on every timer window's first paint. A database error here
+  // used to reject the invoke, which the renderer never caught, so one bad
+  // read filled the console and left the field empty with no explanation.
+  // A suggestion list is a convenience: losing it must not take the timer with
+  // it, so a failure degrades to "no suggestions" and says so once.
+  ipcMain.handle('sessions:lastProject', () => safely(() => lastProjectName(), null))
+  ipcMain.handle('sessions:projectNames', () => safely(() => allProjectNames(), []))
 
   ipcMain.handle('sessions:setStopReason', (event, reason: string | null, note: string | null) => {
     const completed = instanceFor(event)?.lastCompleted
@@ -693,6 +718,19 @@ app.whenReady().then(() => {
   })
 
   openDatabase()
+  const damage = healthCheck()
+  if (damage !== null) {
+    // Worth a dialog rather than a log line: every query afterwards will fail
+    // in its own way, and the user needs to know the file is the problem and
+    // that the backups exist, not watch the app misbehave.
+    console.error('Database failed its health check:', damage)
+    dialog.showErrorBox(
+      'The database is damaged',
+      `SQLite reports: ${damage}\n\n` +
+        'Your automatic backups are unaffected. Open Settings and use ' +
+        '"Restore from a backup" to rebuild from the most recent one.'
+    )
+  }
   registerIpc()
   startBackupSchedule()
   createTimerWindow()

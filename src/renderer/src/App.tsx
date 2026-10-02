@@ -153,12 +153,21 @@ export default function App(): React.JSX.Element {
    * literal prefix so `hw`, `HW 2` and a typo all find the same project.
    */
   useEffect(() => {
-    void window.api.timer.projectNames().then(setProjectNames)
-    void window.api.timer.lastProject().then((name) => {
-      if (!name) return
-      setProject(name)
-      void window.api.timer.setProject(name)
-    })
+    // Suggestions are a convenience. If they cannot be read the field still
+    // works as free text, so a failure here must not become an unhandled
+    // rejection that looks like the timer breaking.
+    void window.api.timer
+      .projectNames()
+      .then(setProjectNames)
+      .catch(() => setProjectNames([]))
+    void window.api.timer
+      .lastProject()
+      .then((name) => {
+        if (!name) return
+        setProject(name)
+        void window.api.timer.setProject(name)
+      })
+      .catch(() => undefined)
   }, [])
 
   /**

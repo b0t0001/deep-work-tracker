@@ -736,6 +736,28 @@ Two fixes, both needed:
   `TimerEngine` - so nothing is lost by refusing to run twice, and the
   contention disappears at the source.
 
+**Never force-kill the app to install over it.** `Stop-Process -Force` while
+it holds the database open leaves `-wal` and `-shm` behind - a clean close
+deletes both - and on 2026-10-02 the next launch reported
+`database disk image is malformed` from whichever query touched the file
+first. Ask the window to close (`CloseMainWindow`), wait, and force only as a
+last resort. The checkpoint on every write makes a kill more dangerous than it
+used to be, because truncating the WAL is exactly the moment to be interrupted
+during.
+
+**A read the app can live without must not be able to break it.** The two
+project lookups run on every timer window's first paint. When they threw, the
+invoke rejected, the renderer never caught it, and one bad read filled the
+console while leaving the field empty with no explanation. They now go through
+`safely()`, which returns a fallback and logs each distinct failure once -
+repeating the same stack on every paint makes the log useless. A suggestion
+list is a convenience; losing it must not take the timer with it.
+
+**`healthCheck()` runs `quick_check` once at startup** and shows a dialog
+naming the problem and pointing at Restore. A damaged file otherwise announces
+itself as whichever query happened to touch the bad page, which reads like a
+bug in that query rather than a damaged file.
+
 **Recording a session must never throw into an event handler.** A failure is
 logged and sent to the window as `timer:recordFailed`; the timer still stops
 cleanly. Losing one row is bad, but a crash dialog over a clock that will not
