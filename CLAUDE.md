@@ -734,6 +734,15 @@ binaries that will happily run together. Two connections competing for one
 file is what produced `database is locked`, and every test run wrote rows into
 the real history — three such rows were found in it.
 
+**Backups had to be split the same way.** `defaultBackupDirectory()` is based
+on Documents rather than userData, so splitting the database alone left a worse
+hole than before: a dev run writes a snapshot of its throwaway rows into the
+real backup folder, and with eight retention slots enough of them push the real
+history out. One such file — a single test session beside a 2,363-row backup —
+was created before this was noticed. When `app.isPackaged` is false, backups go
+to `userData/Backups` instead. **Anything that picks a location outside
+userData needs this check**; the database split does not cover it.
+
 So **the dev build now keeps its own profile**, `deep-work-tracker-dev`, set
 before `whenReady` because `userData` is fixed the first time any path is
 resolved. The installed app stays the daily driver with its own data; dev can

@@ -75,6 +75,14 @@ function oneDriveRoots(): string[] {
  * are the two cases a backup exists for.
  */
 export function defaultBackupDirectory(): string {
+  // The dev build keeps its backups with its own data, never in Documents.
+  // Splitting the database but not the backups left a worse hole than before:
+  // a dev run writes a snapshot of its throwaway rows into the real backup
+  // folder, and with eight retention slots enough of them would push the real
+  // history out. One such file - a single test session beside a 2,363-row
+  // backup - was created this way before this was noticed.
+  if (!app.isPackaged) return join(app.getPath('userData'), 'Backups')
+
   const documents = app.getPath('documents')
   const redirected = oneDriveRoots().some((root) => isInside(documents, root))
   const base = redirected ? join(app.getPath('home'), 'Documents') : documents
