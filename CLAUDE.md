@@ -713,6 +713,34 @@ milliseconds. `TRUNCATE` rather than `PASSIVE` because the aim is to leave
 nothing behind, and it is allowed to fail quietly since a concurrent reader can
 refuse it and the next write will try again.
 
+### Two builds, one database — and why they are now separated
+
+There are two copies of this app and they are the same source, never different
+programs. They are only ever **different versions**:
+
+| | `npm run dev` | installed |
+| --- | --- | --- |
+| runs from | `out/` in the project | `app.asar` under `AppData\Local\Programs` |
+| updates when | you rebuild | you run the installer |
+
+That skew is why a change can appear to do nothing — the desktop icon is a
+snapshot taken at `npm run dist`, with no link to the source. Hence the
+practice of reinstalling as part of the change.
+
+**The real hazard was that both resolved `userData` to the same folder**, so
+the two shared one SQLite file. `requestSingleInstanceLock` cannot help: it
+only stops two copies of the *same* executable, and these are different
+binaries that will happily run together. Two connections competing for one
+file is what produced `database is locked`, and every test run wrote rows into
+the real history — three such rows were found in it.
+
+So **the dev build now keeps its own profile**, `deep-work-tracker-dev`, set
+before `whenReady` because `userData` is fixed the first time any path is
+resolved. The installed app stays the daily driver with its own data; dev can
+be run, tested against and killed without touching it. Verified: a dev run
+created `deep-work-tracker-dev\deepwork.db` and left the real file at the same
+row count and `quick_check: ok`.
+
 ### One process, and a busy timeout
 
 Two copies of the app meant two SQLite connections competing for one file, and

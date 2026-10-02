@@ -694,6 +694,23 @@ function registerShortcuts(): Record<ShortcutAction, boolean> {
 }
 
 /**
+ * The dev build keeps its own database, separate from the installed app's.
+ *
+ * Both resolve `userData` to the same folder by default, so `npm run dev` and
+ * the desktop icon share one SQLite file. They are different executables, so
+ * the single-instance lock below cannot stop them running together, and two
+ * connections competing for one file is what produced `database is locked`
+ * and then a file that briefly read as malformed. It also means every test
+ * run writes rows into the real history - three such rows are in it now.
+ *
+ * Set before `whenReady`, because `userData` is resolved the first time
+ * anything asks for a path and cannot be moved afterwards.
+ */
+if (is.dev) {
+  app.setPath('userData', join(app.getPath('appData'), 'deep-work-tracker-dev'))
+}
+
+/**
  * A second launch opens another timer in the running app rather than starting
  * a rival process.
  *
