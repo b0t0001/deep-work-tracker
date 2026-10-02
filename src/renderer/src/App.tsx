@@ -87,6 +87,7 @@ export default function App(): React.JSX.Element {
   const [project, setProject] = useState('')
   const [projectFocused, setProjectFocused] = useState(false)
   const [projectNames, setProjectNames] = useState<string[]>([])
+  const projectRef = useRef<HTMLInputElement>(null)
   const [projectOpen, setProjectOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
   const [draft, setDraft] = useState('1:00:00')
@@ -237,22 +238,19 @@ export default function App(): React.JSX.Element {
   const clockMs = idle ? (plannedMs ?? 0) : remainingMs(snapshot, now)
   const fraction = idle ? 0 : progressOf(snapshot, now)
   /**
-   * The line under the clock is the project, not the status.
+   * The line under the clock is the project. Nothing else ever goes there.
    *
-   * `ready` / `running` told the user something the clock already says - the
-   * digits are counting or they are not - while the thing they actually need
-   * to see, and the thing that belongs on camera, is what the session is for.
-   *
-   * It yields only while a duration is being typed, because the echo that
-   * confirms `one hour` as `1:00:00` before it is committed is load-bearing
-   * and has nowhere else to go.
+   * It used to show the status - `ready`, `running` - which restated what the
+   * digits already said, and then the echo of how a typed duration had been
+   * read. Both are gone at the user's request: the clock rewrites itself into
+   * canonical form on Enter and on leaving the field, so `30 min` visibly
+   * becomes `30:00` in the field itself, and a second copy of that in grey
+   * underneath was noise sitting where the useful answer belongs.
    */
-  const typingDuration = idle && (canonical === null || canonical !== draft.trim())
-  const caption: React.ReactNode = typingDuration ? (
-    (canonical ?? 'enter a time')
-  ) : (
+  const caption: React.ReactNode = (
     <div className="project-box">
       <input
+        ref={projectRef}
         className="dial__project"
         value={project}
         placeholder="project"
@@ -473,6 +471,7 @@ export default function App(): React.JSX.Element {
         onDraftChange={setDraft}
         onSubmit={start}
         onNormalize={normalizeDraft}
+        onTabForward={() => projectRef.current?.focus()}
         inputRef={clockRef}
         controls={controls}
       />

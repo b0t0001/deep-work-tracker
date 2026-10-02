@@ -21,6 +21,14 @@ export function openDatabase(): DatabaseSync {
   // foreign keys are off by default in SQLite, which would silently orphan pauses.
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA foreign_keys = ON')
+  // Without this the default is zero: a write while any other connection holds
+  // the lock fails instantly with `database is locked` rather than waiting.
+  // Two copies of the app - the installed one and a `npm run dev`, say - then
+  // throw on every session they try to record, and the throw lands in an event
+  // handler where Electron turns it into a crash dialog. Verified across two
+  // real processes: without it the second writer threw immediately; with it the
+  // write waited 1,087 ms for the lock and succeeded.
+  db.exec('PRAGMA busy_timeout = 5000')
   migrate(db)
   return db
 }

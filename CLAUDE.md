@@ -220,8 +220,10 @@ always something you can type back:
 | `90 sec`, `30s` | seconds |
 
 Enter starts the timer and rewrites the field into canonical form; leaving the
-field does the same. While typing, the caption shows how the input was read, so
-`one hour` confirms itself as `1:00:00` before it is committed.
+field does the same, which is the whole of the feedback. There was once a grey
+echo under the clock showing how the input had been read - it was removed as
+noise, because the field rewriting itself says the same thing in the place you
+are already looking.
 
 **The word matcher uses `(^|[^a-z])`, not `\b`.** Not style: the escape kept
 collapsing through the tooling between source and file, leaving a literal
@@ -711,6 +713,34 @@ milliseconds. `TRUNCATE` rather than `PASSIVE` because the aim is to leave
 nothing behind, and it is allowed to fail quietly since a concurrent reader can
 refuse it and the next write will try again.
 
+### One process, and a busy timeout
+
+Two copies of the app meant two SQLite connections competing for one file, and
+the connection carried **no `busy_timeout`** - the default is zero, so a write
+while any other connection holds the lock fails instantly with `database is
+locked` rather than waiting. The throw landed in the `completed` event handler,
+where an exception is uncaught in main: Electron turned it into a crash dialog
+and the stop never finished, so the clock kept running while the user was told
+about SQLite. Adding `checkpoint()` to every session write made this far more
+likely by taking an exclusive lock on each one.
+
+Two fixes, both needed:
+
+- **`PRAGMA busy_timeout = 5000`.** Verified across two real processes: without
+  it the second writer threw immediately, with it the write waited 1,087 ms for
+  the lock and succeeded. `node:sqlite` is synchronous, so this only helps
+  across processes - within one process a blocked write cannot yield.
+- **`requestSingleInstanceLock`.** A second launch opens another timer window
+  in the running app instead of starting a rival process. Multiple timers were
+  always meant to be multiple windows - each already carries its own
+  `TimerEngine` - so nothing is lost by refusing to run twice, and the
+  contention disappears at the source.
+
+**Recording a session must never throw into an event handler.** A failure is
+logged and sent to the window as `timer:recordFailed`; the timer still stops
+cleanly. Losing one row is bad, but a crash dialog over a clock that will not
+stop is worse, and it hides which of the two actually went wrong.
+
 ### Restoring from a backup
 
 `main/restore.ts` rebuilds the database from a backup CSV, which is what makes
@@ -780,10 +810,15 @@ got through until you are done.
   is a prompt rather than a value. It must not go in the head: six icons and the task
   field already fill 250px, and a fourth control there pushed the window
   buttons off the edge.
-- **It yields only while a duration is being typed.** The echo confirming
-  `one hour` as `1:00:00` before it is committed is load-bearing and has
-  nowhere else to go, so the caption slot reverts to plain text for exactly
-  that case and nothing else.
+- **Nothing else ever appears there.** The slot previously showed the status,
+  then the echo of how a typed duration had been read. Both are gone at the
+  user's request. The echo was redundant rather than load-bearing: the clock
+  rewrites itself into canonical form on Enter and on leaving the field, so
+  `30 min` visibly becomes `30:00` in the field itself, and a grey second copy
+  underneath sat where the useful answer belongs.
+- **Tab runs task to duration to project.** Tab out of the clock focuses the
+  project rather than the window buttons, because labelling a session and
+  setting its length is one sequence and that is the order it happens in.
 - **The name, not the id, rides on the snapshot**, resolved to a row only when
   the session is written. That keeps the engine ignorant of the database and
   survives a project being created after the timer started.

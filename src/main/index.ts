@@ -264,7 +264,18 @@ function createTimerWindow(): BrowserWindow {
   // Every finished run arrives here - stopped by hand, expired, or auto-ended -
   // so there is one place a session is recorded and no path can miss it.
   engine.on('completed', (snapshot: TimerSnapshot) => {
-    const id = recordSession(snapshot, engine.paceConfig())
+    // A throw in an event handler is an uncaught exception in main, which
+    // Electron surfaces as a crash dialog and which leaves the stop
+    // half-finished - the clock keeps running while the user is told about
+    // SQLite. The session is worth more than the silence, so a failure is
+    // reported and the timer still stops cleanly.
+    let id: number | null = null
+    try {
+      id = recordSession(snapshot, engine.paceConfig())
+    } catch (error) {
+      console.error('Could not record the session:', error)
+      send(instance, 'timer:recordFailed', String(error))
+    }
     instance.lastCompleted = id === null ? null : { id, snapshot }
     send(instance, 'timer:completed', null)
   })
@@ -655,6 +666,23 @@ function registerShortcuts(): Record<ShortcutAction, boolean> {
     }
   }
   return result
+}
+
+/**
+ * A second launch opens another timer in the running app rather than starting
+ * a rival process.
+ *
+ * Two processes mean two SQLite connections competing for the same file, which
+ * is what made every stop throw `database is locked`. Multiple timers were
+ * always meant to be multiple windows - each has its own TimerEngine already -
+ * so nothing is lost by refusing to run twice.
+ */
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    createTimerWindow()
+  })
 }
 
 app.whenReady().then(() => {
