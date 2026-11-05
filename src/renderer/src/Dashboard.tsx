@@ -780,7 +780,16 @@ function AnalyticsTab(): React.JSX.Element {
       : `${week.perDayChangePercent >= 0 ? '+' : ''}${Math.round(week.perDayChangePercent)}% a day on the week before`
 
   return (
-    <section className="panel panel--wide">
+    // The text scale lives here rather than on the panel grid, because the
+    // figure row is a sibling of that grid and not a child of it. Set lower
+    // down, the control moved every caption and left the headline numbers -
+    // the largest type on the page - exactly where they were. Found by
+    // pressing the button and watching what did not move; it renders
+    // identically either way.
+    <section
+      className="panel panel--wide"
+      style={{ '--an-fs': layout.fontScale } as React.CSSProperties}
+    >
       <header className="data-head">
         <h2>Analytics</h2>
         {data.firstDate && data.lastDate && (
@@ -852,10 +861,7 @@ function AnalyticsTab(): React.JSX.Element {
         onReset={reset}
       />
 
-      <div
-        className={`an${editing ? ' is-arranging' : ''}`}
-        style={{ '--an-fs': layout.fontScale } as React.CSSProperties}
-      >
+      <div className={`an${editing ? ' is-arranging' : ''}`}>
         {visiblePanels(layout).map((id) => (
           <Slot
             key={id}
