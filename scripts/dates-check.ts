@@ -24,10 +24,10 @@ function eq(label: string, actual: unknown, expected: unknown): void {
 }
 
 console.log('--- formatDate ---')
-eq('an ordinary date', formatDate('2026-11-05'), '05/11/2026')
-eq('a single-digit day stays padded', formatDate('2023-03-07'), '07/03/2023')
+eq('an ordinary date', formatDate('2026-11-05'), '11/05/2026')
+eq('a single-digit day stays padded', formatDate('2023-03-07'), '03/07/2023')
 eq('the first of January', formatDate('2026-01-01'), '01/01/2026')
-eq('a leap day', formatDate('2024-02-29'), '29/02/2024')
+eq('a leap day', formatDate('2024-02-29'), '02/29/2024')
 eq('null is empty, not "Invalid Date"', formatDate(null), '')
 eq('undefined is empty', formatDate(undefined), '')
 eq('an empty string is empty', formatDate(''), '')
@@ -40,7 +40,7 @@ eq(
   '2026-11-05T14:00:00.000Z'
 )
 eq('free text comes back untouched', formatDate('unquantifiable'), 'unquantifiable')
-eq('an already-formatted date is not re-flipped', formatDate('05/11/2026'), '05/11/2026')
+eq('an already-formatted date is not re-flipped', formatDate('11/05/2026'), '11/05/2026')
 
 console.log('')
 console.log('--- formatDateTime ---')
@@ -49,21 +49,21 @@ console.log('--- formatDateTime ---')
   // check happens to run in.
   const at = new Date(2026, 10, 5, 9, 7)
   const got = formatDateTime(at.toISOString())
-  eq('a UTC timestamp is shown local', got, '05/11/2026 09:07')
+  eq('a UTC timestamp is shown local', got, '11/05/2026 09:07')
 }
 eq('an empty timestamp is empty', formatDateTime(''), '')
 eq('nonsense comes back untouched', formatDateTime('not a date'), 'not a date')
 
 console.log('')
 console.log('--- formatDateRange ---')
-eq('a shared year is said once', formatDateRange('2026-01-02', '2026-11-05'), '02/01 to 05/11/2026')
+eq('a shared year is said once', formatDateRange('2026-01-02', '2026-11-05'), '01/02 to 11/05/2026')
 eq(
   'different years are both given',
   formatDateRange('2023-03-27', '2026-11-05'),
-  '27/03/2023 to 05/11/2026'
+  '03/27/2023 to 11/05/2026'
 )
-eq('one day is one date', formatDateRange('2026-10-02', '2026-10-02'), '02/10/2026')
-eq('a missing end gives the start', formatDateRange('2026-10-02', null), '02/10/2026')
+eq('one day is one date', formatDateRange('2026-10-02', '2026-10-02'), '10/02/2026')
+eq('a missing end gives the start', formatDateRange('2026-10-02', null), '10/02/2026')
 eq('both missing is empty', formatDateRange(null, null), '')
 
 console.log('')

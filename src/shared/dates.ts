@@ -8,11 +8,20 @@
  * file must never be the thing that changes them. If a formatted date reaches
  * a database column or a CSV cell, that is a bug.
  *
- * ISO sorts lexicographically, which is why it is stored; `DD/MM/YYYY` does
+ * ISO sorts lexicographically, which is why it is stored; `MM/DD/YYYY` does
  * not, which is why nothing here may be used as a sort key either.
  */
 
-/** The format the user asked for on 2026-11-05: day first, zero-padded, slashes. */
+/**
+ * `MM/DD/YYYY` - month first, zero-padded, slashes.
+ *
+ * Asked for as "DD/MM/YYYY" and corrected within the hour: seeing `05/11/2026`
+ * for the 5th of November, they read it as May. Their spreadsheet is `M/D/YY`
+ * and the native date pickers render `mm/dd/yyyy`, so month-first was what
+ * every other date in front of them already said. The ambiguity was visible
+ * before it shipped and nobody put it to them, which is the lesson rather
+ * than the format.
+ */
 export function formatDate(iso: string | null | undefined): string {
   if (iso === null || iso === undefined) return ''
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim())
@@ -21,7 +30,7 @@ export function formatDate(iso: string | null | undefined): string {
   // and showing the original makes that visible instead of inventing a date.
   if (!match) return iso
   const [, year, month, day] = match
-  return `${day}/${month}/${year}`
+  return `${month}/${day}/${year}`
 }
 
 /**
@@ -36,14 +45,14 @@ export function formatDateTime(iso: string | null | undefined): string {
   const at = new Date(iso)
   if (Number.isNaN(at.getTime())) return iso
   const pad = (n: number): string => String(n).padStart(2, '0')
-  const date = `${pad(at.getDate())}/${pad(at.getMonth() + 1)}/${at.getFullYear()}`
+  const date = `${pad(at.getMonth() + 1)}/${pad(at.getDate())}/${at.getFullYear()}`
   return `${date} ${pad(at.getHours())}:${pad(at.getMinutes())}`
 }
 
 /**
  * A range, with the parts that repeat said once.
  *
- * "recorded 27/03/2023 to 05/11/2026" is a mouthful twice over, and a header
+ * "recorded 03/27/2023 to 11/05/2026" is a mouthful twice over, and a header
  * that reads the same at a glance whatever the range is tells the user
  * nothing. Dropping the shared year is the common case and the one worth
  * shortening.
