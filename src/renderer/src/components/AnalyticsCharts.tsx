@@ -167,7 +167,7 @@ const CHART_CSS = `
 }
 .ac .recharts-cartesian-axis-tick text {
   fill: var(--text-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--an-fs, 1));
 }
 .ac .recharts-cartesian-axis-line,
 .ac .recharts-cartesian-axis-tick-line {

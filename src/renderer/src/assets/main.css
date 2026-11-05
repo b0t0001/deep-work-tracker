@@ -17,7 +17,13 @@
      window, a hand-resized window, and a projector in full screen. */
   --pad: clamp(6px, 6.6vmin, 44px);
   --gap: clamp(2px, 2.6vmin, 24px);
-  --clock: clamp(17px, min(18vmin, 24vw), 240px);
+  /* Sized for the mono, which is wider than the proportional face this was
+     tuned against: JetBrains Mono advances 0.6em a character, so `1:00:00` is
+     4.2em where Segoe was about 3.5em, and at the old 18vmin the last digit
+     ran past the ring's face box. The face box is fitted to the stroke and is
+     not the thing to widen - CLAUDE.md records why - so the type comes down to
+     it. Still well clear of Hourglass's own 18pt cap. */
+  --clock: clamp(15px, min(15vmin, 20vw), 200px);
   --caption: clamp(8px, 7vmin, 30px);
   --control: clamp(10px, 9vmin, 36px);
   --radius: clamp(10px, 5vmin, 24px);
@@ -220,11 +226,16 @@ input {
   justify-content: center;
 }
 
+/* The one thing a viewer reads, so it takes the mono: digits on a fixed
+   advance rather than a proportional face asked to behave. Weight 350 rather
+   than 300 - a mono at its lightest goes thin against near-black, and a clock
+   that dissolves on camera is the one thing this window cannot do. */
 .dial__clock {
+  font-family: var(--font-mono);
   font-size: var(--clock);
-  font-weight: 300;
+  font-weight: 350;
   line-height: 1.05;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.035em;
   /* Stops the digits jittering as they change - important on camera. */
   font-variant-numeric: tabular-nums;
 }
@@ -1052,7 +1063,7 @@ input {
 }
 
 .mono {
-  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   word-break: break-all;
 }
@@ -1559,8 +1570,13 @@ input {
 
 /* A circle gives much less room than a bar, so the ring runs its own scale. */
 .card.is-ring .dial__clock,
+/* The ring keeps its own clock size, and the mono needed it down.
+   Measured at 250x220 with JetBrains Mono: the text wanted 109px of advance in
+   a 104px box, so the last digit was clipped. 8.6vmin brings it inside with a
+   little margin, and the face box - 127px here - is not the thing to widen,
+   because it is fitted to the stroke. */
 .card.is-ring .dial__clock--input {
-  font-size: clamp(12px, 9.5vmin, 130px);
+  font-size: clamp(11px, 8.6vmin, 120px);
 }
 
 .card.is-ring .dial__caption {
@@ -1719,7 +1735,7 @@ code {
   margin: 0 2px;
   border-radius: 5px;
   background: var(--surface-raised);
-  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -1733,9 +1749,16 @@ code {
   height: 54%;
 }
 
+/* Down from 12vmin for the mono, which is wider than the proportional face
+   this was tuned against.
+   Measured at 250x220: at 12vmin the clock wanted 109px of advance inside a
+   104px box and the last digit was clipped. The box is 82% of the face on
+   purpose - a full-width input turned the middle of the window into a dead
+   band nothing could drag - and the face itself is fitted to the stroke, so
+   neither is the thing to widen. The type comes down to them instead. */
 .card.is-ring .dial__clock,
 .card.is-ring .dial__clock--input {
-  font-size: clamp(15px, 12vmin, 160px);
+  font-size: clamp(14px, 11vmin, 150px);
 }
 
 /* ---------- controls stay visible ---------- */
@@ -1792,7 +1815,7 @@ code {
   border-radius: 8px;
   background: var(--surface-raised);
   color: var(--text);
-  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   cursor: pointer;
 }
@@ -2414,7 +2437,8 @@ code {
 
 .an-stat strong {
   display: block;
-  font-size: 29px;
+  font-family: var(--font-mono);
+  font-size: calc(27px * var(--an-fs, 1));
   font-weight: 640;
   letter-spacing: -0.6px;
   line-height: 1.1;
@@ -2632,4 +2656,19 @@ code {
 
 .card__error-dismiss:hover {
   color: var(--text);
+}
+
+/* ---------- numerals ---------- */
+
+/* Numbers get the mono everywhere, not only where they line up in a column. A
+   figure and its unit belong to one system, so a tile, an axis tick and a
+   table value sit on the same advance - which is also what stops an axis
+   shifting as its labels change width.
+
+   `.ac` reaches inside Recharts' own SVG, where a CSS rule lands reliably and
+   a font-family attribute on a tick does not. */
+.ac .recharts-cartesian-axis-tick text,
+.ac .recharts-label,
+.ac .recharts-text.recharts-label {
+  font-family: var(--font-mono);
 }
