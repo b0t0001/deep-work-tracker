@@ -1,5 +1,5 @@
 import { app, shell } from 'electron'
-import { mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { openDatabase } from './db'
 import { clearSetting, getSetting, setSetting } from './db/settings'
@@ -37,6 +37,13 @@ export interface BackupStatus {
   /** Null when none has been taken yet, or when there is nothing to back up. */
   nextDue: string | null
   sessions: number
+  /**
+   * Why the schedule is currently refusing to write, or null when it is not.
+   *
+   * Surfaced rather than swallowed: a backup that has quietly stopped happening
+   * is indistinguishable from one that is working until the day it is needed.
+   */
+  blocked: string | null
 }
 
 const DIRECTORY_KEY = 'backup.directory'
@@ -266,7 +273,30 @@ export function listBackups(): BackupFile[] {
  * silently. The bin holds them for 30 days, which is long enough to notice.
  */
 export function staleBackups(): BackupFile[] {
-  return listBackups().slice(BACKUPS_KEPT)
+  const all = listBackups()
+  const stale = all.slice(BACKUPS_KEPT)
+
+  // The largest backup is never evicted, whatever its age.
+  //
+  // `backupBlockedReason` already refuses to *write* a snapshot smaller than
+  // the biggest retained one, which is the stronger guard and the one that
+  // counts rows exactly. This is the second half of the same protection, and
+  // it is deliberately a different mechanism: it covers the files already on
+  // disk rather than the next write, so a snapshot that got through by force
+  // still cannot push the real history out. Bytes rather than rows here
+  // because this runs on every prune and must not read eight files or be able
+  // to throw - the two checks failing independently is the point of having
+  // both.
+  //
+  // Not hypothetical: on 2026-10-02 a 356-byte backup of three test rows sat
+  // beside a 220 KB backup of 2,363 real sessions, and eight more of the
+  // small kind would have binned the only copy of 3.5 years on a schedule,
+  // with nothing on screen about it.
+  const largest = all.reduce<BackupFile | null>(
+    (best, file) => (best === null || file.bytes > best.bytes ? file : best),
+    null
+  )
+  return largest === null ? stale : stale.filter((file) => file.path !== largest.path)
 }
 
 async function prune(): Promise<number> {
@@ -289,22 +319,121 @@ function sessionCount(): number {
   return Number(row?.n ?? 0)
 }
 
+/**
+ * Data rows in a backup CSV.
+ *
+ * Counts only the newlines that fall outside a quoted field, because `notes`
+ * is free text and `field()` quotes anything containing a line break - so
+ * splitting on newlines would count one session several times. Every line ends
+ * in CRLF including the last, so the raw count includes the header row.
+ */
+const DOUBLE_QUOTE = 34
+const LINE_FEED = 10
+const CARRIAGE_RETURN = 13
+
+export function countRows(csv: string): number {
+  let lines = 0
+  // Whether anything has been seen since the last line break. It is what makes
+  // a file with no trailing newline count its final row, and what keeps a
+  // blank line from counting as one.
+  let pending = false
+  let quoted = false
+
+  for (let i = 0; i < csv.length; i += 1) {
+    const code = csv.charCodeAt(i)
+    if (quoted) {
+      pending = true
+      if (code === DOUBLE_QUOTE) {
+        if (csv.charCodeAt(i + 1) === DOUBLE_QUOTE) i += 1
+        else quoted = false
+      }
+      continue
+    }
+    if (code === DOUBLE_QUOTE) {
+      quoted = true
+      pending = true
+    } else if (code === LINE_FEED) {
+      if (pending) lines += 1
+      pending = false
+    } else if (code !== CARRIAGE_RETURN) {
+      pending = true
+    }
+  }
+  if (pending) lines += 1
+
+  // The first line is the header.
+  return Math.max(0, lines - 1)
+}
+
+/**
+ * The *largest* retained backup, not the newest.
+ *
+ * Newest is the obvious choice and it is wrong. The junk snapshots this guard
+ * exists to stop are themselves the newest files, so comparing against the
+ * newest lets the second one through, and the third - each one only has to beat
+ * the previous piece of junk. What has to be protected is the biggest real
+ * snapshot in the retained set, because that is the one retention will
+ * eventually push out.
+ *
+ * Only the kept files are considered: one already queued for the Recycle Bin
+ * should not veto a backup.
+ */
+function largestBackup(): { file: BackupFile; rows: number } | null {
+  let best: { file: BackupFile; rows: number } | null = null
+  for (const file of listBackups().slice(0, BACKUPS_KEPT)) {
+    let rows: number
+    try {
+      rows = countRows(readFileSync(file.path, 'utf8'))
+    } catch {
+      // An unreadable backup must not be able to stop the next one being taken.
+      continue
+    }
+    if (best === null || rows > best.rows) best = { file, rows }
+  }
+  return best
+}
+
 export interface BackupOutcome {
   written: boolean
   file?: string
   rows?: number
   reason?: string
+  /** Set when a scheduled backup was refused because the history shrank. */
+  blocked?: boolean
 }
 
 /**
- * An empty database is not backed up.
+ * Why a backup can be refused, and why `rows === 0` was not enough.
  *
- * Eight slots at three and a half days is a month of history. Filling one with
- * a snapshot of nothing pushes a real one out and protects nothing.
+ * The original guard only declined to back up an *empty* database. On
+ * 2026-11-05 the live database was found holding three throwaway rows where
+ * 2,363 sessions had been, and three is not zero - so the schedule had been
+ * writing ~360-byte snapshots of nothing every three and a half days, and with
+ * eight retention slots seven more of them would have pushed the last real
+ * backup into the Recycle Bin. The series would have recorded the loss and
+ * then destroyed the evidence of it.
+ *
+ * So the test is comparative: never write a snapshot smaller than the largest
+ * backup still being kept. Either the database has lost rows - in which case
+ * that larger backup is the only copy and must not be crowded out - or they
+ * were deleted deliberately, which is what `force` is for. Shrinking is rare
+ * and losing data is not, so the refusal is the safe default.
+ *
+ * There is deliberately no fraction of tolerance. Half a history disappearing
+ * is the case this exists to catch, not a case to wave through; a deliberate
+ * deletion is one `force` away, and the user is the one who knows which it
+ * was.
+ *
+ * It is returned rather than thrown, and carried in `backupStatus()`, because
+ * a backup that has silently stopped happening looks exactly like one that is
+ * working right up to the moment it is needed.
  */
-export async function runBackup(): Promise<BackupOutcome> {
+export async function runBackup(options: { force?: boolean } = {}): Promise<BackupOutcome> {
   const rows = sessionCount()
   if (rows === 0) return { written: false, reason: 'there are no sessions to back up yet' }
+
+  const refusal = options.force ? null : backupBlockedReason(rows)
+  if (refusal !== null) return { written: false, reason: refusal, blocked: true }
 
   const directory = backupDirectory()
   mkdirSync(directory, { recursive: true })
@@ -314,6 +443,21 @@ export async function runBackup(): Promise<BackupOutcome> {
   writeFileSync(file, csv, 'utf8')
   await prune()
   return { written: true, file, rows }
+}
+
+/**
+ * The refusal above, as a sentence, so Settings can show the same words.
+ * Null when nothing is wrong.
+ */
+export function backupBlockedReason(rows = sessionCount()): string | null {
+  const largest = largestBackup()
+  if (largest === null || rows >= largest.rows) return null
+  return (
+    `the database holds ${rows} session${rows === 1 ? '' : 's'} but ${largest.file.name} holds ` +
+    `${largest.rows}. Refusing to write a smaller snapshot, because ${BACKUPS_KEPT} retention ` +
+    `slots would push the larger one out. Restore from that backup, or force a backup if the ` +
+    `rows were removed on purpose.`
+  )
 }
 
 function dueAt(): number | null {
@@ -338,7 +482,8 @@ export function backupStatus(): BackupStatus {
     kept: BACKUPS_KEPT,
     backups: listBackups(),
     nextDue: due === null ? null : new Date(due).toISOString(),
-    sessions: sessionCount()
+    sessions: sessionCount(),
+    blocked: backupBlockedReason()
   }
 }
 
@@ -358,11 +503,22 @@ export async function revealBackups(): Promise<void> {
  * state that can drift out of step with them.
  */
 export function startBackupSchedule(): void {
+  // Each distinct reason once. The check runs every six hours, and repeating
+  // the same line forever is how a log stops being read.
+  const reported = new Set<string>()
+
   const check = (): void => {
     if (!isBackupDue()) return
-    void runBackup().catch((error) => {
-      console.error('Scheduled backup failed:', error)
-    })
+    void runBackup()
+      .then((outcome) => {
+        if (outcome.written || !outcome.reason) return
+        if (reported.has(outcome.reason)) return
+        reported.add(outcome.reason)
+        console.warn('Scheduled backup declined:', outcome.reason)
+      })
+      .catch((error) => {
+        console.error('Scheduled backup failed:', error)
+      })
   }
 
   // Not during launch: the first window should paint before the main process
