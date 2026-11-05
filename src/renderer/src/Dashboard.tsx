@@ -3,6 +3,14 @@ import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/acce
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
 import { previousDay, weekOverWeek, type Analytics } from '@shared/analytics'
+import {
+  MAX_FONT_SCALE,
+  MIN_FONT_SCALE,
+  visiblePanels,
+  type Layout,
+  type PanelId
+} from '@shared/layout'
+import { useLayout } from './lib/layout'
 import { useAccentSync } from './lib/accent'
 import {
   ByProject,
@@ -447,8 +455,228 @@ function hoursLabel(value: number): string {
   return `${value.toFixed(1)} h`
 }
 
+/**
+ * What each panel is called when it is not on screen, and how wide it wants to
+ * be.
+ *
+ * Width is a property of the panel rather than of the row it happens to be in.
+ * Once the order can change, fixed rows cannot survive - two panels paired in
+ * the markup would come apart the moment something was dragged between them.
+ * Declaring that a chart reads well at half width and letting the grid pair
+ * whatever ends up adjacent keeps the default layout exactly as it was while
+ * making any other arrangement land sensibly.
+ */
+const PANELS: Record<PanelId, { label: string; full: boolean }> = {
+  calendar: { label: 'Every day', full: true },
+  hoursPerWeek: { label: 'Hours per week', full: true },
+  projects: { label: 'Hours by project', full: false },
+  plannedRatio: { label: 'How much of the timer you run', full: false },
+  rateTrend: { label: 'Work rate over time', full: true },
+  timeOfDay: { label: 'Time of day', full: false },
+  pace: { label: 'Pace against target', full: false }
+}
+
+function panelFor(id: PanelId, data: Analytics, accent: string): React.JSX.Element {
+  switch (id) {
+    case 'calendar':
+      return <CalendarHeatmap daily={data.daily} accent={accent} />
+    case 'hoursPerWeek':
+      return <HoursOverTime daily={data.daily} accent={accent} />
+    case 'projects':
+      return <ByProject byProject={data.byProject} accent={accent} />
+    case 'plannedRatio':
+      return <PlannedVsActual data={data.plannedVsActual} accent={accent} />
+    case 'rateTrend':
+      return <RateTrend ratesByUnit={data.ratesByUnit} units={data.units} accent={accent} />
+    case 'timeOfDay':
+      return (
+        <TimeOfDayHeatmap
+          byHour={data.byHour}
+          timedSessions={data.timedSessions}
+          timedFirst={data.timedFirst}
+          timedLast={data.timedLast}
+          accent={accent}
+        />
+      )
+    case 'pace':
+      return <PaceAccuracy pace={data.pace} accent={accent} />
+  }
+}
+
+/** Moves `moved` to sit where `target` currently is. */
+function reorder(order: PanelId[], moved: PanelId, target: PanelId): PanelId[] {
+  if (moved === target) return order
+  const next = order.filter((id) => id !== moved)
+  const at = next.indexOf(target)
+  if (at === -1) return order
+  next.splice(at, 0, moved)
+  return next
+}
+
+function Slot({
+  id,
+  editing,
+  dragging,
+  onDragging,
+  layout,
+  onChange,
+  children
+}: {
+  id: PanelId
+  editing: boolean
+  dragging: PanelId | null
+  onDragging: (id: PanelId | null) => void
+  layout: Layout
+  onChange: (next: Layout) => void
+  children: React.ReactNode
+}): React.JSX.Element {
+  const meta = PANELS[id]
+  return (
+    <div
+      className={`an-slot${meta.full ? ' an-slot--full' : ''}${dragging === id ? ' is-dragging' : ''}`}
+      draggable={editing}
+      onDragStart={(event) => {
+        onDragging(id)
+        // A drag will not start at all unless some data is set.
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', id)
+      }}
+      onDragOver={(event) => {
+        if (!editing || dragging === null) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+      }}
+      onDrop={(event) => {
+        if (!editing || dragging === null) return
+        event.preventDefault()
+        onChange({ ...layout, order: reorder(layout.order, dragging, id) })
+        onDragging(null)
+      }}
+      onDragEnd={() => onDragging(null)}
+    >
+      {children}
+      {/* Declared after the panel it overlays, which is the house rule for
+          anything sitting on top of another surface. */}
+      {editing && (
+        <div className="an-slot__tools">
+          <span className="an-slot__grip" aria-hidden="true">
+            ⠿
+          </span>
+          <button
+            type="button"
+            className="an-slot__hide"
+            title={`Hide ${meta.label}`}
+            onClick={() => onChange({ ...layout, hidden: [...layout.hidden, id] })}
+          >
+            &times;
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The controls, behind a mode rather than always on screen.
+ *
+ * The tab is read far more often than it is rearranged, and it is the surface
+ * that is meant to feel like progress rather than an audit - so a grip and a
+ * close button on every panel, permanently, is the wrong trade. Entering a
+ * mode costs one click and gives the hidden panels somewhere to live, which is
+ * the constraint that actually matters: a panel you cannot find again is a
+ * panel you have lost.
+ */
+function LayoutBar({
+  editing,
+  onEditing,
+  layout,
+  persists,
+  onChange,
+  onReset
+}: {
+  editing: boolean
+  onEditing: (next: boolean) => void
+  layout: Layout
+  persists: boolean
+  onChange: (next: Layout) => void
+  onReset: () => void
+}): React.JSX.Element {
+  const scaleBy = (delta: number): void => {
+    const next = Math.round((layout.fontScale + delta) * 100) / 100
+    onChange({
+      ...layout,
+      fontScale: Math.min(MAX_FONT_SCALE, Math.max(MIN_FONT_SCALE, next))
+    })
+  }
+
+  return (
+    <div className={`an-bar${editing ? ' is-arranging' : ''}`}>
+      <button type="button" className="an-bar__toggle" onClick={() => onEditing(!editing)}>
+        {editing ? 'Done' : 'Customise'}
+      </button>
+
+      {editing && (
+        <>
+          <div className="an-bar__scale" role="group" aria-label="Text size">
+            <button
+              type="button"
+              onClick={() => scaleBy(-0.1)}
+              disabled={layout.fontScale <= MIN_FONT_SCALE}
+              title="Smaller text"
+            >
+              A
+            </button>
+            <span>{Math.round(layout.fontScale * 100)}%</span>
+            <button
+              type="button"
+              className="is-big"
+              onClick={() => scaleBy(0.1)}
+              disabled={layout.fontScale >= MAX_FONT_SCALE}
+              title="Larger text"
+            >
+              A
+            </button>
+          </div>
+
+          {layout.hidden.length > 0 && (
+            <div className="an-tray">
+              <span className="an-tray__label">Hidden</span>
+              {layout.hidden.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  className="an-tray__item"
+                  title={`Show ${PANELS[id].label}`}
+                  onClick={() =>
+                    onChange({ ...layout, hidden: layout.hidden.filter((other) => other !== id) })
+                  }
+                >
+                  {PANELS[id].label} <span aria-hidden="true">+</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <button type="button" className="an-bar__reset" onClick={onReset}>
+            Reset
+          </button>
+
+          {!persists && (
+            <span className="an-bar__warn" role="status">
+              Not saved &mdash; this session only
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function AnalyticsTab(): React.JSX.Element {
   const accent = useAccentSync()
+  const { layout, persists, update, reset } = useLayout()
+  const [editing, setEditing] = useState(false)
+  const [dragging, setDragging] = useState<PanelId | null>(null)
   const [data, setData] = useState<Analytics | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading')
 
@@ -615,37 +843,32 @@ function AnalyticsTab(): React.JSX.Element {
       {/* Rows rather than one column: a chart that reads fine at half the
           width should not stretch a 220px plot across the whole panel. The
           calendar leads because the user asked for it by name. */}
-      <div className="an">
-        <CalendarHeatmap daily={data.daily} accent={accent} />
-        <HoursOverTime daily={data.daily} accent={accent} />
-        <div className="an-row an-row--two">
-          <ByProject byProject={data.byProject} accent={accent} />
-          <PlannedVsActual data={data.plannedVsActual} accent={accent} />
-        </div>
-        {/* Full width: 774 dots over three and a half years, and a picker in
-            the header. It is a time series like the two above it and reads
-            better long than tall. */}
-        <RateTrend ratesByUnit={data.ratesByUnit} units={data.units} accent={accent} />
-        {/* The two that fill from using the app rather than from the import,
-            side by side and last.
+      <LayoutBar
+        editing={editing}
+        onEditing={setEditing}
+        layout={layout}
+        persists={persists}
+        onChange={update}
+        onReset={reset}
+      />
 
-            Together they read as "these fill in as you use this"; scattered
-            among five populated charts they would read as two things that are
-            broken. They are empty for different reasons and their captions say
-            so — time of day is early and thickens with use, while pace is
-            structurally empty, because no imported row can ever carry a pace
-            target. Being adjacent is what makes that contrast legible instead
-            of looking like the same apology twice. */}
-        <div className="an-row an-row--two">
-          <TimeOfDayHeatmap
-            byHour={data.byHour}
-            timedSessions={data.timedSessions}
-            timedFirst={data.timedFirst}
-            timedLast={data.timedLast}
-            accent={accent}
-          />
-          <PaceAccuracy pace={data.pace} accent={accent} />
-        </div>
+      <div
+        className={`an${editing ? ' is-arranging' : ''}`}
+        style={{ '--an-fs': layout.fontScale } as React.CSSProperties}
+      >
+        {visiblePanels(layout).map((id) => (
+          <Slot
+            key={id}
+            id={id}
+            editing={editing}
+            dragging={dragging}
+            onDragging={setDragging}
+            layout={layout}
+            onChange={update}
+          >
+            {panelFor(id, data, accent)}
+          </Slot>
+        ))}
       </div>
     </section>
   )
