@@ -944,7 +944,7 @@ function AnalyticsTab(): React.JSX.Element {
             year: a baseline needs a first year to be a baseline. */}
         {above !== null && (
           <div className="an-stat">
-            <strong className="is-up">
+            <strong className={above >= 0 ? 'is-up' : 'is-down'}>
               {above >= 0 ? '+' : ''}
               {Math.round(above)}%
             </strong>
@@ -967,27 +967,46 @@ function AnalyticsTab(): React.JSX.Element {
           </div>
         )}
 
-        <div className="an-stat">
-          <strong>{period.thisWeekPerDay.toFixed(2)} h</strong>
-          <span>
-            a day worked{' '}
-            {windowDef(window_).days === null ? 'all time' : `in the ${windowDef(window_).label}`}
-            {/* `all` has nothing before it to compare against, so the clause
-                is dropped rather than rendered as a null percentage. */}
-            {period.perDayChangePercent === null ? (
-              ''
-            ) : (
-              <>
-                {', '}
-                <span className={period.perDayChangePercent >= 0 ? 'is-up' : 'is-down'}>
-                  {period.perDayChangePercent >= 0 ? 'up' : 'down'}{' '}
-                  {Math.abs(Math.round(period.perDayChangePercent))}%
-                </span>{' '}
-                on the one before
-              </>
-            )}
-          </span>
-        </div>
+        {/* No worked day in the window means the record stops, not that the
+            work did - every row here can arrive by import, so a quiet window
+            may only mean the spreadsheet has not been brought in. "0.00 h,
+            down 100%" would be a collapse the data cannot support, so say
+            which it is instead. This was settled before the window control
+            existed and the control must not undo it. */}
+        {period.thisWeekDays === 0 ? (
+          <div className="an-stat">
+            <strong>&mdash;</strong>
+            <span>
+              {data.lastDate
+                ? `no sessions logged in the ${windowDef(window_).label}; the last was ${formatDate(data.lastDate)}`
+                : 'no sessions logged yet'}
+            </span>
+          </div>
+        ) : (
+          <div className="an-stat">
+            <strong>{period.thisWeekPerDay.toFixed(2)} h</strong>
+            <span>
+              a day worked{' '}
+              {windowDef(window_).days === null ? 'all time' : `in the ${windowDef(window_).label}`}
+              {/* `all` has nothing before it to compare against, so the clause
+                  is dropped rather than rendered as a null percentage. */}
+              {period.perDayChangePercent === null ? (
+                ''
+              ) : (
+                <>
+                  {', '}
+                  <span className={period.perDayChangePercent >= 0 ? 'is-up' : 'is-down'}>
+                    {period.perDayChangePercent >= 0 ? 'up' : 'down'}{' '}
+                    {Math.abs(Math.round(period.perDayChangePercent))}%
+                  </span>{' '}
+                  {/* Named, because "on the one before" made the reader work
+                      out what "one" was: "from the 2 weeks before". */}
+                  from the {windowDef(window_).label.replace(/^past /, '')} before
+                </>
+              )}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Rows rather than one column: a chart that reads fine at half the
