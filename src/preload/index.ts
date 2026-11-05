@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { Layout } from '../shared/layout'
 import type { TimerSnapshot } from '../shared/timer'
 import type { PaceConfig, PaceEvent } from '../main/timer'
 import type { HistoryState } from '../main/db/history'
@@ -140,8 +141,8 @@ const api = {
    * in main and invite the two to drift.
    */
   layout: {
-    get: (): Promise<string | null> => ipcRenderer.invoke('layout:get'),
-    set: (json: string): Promise<void> => ipcRenderer.invoke('layout:set', json)
+    get: (): Promise<Layout> => ipcRenderer.invoke('layout:get'),
+    set: (layout: Layout): Promise<Layout> => ipcRenderer.invoke('layout:set', layout)
   },
 
   backups: {

@@ -41,8 +41,8 @@ import {
   startBackupSchedule
 } from './backup'
 import { previewRestore, restoreFromCsv } from './restore'
-import { getSetting, setSetting } from './db/settings'
-import { LAYOUT_KEY, parseLayout, serialiseLayout } from '../shared/layout'
+import { readLayout, writeLayout } from './db/layout'
+import { defaultLayout, type Layout } from '../shared/layout'
 import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
 
 /** Actions a global shortcut can drive, and what they start out bound to. */
@@ -644,17 +644,25 @@ function registerIpc(): void {
   })
   ipcMain.handle('import:existingCount', () => importedSessionCount())
 
-  // Raw text out, raw text in - but normalised on the way in, so the stored
-  // row is always something `parseLayout` will accept. The renderer cannot
-  // write an unknown panel id or a font scale of 99 even by accident, and
-  // both sides still get their rules from the same module rather than each
-  // keeping a copy. A failed read degrades to null, which the renderer
-  // already treats as "no layout stored yet": losing a *preference* must
-  // never be able to take the dashboard down with it.
-  ipcMain.handle('layout:get', () => safely(() => getSetting(LAYOUT_KEY), null))
-  ipcMain.handle('layout:set', (_event, json: string) => {
-    setSetting(LAYOUT_KEY, serialiseLayout(parseLayout(json)))
-  })
+  // `Layout` objects both ways, not JSON text. A string interface looked
+  // safer and protected nothing: `writeLayout` resolves what it is given
+  // before storing it, so an unknown panel id or a font scale of 99 cannot
+  // reach the row whichever shape crosses the boundary - and the string
+  // version meant the renderer serialised, main parsed, main re-serialised,
+  // with three chances to disagree about a format instead of none.
+  //
+  // `set` returns what was actually stored rather than void, so the renderer
+  // can adopt the resolved layout instead of holding its own idea of one.
+  // That is what makes a panel it has never heard of appear rather than being
+  // quietly dropped on the next write.
+  //
+  // Both go through `safely()`: losing a *preference* must never be able to
+  // take the dashboard down with it, the same reasoning as the two project
+  // lookups that once filled the console on every paint.
+  ipcMain.handle('layout:get', () => safely(() => readLayout(), defaultLayout()))
+  ipcMain.handle('layout:set', (_event, layout: Layout) =>
+    safely(() => writeLayout(layout), defaultLayout())
+  )
 
   ipcMain.handle('backup:status', () => backupStatus())
   ipcMain.handle('backup:now', () => runBackup())
