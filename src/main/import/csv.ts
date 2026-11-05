@@ -9,7 +9,14 @@
 export interface ImportRow {
   /** YYYY-MM-DD. Time of day is unknowable from a countdown reading. */
   date: string
-  project: string
+  /**
+   * Null when the block label cannot name a category - blank, or `N/A`.
+   *
+   * The row is still imported. See `readImportRows`: timing is evidence and a
+   * label is a guess about it, so an unusable label costs the session its
+   * project, never its hours.
+   */
+  project: string | null
   task: string | null
   plannedS: number
   actualS: number
@@ -37,16 +44,78 @@ export interface ImportPreview {
  * project spelled several ways, and merging them is the whole reason projects
  * became rows rather than strings.
  */
+/**
+ * Three and a half years of free-text labels, collapsed to the categories the
+ * user actually means. Confirmed with them 2026-09-23.
+ *
+ * Most of the tail is mechanical: a `Block N:` prefix from the 2023 habit of
+ * numbering blocks, a digit stuck to the end with no space (the ordinal
+ * stripper only catches ` 1`), and two outright typos. The judgement calls were
+ * put to the user rather than guessed:
+ *
+ * - Entrepreneurship and Startup stay separate. Both are large and mean
+ *   different things - coursework against the actual venture.
+ * - Every application-shaped project stays distinct. College Apps, Scholarships,
+ *   Internship Applications, Officer Apps, Leadership Application and Resume
+ *   Building are not one category.
+ * - Summer homework is homework, including the Chinese variety.
+ * - Tutor joins Job: it is the same paid teaching, and Job already contains a
+ *   `Tutor Jocelyn` session. Work does NOT - its tasks are a valedictorian
+ *   speech, thank-you cards and an itinerary, which is personal admin rather
+ *   than a job, and folding it in would pollute a clean teaching record.
+ */
 const PROJECT_ALIASES = new Map<string, string>([
+  // College applications drifted across four spellings.
   ['college applications', 'College Apps'],
   ['college application', 'College Apps'],
   ['college', 'College Apps'],
   ['applications', 'College Apps'],
+
   ['study ap', 'Study for APs'],
   ['study aps', 'Study for APs'],
   ['study for ap', 'Study for APs'],
+
+  // Homework, including the summer and per-subject variants.
+  ['block 1: hw', 'HW'],
+  ['block 2: hw', 'HW'],
+  ['hw1', 'HW'],
+  ['block 1: chem hw', 'HW'],
+  ['block 1: summer hw', 'HW'],
+  ['block 2: summer hw', 'HW'],
+  ['chinese summer hw', 'HW'],
+  ['block 1: chinese summer hw', 'HW'],
+  ['block 2: chinese summer hw', 'HW'],
+
+  ['block 1: chinese', 'Chinese'],
+  ['block 2: chinese', 'Chinese'],
+  ['chinese 1: 三体', 'Chinese'],
+  ['block 1: chinese city project', 'Chinese'],
+  ['block 2: chinese city project', 'Chinese'],
+
+  ['study', 'Studying'],
+  ['block 1: studying', 'Studying'],
+  ['block 2: studying', 'Studying'],
+
+  ['officer app', 'Officer Apps'],
+  ['officer applications', 'Officer Apps'],
+  ['block 1: officer apps', 'Officer Apps'],
+  ['block 2: officer apps', 'Officer Apps'],
+  ['block 2: usabo officer app', 'Officer Apps'],
+
+  // A digit with no space in front of it escapes the ordinal stripper.
+  ['sprocket1', 'Sprocket'],
+  ['scholarships1', 'Scholarships'],
+  ['internship7', 'Internship'],
   ['internships', 'Internship'],
-  ['block 1: hw', 'HW']
+
+  ['entpreneurship', 'Entrepreneurship'],
+  ['bt', 'Brahma Tech'],
+  ['tutor', 'Job'],
+  ['practice saxophone', 'Saxophone'],
+  ["driver's ed", 'Driving'],
+  ["driver's test", 'Driving'],
+  ['jpl invention challenge', 'JPL'],
+  ['math r&d', 'R&D']
 ])
 
 /** Minimal RFC 4180 reader: the export contains quoted fields with commas. */
@@ -170,7 +239,23 @@ export function readImportRows(text: string): {
     const start = hmsToSeconds(cell(iStart))
     const end = hmsToSeconds(cell(iEnd))
 
-    if (date === null || project === null) {
+    // Only the date is required to place a row. A missing or unusable project
+    // is not grounds to discard one.
+    //
+    // This check used to read `date === null || project === null`, which threw
+    // away any row whose block was blank or `N/A` *before* looking at its
+    // clock. One row in the real history - 2023-09-27, `N/A`, 1:30:00 down to
+    // 0:22:27 - carried 1.13 hours of genuine timing and was silently dropped
+    // for having no category, which is the opposite of the rule this importer
+    // is built on: a reading is hard evidence, a label is a note about it.
+    // `N/A` marks a deliberate rest day, so a row carrying both that label and
+    // a real countdown is contradictory source data - and between the two, the
+    // clock is the part that cannot have been typed by mistake.
+    //
+    // Such rows import with a null project and surface under Unlabelled, where
+    // the Data tab's project filter can find them and one edit fixes the
+    // category. Nothing has to be reconstructed from the spreadsheet later.
+    if (date === null) {
       skippedBlank += 1
       continue
     }
@@ -215,10 +300,13 @@ export function summarize(text: string): ImportPreview {
 
   for (const row of rows) {
     seconds += row.actualS
-    const project = byProject.get(row.project) ?? { sessions: 0, seconds: 0 }
+    // Named here rather than left out, so the preview's project list accounts
+    // for every importable row and its hours add up to the stated total.
+    const name = row.project ?? 'Unlabelled'
+    const project = byProject.get(name) ?? { sessions: 0, seconds: 0 }
     project.sessions += 1
     project.seconds += row.actualS
-    byProject.set(row.project, project)
+    byProject.set(name, project)
     if (row.unit) byUnit.set(row.unit, (byUnit.get(row.unit) ?? 0) + 1)
   }
 

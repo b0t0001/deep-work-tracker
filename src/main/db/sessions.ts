@@ -1,5 +1,6 @@
-import { openDatabase } from './index'
+import { checkpoint, checkpointSoon, openDatabase } from './index'
 import { runningMs, type TimerSnapshot } from '../../shared/timer'
+import { canonicalProjectName } from '../../shared/projects'
 
 /** Every column, so a deleted row can be restored exactly as it was. */
 export interface SessionRow {
@@ -65,6 +66,65 @@ export interface PaceTarget {
   intervalMs: number
 }
 
+/**
+ * The project row for a name, created if this is the first time it is used.
+ *
+ * Typing a new name in the timer is how projects come into existence - there is
+ * no separate "manage projects" step, because one more screen between deciding
+ * to work and starting is one more reason not to label.
+ */
+export function findOrCreateProject(name: string): number | null {
+  const trimmed = name.trim()
+  if (trimmed === '') return null
+  const db = openDatabase()
+
+  // Never compare raw strings here. An exact, case-sensitive lookup is what
+  // let `hw` become a second project beside `HW` and turned fifteen real
+  // categories into sixty-six. The typed text resolves against what already
+  // exists first, and only a genuinely new name creates a row.
+  const names = (db.prepare('SELECT name FROM projects').all() as Array<{ name: string }>).map(
+    (row) => row.name
+  )
+  const target = canonicalProjectName(trimmed, names) ?? trimmed
+
+  const existing = db.prepare('SELECT id FROM projects WHERE name = ?').get(target) as
+    { id: number } | undefined
+  if (existing) return Number(existing.id)
+  return Number(db.prepare('INSERT INTO projects (name) VALUES (?)').run(target).lastInsertRowid)
+}
+
+/**
+ * Every project name, most-used first, for the timer's suggestion list.
+ *
+ * Ordered by use rather than alphabetically so an empty field offers the
+ * handful that carry the recent history instead of whatever starts with A.
+ */
+export function allProjectNames(): string[] {
+  return (
+    openDatabase()
+      .prepare(
+        `SELECT p.name AS name, COUNT(s.id) AS uses
+           FROM projects p LEFT JOIN sessions s ON s.project_id = p.id
+          GROUP BY p.id, p.name
+          ORDER BY uses DESC, p.name ASC`
+      )
+      .all() as Array<{ name: string }>
+  ).map((row) => row.name)
+}
+
+/** What the last recorded session was filed under, for defaulting the next. */
+export function lastProjectName(): string | null {
+  const row = openDatabase()
+    .prepare(
+      `SELECT p.name AS name
+         FROM sessions s JOIN projects p ON p.id = s.project_id
+        WHERE s.source = 'app'
+        ORDER BY s.id DESC LIMIT 1`
+    )
+    .get() as { name: string } | undefined
+  return row?.name ?? null
+}
+
 export function recordSession(snapshot: TimerSnapshot, pace?: PaceTarget | null): number | null {
   const runningSeconds = Math.round(runningMs(snapshot, Date.now()) / 1000)
   if (snapshot.startedAt === null || runningSeconds < 1) return null
@@ -77,12 +137,13 @@ export function recordSession(snapshot: TimerSnapshot, pace?: PaceTarget | null)
     const result = db
       .prepare(
         `INSERT INTO sessions
-           (task, session_date, started_at, ended_at,
+           (project_id, task, session_date, started_at, ended_at,
           planned_duration_s, running_duration_s,
           pace_target_qty, pace_target_interval_s, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'app')`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'app')`
       )
       .run(
+        findOrCreateProject(snapshot.project),
         snapshot.task.trim() || null,
         // Local date, not UTC: a session at 11pm belongs to that day as lived,
         // which is how every daily total and streak is read.
@@ -104,6 +165,8 @@ export function recordSession(snapshot: TimerSnapshot, pace?: PaceTarget | null)
     }
 
     db.exec('COMMIT')
+    // A finished run is worth keeping; do not leave it in the -wal.
+    checkpoint()
     return sessionId
   } catch (error) {
     db.exec('ROLLBACK')
@@ -175,7 +238,12 @@ function where(query: SessionQuery): { sql: string; params: (string | number)[] 
     clauses.push('s.source = ?')
     params.push(query.source)
   }
-  if (query.projectId != null) {
+  // -1 is the sentinel for "no project at all". A real id cannot be negative,
+  // and it keeps the filter one control rather than two - unlabelled is a
+  // choice of project, not a separate axis.
+  if (query.projectId === -1) {
+    clauses.push('s.project_id IS NULL')
+  } else if (query.projectId != null) {
     clauses.push('s.project_id = ?')
     params.push(query.projectId)
   }
@@ -274,6 +342,7 @@ export function insertSession(patch: SessionPatch, id?: number): number {
       `INSERT INTO sessions (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`
     )
     .run(...(values as Array<string | number | null>))
+  checkpointSoon()
   return id ?? Number(result.lastInsertRowid)
 }
 
@@ -283,6 +352,7 @@ export function patchSession(id: number, patch: SessionPatch): void {
   openDatabase()
     .prepare(`UPDATE sessions SET ${columns.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
     .run(...(columns.map((c) => patch[c]) as Array<string | number | null>), id)
+  checkpointSoon()
 }
 
 export function insertPauses(rows: PauseRow[]): void {
@@ -291,6 +361,7 @@ export function insertPauses(rows: PauseRow[]): void {
     'INSERT INTO pauses (session_id, paused_at, resumed_at) VALUES (?, ?, ?)'
   )
   for (const row of rows) statement.run(row.session_id, row.paused_at, row.resumed_at)
+  checkpointSoon()
 }
 
 /**
@@ -311,9 +382,55 @@ export function setStopReason(id: number, reason: string | null, note: string | 
   openDatabase()
     .prepare('UPDATE sessions SET stop_reason = ?, stop_reason_note = ? WHERE id = ?')
     .run(reason, note, id)
+  checkpointSoon()
+}
+
+/**
+ * Output for a finished run, written after the fact like the stop reason.
+ *
+ * Quantity is REAL rather than an integer because the history is full of
+ * `1.5 question` and `0.5 question` - half a problem set counts.
+ */
+export function setWorkQuantity(id: number, quantity: number | null, unit: string | null): void {
+  openDatabase()
+    .prepare('UPDATE sessions SET work_quantity = ?, work_unit = ? WHERE id = ?')
+    .run(quantity, unit, id)
+  // Written as the user types, so coalesced rather than one TRUNCATE per key.
+  checkpointSoon()
+}
+
+/**
+ * The unit this task was last measured in, so the field arrives pre-filled.
+ *
+ * Nearly every session is one of a handful of repeated shapes - a problem set
+ * is always questions, an essay is always words - so the right default is
+ * almost always the last answer. Falls back to the most recent unit used at
+ * all, which beats an empty box on the first session of a new task.
+ */
+export function lastUnitFor(task: string | null): string | null {
+  const db = openDatabase()
+  if (task && task.trim() !== '') {
+    const match = db
+      .prepare(
+        `SELECT work_unit FROM sessions
+          WHERE work_unit IS NOT NULL AND work_unit <> '' AND task = ?
+          ORDER BY id DESC LIMIT 1`
+      )
+      .get(task.trim()) as { work_unit: string } | undefined
+    if (match?.work_unit) return match.work_unit
+  }
+  const recent = db
+    .prepare(
+      `SELECT work_unit FROM sessions
+        WHERE work_unit IS NOT NULL AND work_unit <> ''
+        ORDER BY id DESC LIMIT 1`
+    )
+    .get() as { work_unit: string } | undefined
+  return recent?.work_unit ?? null
 }
 
 /** Used only by undo, which must leave no trace of the stop it reverses. */
 export function deleteSession(id: number): void {
   openDatabase().prepare('DELETE FROM sessions WHERE id = ?').run(id)
+  checkpointSoon()
 }

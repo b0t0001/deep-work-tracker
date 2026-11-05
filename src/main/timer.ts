@@ -50,6 +50,11 @@ export class TimerEngine extends EventEmitter {
     this.state.task = task
   }
 
+  /** Same reasoning as the task: every stop path must be able to record it. */
+  setProject(project: string): void {
+    this.state.project = project
+  }
+
   isLooping(): boolean {
     return this.loop
   }
@@ -85,7 +90,11 @@ export class TimerEngine extends EventEmitter {
       plannedMs,
       segmentStartedAt: now,
       startedAt: now,
-      task: this.state.task
+      task: this.state.task,
+      // Carried across a loop: consecutive runs of the same work are the norm,
+      // and re-picking the project every lap would be the tedium this is meant
+      // to remove.
+      project: this.state.project
     }
     this.paceLoopsFired = 0
     this.startTicker()
@@ -123,7 +132,7 @@ export class TimerEngine extends EventEmitter {
     this.closeOpenPause()
     const finished = { ...this.snapshot(), status: 'idle' as const }
     this.stopTicker()
-    this.state = { ...idleTimer(), task: finished.task }
+    this.state = { ...idleTimer(), task: finished.task, project: finished.project }
     this.paceLoopsFired = 0
     this.emit('completed', finished)
     this.emitUpdate()

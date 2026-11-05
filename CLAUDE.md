@@ -220,8 +220,10 @@ always something you can type back:
 | `90 sec`, `30s` | seconds |
 
 Enter starts the timer and rewrites the field into canonical form; leaving the
-field does the same. While typing, the caption shows how the input was read, so
-`one hour` confirms itself as `1:00:00` before it is committed.
+field does the same, which is the whole of the feedback. There was once a grey
+echo under the clock showing how the input had been read - it was removed as
+noise, because the field rewriting itself says the same thing in the place you
+are already looking.
 
 **The word matcher uses `(^|[^a-z])`, not `\b`.** Not style: the escape kept
 collapsing through the tooling between source and file, leaving a literal
@@ -236,7 +238,13 @@ This distinction is load-bearing and was missed in the first draft.
   afterwards. **Paused time is not work time**: `running_duration_s` counts only
   time the clock was actually running, never the wall-clock span from
   `started_at` to `ended_at`. Pause intervals are recorded so this is auditable.
-- **Stop** — the session is over. Only stop prompts for work quantity.
+- **Stop** — the session is over, and the only point that asks for anything.
+  The strip that appears offers Undo, a quantity and unit, and the one-click
+  reasons. The unit arrives pre-filled from the last one this task was measured
+  in, falling back to the most recent unit used at all, so the common case is
+  typing one number. Both fields write as they are typed rather than behind a
+  confirm button, and **touching either cancels the 30-second auto-dismiss** —
+  a prompt that vanishes mid-word is one you stop bothering with.
 - **A session paused longer than the auto-end threshold ends automatically**,
   recording time up to the pause. Default 3 hours, configurable. This exists
   because the user's habit is to pause and close the window rather than stop.
@@ -437,6 +445,16 @@ single label. **Only the category matters.** Do not store `block_index`.
 Grouping consecutive runs into a working stretch is a _derived_ analytic,
 computed from wall-clock gaps between sessions. It is never something the user
 labels by hand.
+
+**Consolidated to 36 projects on 2026-09-23**, from 66, with the session count
+and the hour total unchanged — every merge was a rename, nothing was dropped.
+The map lives in `PROJECT_ALIASES` in `main/import/csv.ts` with the reasoning
+beside it. Most of the tail was mechanical: a `Block N:` prefix, a digit stuck
+on with no space (the ordinal stripper only catches ` 1`), and two typos. The
+judgement calls were put to the user rather than guessed — Entrepreneurship and
+Startup stay separate, every application-shaped project stays distinct, summer
+homework is homework, and `Tutor` joins `Job` while `Work` does not, because
+Work's tasks are a valedictorian speech and thank-you cards rather than a job.
 
 Stripping the number leaves 68 categories across the full history, but 2026 use
 is concentrated: HW (153), College Apps (75), Startup (70), Entrepreneurship
@@ -673,6 +691,232 @@ the folder, the schedule and what is currently kept.
 - **An empty database is not backed up.** Eight slots at 3.5 days is a month of
   history; filling one with a snapshot of nothing pushes a real one out.
 
+### Committed is not the same as safe: checkpoint after writing
+
+In WAL mode a committed row lives in `deepwork.db-wal` until a checkpoint
+copies it into `deepwork.db`. Normally invisible — SQLite reads both as one and
+checkpoints on the last clean close. But if the `-wal` is ever separated from
+the `.db` while nothing is running, the database opens perfectly and is simply
+missing everything since the last checkpoint. **No error, no corruption
+warning, just rows that are gone.**
+
+This is not hypothetical. On 2026-09-23 the database held 2,363 imported
+sessions — proven by a backup taken while they existed — and afterwards the
+main file reported `page_count 13` and `freelist_count 0`, meaning it had never
+grown past an empty schema. The rows had only ever been in a `-wal` that was
+later lost. **The cause was never established**, which is the point: the window
+should not exist to be exploited by causes nobody has identified.
+
+So **anything that writes rows worth keeping checkpoints**. `TRUNCATE` rather
+than `PASSIVE` because the aim is to leave nothing behind, and it is allowed to
+fail quietly since a concurrent reader can refuse it and the next write will
+try again.
+
+For a long time that rule was stated here and honoured by two functions.
+`recordSession` and `importRows` called `checkpoint()`; **nine other write
+paths did not** — work quantity, stop reasons, manually entered sessions, every
+edit and delete from the Data tab, the pauses restored by undo, and the backup
+directory in `app_settings`. Audited and closed 2026-11-05.
+
+That gap was worse than it sounds, because each of those writes *modifies a
+session row that had already been checkpointed*. Losing the `-wal` would not
+have lost the session; it would have reverted the row to the version without
+its output, leaving a session that looks complete and quietly has no
+`work_quantity`. Nothing on screen would say so. Work quantity is on 97% of the
+history and is a first-class feature, a manually entered session cannot be
+reconstructed from a timer at all, and the backup directory is acted on
+unattended — which is the case `app_settings` exists for.
+
+Two mechanisms, because the writes have two shapes:
+
+- **`checkpoint()`** for a finished run and a completed import: one-shot,
+  decisive, worth an exclusive lock immediately.
+- **`checkpointSoon()`** for everything else, which arrives in bursts. Work
+  quantity is written as the user types it and an edit is a field at a time, so
+  a `TRUNCATE` per keystroke would thrash the lock to no purpose. It coalesces
+  onto a 1.5-second trailing timer, unref'd so it never holds the process open,
+  and `closeDatabase()` flushes a pending one.
+
+The residual window is that 1.5 seconds. That is not nothing, but the window it
+replaced was unbounded. `scripts/checkpoint-check.ts` proves both halves by
+copying the `.db` **without** its `-wal` — which is exactly what the 2026-09-23
+loss looked like — and reading it: before the checkpoint the quantity is not
+there, after it is.
+
+### Two builds, one database — and why they are now separated
+
+There are two copies of this app and they are the same source, never different
+programs. They are only ever **different versions**:
+
+| | `npm run dev` | installed |
+| --- | --- | --- |
+| runs from | `out/` in the project | `app.asar` under `AppData\Local\Programs` |
+| updates when | you rebuild | you run the installer |
+
+That skew is why a change can appear to do nothing — the desktop icon is a
+snapshot taken at `npm run dist`, with no link to the source. Hence the
+practice of reinstalling as part of the change.
+
+**The real hazard was that both resolved `userData` to the same folder**, so
+the two shared one SQLite file. `requestSingleInstanceLock` cannot help: it
+only stops two copies of the *same* executable, and these are different
+binaries that will happily run together. Two connections competing for one
+file is what produced `database is locked`, and every test run wrote rows into
+the real history — three such rows were found in it.
+
+**Backups had to be split the same way.** `defaultBackupDirectory()` is based
+on Documents rather than userData, so splitting the database alone left a worse
+hole than before: a dev run writes a snapshot of its throwaway rows into the
+real backup folder, and with eight retention slots enough of them push the real
+history out. One such file — a single test session beside a 2,363-row backup —
+was created before this was noticed. When `app.isPackaged` is false, backups go
+to `userData/Backups` instead. **Anything that picks a location outside
+userData needs this check**; the database split does not cover it.
+
+So **the dev build now keeps its own profile**, `deep-work-tracker-dev`, set
+before `whenReady` because `userData` is fixed the first time any path is
+resolved. The installed app stays the daily driver with its own data; dev can
+be run, tested against and killed without touching it. Verified: a dev run
+created `deep-work-tracker-dev\deepwork.db` and left the real file at the same
+row count and `quick_check: ok`.
+
+### One process, and a busy timeout
+
+Two copies of the app meant two SQLite connections competing for one file, and
+the connection carried **no `busy_timeout`** - the default is zero, so a write
+while any other connection holds the lock fails instantly with `database is
+locked` rather than waiting. The throw landed in the `completed` event handler,
+where an exception is uncaught in main: Electron turned it into a crash dialog
+and the stop never finished, so the clock kept running while the user was told
+about SQLite. Adding `checkpoint()` to every session write made this far more
+likely by taking an exclusive lock on each one.
+
+Two fixes, both needed:
+
+- **`PRAGMA busy_timeout = 5000`.** Verified across two real processes: without
+  it the second writer threw immediately, with it the write waited 1,087 ms for
+  the lock and succeeded. `node:sqlite` is synchronous, so this only helps
+  across processes - within one process a blocked write cannot yield.
+- **`requestSingleInstanceLock`.** A second launch opens another timer window
+  in the running app instead of starting a rival process. Multiple timers were
+  always meant to be multiple windows - each already carries its own
+  `TimerEngine` - so nothing is lost by refusing to run twice, and the
+  contention disappears at the source.
+
+**Never force-kill the app to install over it.** `Stop-Process -Force` while
+it holds the database open leaves `-wal` and `-shm` behind - a clean close
+deletes both - and on 2026-10-02 the next launch reported
+`database disk image is malformed` from whichever query touched the file
+first. Ask the window to close (`CloseMainWindow`), wait, and force only as a
+last resort. The checkpoint on every write makes a kill more dangerous than it
+used to be, because truncating the WAL is exactly the moment to be interrupted
+during.
+
+**A read the app can live without must not be able to break it.** The two
+project lookups run on every timer window's first paint. When they threw, the
+invoke rejected, the renderer never caught it, and one bad read filled the
+console while leaving the field empty with no explanation. They now go through
+`safely()`, which returns a fallback and logs each distinct failure once -
+repeating the same stack on every paint makes the log useless. A suggestion
+list is a convenience; losing it must not take the timer with it.
+
+**`healthCheck()` runs `quick_check` once at startup** and shows a dialog
+naming the problem and pointing at Restore. A damaged file otherwise announces
+itself as whichever query happened to touch the bad page, which reads like a
+bug in that query rather than a damaged file.
+
+**Recording a session must never throw into an event handler.** A failure is
+logged and sent to the window as `timer:recordFailed`; the timer still stops
+cleanly. Losing one row is bad, but a crash dialog over a clock that will not
+stop is worse, and it hides which of the two actually went wrong.
+
+### Restoring from a backup
+
+`main/restore.ts` rebuilds the database from a backup CSV, which is what makes
+the loss above survivable rather than merely detectable.
+
+- **It replaces, never merges.** A backup is a whole-history snapshot; half of
+  one grafted onto a different half is worse than either.
+- **It takes a backup of what it is about to discard, first.** Restoring the
+  wrong file is then an inconvenience rather than a second loss.
+- **It keeps the original ids**, so a restored database is the same database
+  rather than a renumbered copy.
+- **It validates the header before touching anything** and names the missing
+  columns, so pointing it at the *source spreadsheet* by mistake is refused
+  rather than half-applied.
+- **Projects and tags are rebuilt from their names**, which is why the backup
+  writes names rather than ids.
+
+### Where labels are asked for, and why there
+
+Split by what can be known when: **project before starting, output at stop.**
+You know what you are about to work on; you cannot know how many questions you
+got through until you are done.
+
+- **Neither blocks.** A timer that will not start until a form is filled is
+  worse than Hourglass, and losing to Hourglass sinks the project. Enforcement
+  is by making gaps visible, not by refusing to run: the Data tab's project
+  filter carries an **Unlabelled** option, so a week of missed labels is one
+  filter and a few edits rather than archaeology.
+- **The project field never compares raw strings.** An exact, case-sensitive
+  lookup is what let `hw` become a second project beside `HW` and turned
+  fifteen real categories into sixty-six; reinstating it in the timer would
+  rebuild the mess by hand. `shared/projects.ts` ranks what is typed against
+  what exists, the field offers the best matches as a list, and only a
+  genuinely new name creates a row. `findOrCreateProject` resolves through the
+  same function, so even text that never passed through the UI lands correctly.
+- **Matching is lexical, not semantic.** It collapses case, spacing,
+  punctuation and the trailing ordinal, then scores exact, squashed, prefix,
+  word-prefix, initials, substring, edit distance and subsequence in that
+  order. It will not know `essay` belongs with `Writing` - that needs the LLM
+  work this project defers, and calling edit distance semantic would be a lie.
+- **Suggesting and snapping are deliberately different thresholds.**
+  `rankProjects` is generous, because a suggestion you ignore costs nothing.
+  `canonicalProjectName` only accepts a match differing by case, spacing,
+  punctuation or an ordinal, because silently filing a session under the wrong
+  project is what makes the data untrustworthy. The tests that matter are the
+  negative ones: `Job` must not become `JPL`, `SAT` must not become `Startup`,
+  `Scioly` must not become `Scholarships`, and `HW reading` must stay itself
+  rather than collapsing into `HW`.
+- **The list is a floating menu, not a `datalist`.** A datalist only does
+  literal prefixes, cannot be ranked, and cannot show which entry Enter will
+  take. The menu floats over the dial rather than pushing it, because at 136px
+  there is nowhere to grow, and it shows at most four.
+- **Typing a new name is still how projects come into existence** - there is no
+  "manage projects" screen, because a step between deciding to work and
+  starting is a reason not to label.
+- **It defaults to the last session's project.** Work comes in runs - several
+  HW sessions, then several on the essay - so the previous answer is nearly
+  always this one, and the common case is touching nothing.
+- **It lives under the clock, inside the dial, where the status word was.**
+  `ready` / `running` restated what the digits already showed; what belongs
+  there - and on camera - is what the session is for. It borrows the clock's
+  treatment rather than the caption's: inherited family, light weight, tight
+  tracking, no uppercasing, sized between the two so it reads as a subtitle and
+  not a second headline, and **white like the clock** - it is the answer to
+  what this session is for, which is the one thing besides the time worth
+  reading at a glance. Only the placeholder stays dim, because an empty field
+  is a prompt rather than a value. It must not go in the head: six icons and the task
+  field already fill 250px, and a fourth control there pushed the window
+  buttons off the edge.
+- **Nothing else ever appears there.** The slot previously showed the status,
+  then the echo of how a typed duration had been read. Both are gone at the
+  user's request. The echo was redundant rather than load-bearing: the clock
+  rewrites itself into canonical form on Enter and on leaving the field, so
+  `30 min` visibly becomes `30:00` in the field itself, and a grey second copy
+  underneath sat where the useful answer belongs.
+- **Tab runs task to duration to project.** Tab out of the clock focuses the
+  project rather than the window buttons, because labelling a session and
+  setting its length is one sequence and that is the order it happens in.
+- **The name, not the id, rides on the snapshot**, resolved to a row only when
+  the session is written. That keeps the engine ignorant of the database and
+  survives a project being created after the timer started.
+- **A project set but never recorded is never created.** `findOrCreateProject`
+  runs at write time, so abandoning a run leaves no empty category behind.
+- **`projectId: -1` is the Unlabelled sentinel** in `querySessions`. A real id
+  cannot be negative, and it keeps the filter one control - unlabelled is a
+  choice of project, not a separate axis.
+
 ### Labeling must be fast
 
 The user labels every session and it costs roughly 30 seconds each — about
@@ -802,11 +1046,9 @@ Sticky, a z-index, and `border-collapse: separate` together.
 Kept here deliberately: a spec that quietly disagrees with the build is worse
 than no spec.
 
-- **Stopping does not prompt for work quantity.** The stop prompt offers Undo
-  and the three reasons, nothing else, so every session this app has recorded
-  has a null `work_quantity`. Output tracking is described above as a
-  first-class feature and 97% of the imported history carries it; right now the
-  app itself captures none of it. This is the largest divergence.
+- **Tags are still unused.** `tags` exists for course codes such as
+  `WRIT 0580`, and nothing writes to it. Projects are labelled; the second
+  dimension is not.
 - **The backup folder can be changed but not from the UI.**
   `setBackupDirectory` and its `app_settings` key work; no picker calls them.
   The automatic default is what matters and it is correct, so this is a

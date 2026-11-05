@@ -5,9 +5,16 @@ interface TimerDialProps {
   progress: number
   /** Pre-formatted countdown, shown when the clock is not editable. */
   clock: string
-  caption: string
+  /**
+   * The line under the clock. A node rather than a string because it normally
+   * holds the project field, and falls back to text only while a duration is
+   * being typed.
+   */
+  caption: React.ReactNode
   variant: 'ring' | 'bar'
   dimmed: boolean
+  /** Tab out of the clock goes to the project, not to the window buttons. */
+  onTabForward?: () => void
   /** Idle: the clock itself is the duration field, as in Hourglass. */
   editable: boolean
   draft: string
@@ -36,6 +43,7 @@ export default function TimerDial({
   onDraftChange,
   onSubmit,
   onNormalize,
+  onTabForward,
   inputRef,
   controls
 }: TimerDialProps): React.JSX.Element {
@@ -53,6 +61,13 @@ export default function TimerDial({
           onBlur={onNormalize}
           onKeyDown={(event) => {
             if (event.key === 'Enter') onSubmit()
+            // Labelling the session and setting its length is one sequence:
+            // task, then duration, then project. Tab should follow it rather
+            // than jumping to the window buttons.
+            if (event.key === 'Tab' && !event.shiftKey && onTabForward) {
+              event.preventDefault()
+              onTabForward()
+            }
           }}
           spellCheck={false}
           aria-label="Duration"

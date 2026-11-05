@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { Layout } from '../shared/layout'
 import type { TimerSnapshot } from '../shared/timer'
 import type { PaceConfig, PaceEvent } from '../main/timer'
 import type { HistoryState } from '../main/db/history'
@@ -25,6 +26,9 @@ const api = {
     resume: (): Promise<TimerSnapshot> => ipcRenderer.invoke('timer:resume'),
     stop: (): Promise<TimerSnapshot> => ipcRenderer.invoke('timer:stop'),
     setTask: (task: string): Promise<void> => ipcRenderer.invoke('timer:setTask', task),
+    setProject: (project: string): Promise<void> => ipcRenderer.invoke('timer:setProject', project),
+    lastProject: (): Promise<string | null> => ipcRenderer.invoke('sessions:lastProject'),
+    projectNames: (): Promise<string[]> => ipcRenderer.invoke('sessions:projectNames'),
     getLoop: (): Promise<boolean> => ipcRenderer.invoke('timer:getLoop'),
     getPace: (): Promise<PaceConfig | null> => ipcRenderer.invoke('timer:getPace'),
     setPace: (config: PaceConfig | null): Promise<void> =>
@@ -34,10 +38,29 @@ const api = {
     undoStop: (): Promise<TimerSnapshot | null> => ipcRenderer.invoke('timer:undoStop'),
     setStopReason: (reason: string | null, note: string | null): Promise<void> =>
       ipcRenderer.invoke('sessions:setStopReason', reason, note),
+    setQuantity: (quantity: number | null, unit: string | null): Promise<void> =>
+      ipcRenderer.invoke('sessions:setQuantity', quantity, unit),
+    lastUnit: (task: string | null): Promise<string | null> =>
+      ipcRenderer.invoke('sessions:lastUnit', task),
     onCompleted: (handler: () => void): Unsubscribe => {
       const listener = (): void => handler()
       ipcRenderer.on('timer:completed', listener)
       return () => ipcRenderer.removeListener('timer:completed', listener)
+    },
+    /**
+     * The session could not be written. Main catches the throw so the timer
+     * still stops cleanly, which means nothing else on screen will look wrong
+     * — this is the only way the window learns.
+     *
+     * It existed as a send with no receiver until 2026-11-05: main reported
+     * the failure faithfully and the message arrived nowhere, so a run could
+     * be lost in silence while the stop prompt accepted a quantity into a row
+     * that did not exist.
+     */
+    onRecordFailed: (handler: (reason: string) => void): Unsubscribe => {
+      const listener = (_e: unknown, reason: string): void => handler(reason)
+      ipcRenderer.on('timer:recordFailed', listener)
+      return () => ipcRenderer.removeListener('timer:recordFailed', listener)
     },
     onPace: (handler: (event: PaceEvent) => void): Unsubscribe => {
       const listener = (_e: unknown, event: PaceEvent): void => handler(event)
@@ -93,6 +116,9 @@ const api = {
       ipcRenderer.invoke('sessions:update', id, patch),
     remove: (id: number): Promise<void> => ipcRenderer.invoke('sessions:remove', id)
   },
+  analytics: {
+    get: (): Promise<unknown> => ipcRenderer.invoke('analytics:get')
+  },
   ui: {
     confirm: (options: {
       title: string
@@ -106,10 +132,27 @@ const api = {
     undo: (): Promise<HistoryState> => ipcRenderer.invoke('history:undo'),
     redo: (): Promise<HistoryState> => ipcRenderer.invoke('history:redo')
   },
+  /**
+   * The Analytics tab's layout, as raw JSON text both ways.
+   *
+   * Text rather than a parsed object on purpose: `shared/layout.ts` owns the
+   * parsing, the merge against the panels that exist, and the clamping, so
+   * passing an object would put half of those rules in the renderer and half
+   * in main and invite the two to drift.
+   */
+  layout: {
+    get: (): Promise<Layout> => ipcRenderer.invoke('layout:get'),
+    set: (layout: Layout): Promise<Layout> => ipcRenderer.invoke('layout:set', layout)
+  },
+
   backups: {
     status: (): Promise<unknown> => ipcRenderer.invoke('backup:status'),
     now: (): Promise<unknown> => ipcRenderer.invoke('backup:now'),
-    reveal: (): Promise<void> => ipcRenderer.invoke('backup:reveal')
+    reveal: (): Promise<void> => ipcRenderer.invoke('backup:reveal'),
+    pickRestore: (): Promise<string | null> => ipcRenderer.invoke('backup:pickRestore'),
+    previewRestore: (filePath: string): Promise<unknown> =>
+      ipcRenderer.invoke('backup:previewRestore', filePath),
+    restore: (filePath: string): Promise<unknown> => ipcRenderer.invoke('backup:restore', filePath)
   },
   importer: {
     pickFile: (): Promise<string | null> => ipcRenderer.invoke('import:pickFile'),

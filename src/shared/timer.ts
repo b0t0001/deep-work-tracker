@@ -31,6 +31,14 @@ export interface TimerSnapshot {
   pauses: PauseInterval[]
   /** What the user is working on. Held here so any stop path can record it. */
   task: string
+  /**
+   * The category, by name rather than id.
+   *
+   * A name survives a project being created after the timer started, and keeps
+   * the engine ignorant of the database - it is resolved to a row only at the
+   * moment the session is written.
+   */
+  project: string
 }
 
 /**
@@ -46,7 +54,8 @@ export function idleTimer(): TimerSnapshot {
     startedAt: null,
     pauseCount: 0,
     pauses: [],
-    task: ''
+    task: '',
+    project: ''
   }
 }
 

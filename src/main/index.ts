@@ -16,19 +16,33 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { TimerEngine, type PaceConfig, type PaceEvent } from './timer'
-import { closeDatabase, openDatabase } from './db'
+import { closeDatabase, healthCheck, openDatabase } from './db'
 import {
   deleteSession,
   listProjects,
+  allProjectNames,
+  lastProjectName,
+  lastUnitFor,
   querySessions,
   recordSession,
-  setStopReason
+  setStopReason,
+  setWorkQuantity
 } from './db/sessions'
 import { importRows, importedSessionCount } from './db/import'
+import { analytics } from './db/analytics'
 import { createSession, historyState, redo, removeSession, undo, updateSession } from './db/history'
 import type { SessionPatch, SessionQuery } from './db/sessions'
 import { readImportRows, summarize } from './import/csv'
-import { backupStatus, revealBackups, runBackup, startBackupSchedule } from './backup'
+import {
+  backupDirectory,
+  backupStatus,
+  revealBackups,
+  runBackup,
+  startBackupSchedule
+} from './backup'
+import { previewRestore, restoreFromCsv } from './restore'
+import { readLayout, writeLayout } from './db/layout'
+import { defaultLayout, type Layout } from '../shared/layout'
 import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
 
 /** Actions a global shortcut can drive, and what they start out bound to. */
@@ -93,6 +107,26 @@ const settings = {
   loop: true,
   autoEndMinutes: 180,
   shortcuts: { ...DEFAULT_SHORTCUTS }
+}
+
+/**
+ * Runs a read that the app can live without, and reports the first failure.
+ *
+ * Repeated identical errors are swallowed: a handler called on every window
+ * paint will otherwise print the same stack until the log is useless.
+ */
+const reported = new Set<string>()
+function safely<T>(read: () => T, fallback: T): T {
+  try {
+    return read()
+  } catch (error) {
+    const message = String(error)
+    if (!reported.has(message)) {
+      reported.add(message)
+      console.error('Read failed, continuing without it:', message)
+    }
+    return fallback
+  }
 }
 
 function instanceFor(event: IpcMainInvokeEvent): TimerInstance | undefined {
@@ -253,7 +287,18 @@ function createTimerWindow(): BrowserWindow {
   // Every finished run arrives here - stopped by hand, expired, or auto-ended -
   // so there is one place a session is recorded and no path can miss it.
   engine.on('completed', (snapshot: TimerSnapshot) => {
-    const id = recordSession(snapshot, engine.paceConfig())
+    // A throw in an event handler is an uncaught exception in main, which
+    // Electron surfaces as a crash dialog and which leaves the stop
+    // half-finished - the clock keeps running while the user is told about
+    // SQLite. The session is worth more than the silence, so a failure is
+    // reported and the timer still stops cleanly.
+    let id: number | null = null
+    try {
+      id = recordSession(snapshot, engine.paceConfig())
+    } catch (error) {
+      console.error('Could not record the session:', error)
+      send(instance, 'timer:recordFailed', String(error))
+    }
     instance.lastCompleted = id === null ? null : { id, snapshot }
     send(instance, 'timer:completed', null)
   })
@@ -385,10 +430,47 @@ function registerIpc(): void {
   ipcMain.handle('timer:stop', (event) => instanceFor(event)?.engine.stop())
   ipcMain.handle('timer:setTask', (event, task: string) => instanceFor(event)?.engine.setTask(task))
 
+  ipcMain.handle('timer:setProject', (event, project: string) =>
+    instanceFor(event)?.engine.setProject(project)
+  )
+
+  // These two run on every timer window's first paint. A database error here
+  // used to reject the invoke, which the renderer never caught, so one bad
+  // read filled the console and left the field empty with no explanation.
+  // A suggestion list is a convenience: losing it must not take the timer with
+  // it, so a failure degrades to "no suggestions" and says so once.
+  ipcMain.handle('sessions:lastProject', () => safely(() => lastProjectName(), null))
+  ipcMain.handle('sessions:projectNames', () => safely(() => allProjectNames(), []))
+
+  // Null rather than a half-empty payload on failure: the tab can say it could
+  // not read the history, where a zeroed one would read as "you have never
+  // worked" - the most alarming possible way to report a query error.
+  ipcMain.handle('analytics:get', () => safely(() => analytics(), null))
+
+  /*
+   * These two throw when there is no row to attach to, rather than returning
+   * quietly.
+   *
+   * They used to be `if (completed) ...` with no else, so when `recordSession`
+   * had failed and `lastCompleted` was null, the user could type `19` and
+   * `questions` into the stop prompt and the handler would do nothing and
+   * resolve successfully. Nothing on screen said otherwise. A write that
+   * cannot happen has to be a rejection, because a resolved promise is the
+   * renderer's only evidence that the value landed.
+   */
   ipcMain.handle('sessions:setStopReason', (event, reason: string | null, note: string | null) => {
     const completed = instanceFor(event)?.lastCompleted
-    if (completed) setStopReason(completed.id, reason, note)
+    if (!completed) throw new Error('There is no recorded session to attach a reason to.')
+    setStopReason(completed.id, reason, note)
   })
+
+  ipcMain.handle('sessions:setQuantity', (event, quantity: number | null, unit: string | null) => {
+    const completed = instanceFor(event)?.lastCompleted
+    if (!completed) throw new Error('There is no recorded session to attach this to.')
+    setWorkQuantity(completed.id, quantity, unit)
+  })
+
+  ipcMain.handle('sessions:lastUnit', (_event, task: string | null) => lastUnitFor(task))
 
   ipcMain.handle('timer:undoStop', (event) => {
     const instance = instanceFor(event)
@@ -562,9 +644,54 @@ function registerIpc(): void {
   })
   ipcMain.handle('import:existingCount', () => importedSessionCount())
 
+  // `Layout` objects both ways, not JSON text. A string interface looked
+  // safer and protected nothing: `writeLayout` resolves what it is given
+  // before storing it, so an unknown panel id or a font scale of 99 cannot
+  // reach the row whichever shape crosses the boundary - and the string
+  // version meant the renderer serialised, main parsed, main re-serialised,
+  // with three chances to disagree about a format instead of none.
+  //
+  // `set` returns what was actually stored rather than void, so the renderer
+  // can adopt the resolved layout instead of holding its own idea of one.
+  // That is what makes a panel it has never heard of appear rather than being
+  // quietly dropped on the next write.
+  //
+  // Both go through `safely()`: losing a *preference* must never be able to
+  // take the dashboard down with it, the same reasoning as the two project
+  // lookups that once filled the console on every paint.
+  ipcMain.handle('layout:get', () => safely(() => readLayout(), defaultLayout()))
+  ipcMain.handle('layout:set', (_event, layout: Layout) =>
+    safely(() => writeLayout(layout), defaultLayout())
+  )
+
   ipcMain.handle('backup:status', () => backupStatus())
   ipcMain.handle('backup:now', () => runBackup())
   ipcMain.handle('backup:reveal', () => revealBackups())
+
+  ipcMain.handle('backup:pickRestore', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose a backup to restore',
+      defaultPath: backupDirectory(),
+      filters: [{ name: 'Backup CSV', extensions: ['csv'] }],
+      properties: ['openFile']
+    })
+    return result.canceled ? null : result.filePaths[0]
+  })
+
+  ipcMain.handle('backup:previewRestore', (_event, filePath: string) =>
+    previewRestore(readFileSync(filePath, 'utf8'))
+  )
+
+  /**
+   * Takes a backup of what is about to be discarded before discarding it, so
+   * restoring the wrong file is an inconvenience rather than a second loss.
+   */
+  ipcMain.handle('backup:restore', async (_event, filePath: string) => {
+    const csv = readFileSync(filePath, 'utf8')
+    const safety = await runBackup()
+    const result = restoreFromCsv(csv)
+    return { ...result, safetyBackup: safety.written ? safety.file : null }
+  })
 }
 
 function togglePause(): void {
@@ -607,6 +734,40 @@ function registerShortcuts(): Record<ShortcutAction, boolean> {
   return result
 }
 
+/**
+ * The dev build keeps its own database, separate from the installed app's.
+ *
+ * Both resolve `userData` to the same folder by default, so `npm run dev` and
+ * the desktop icon share one SQLite file. They are different executables, so
+ * the single-instance lock below cannot stop them running together, and two
+ * connections competing for one file is what produced `database is locked`
+ * and then a file that briefly read as malformed. It also means every test
+ * run writes rows into the real history - three such rows are in it now.
+ *
+ * Set before `whenReady`, because `userData` is resolved the first time
+ * anything asks for a path and cannot be moved afterwards.
+ */
+if (is.dev) {
+  app.setPath('userData', join(app.getPath('appData'), 'deep-work-tracker-dev'))
+}
+
+/**
+ * A second launch opens another timer in the running app rather than starting
+ * a rival process.
+ *
+ * Two processes mean two SQLite connections competing for the same file, which
+ * is what made every stop throw `database is locked`. Multiple timers were
+ * always meant to be multiple windows - each has its own TimerEngine already -
+ * so nothing is lost by refusing to run twice.
+ */
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    createTimerWindow()
+  })
+}
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.b0t0001.deepworktracker')
 
@@ -615,6 +776,19 @@ app.whenReady().then(() => {
   })
 
   openDatabase()
+  const damage = healthCheck()
+  if (damage !== null) {
+    // Worth a dialog rather than a log line: every query afterwards will fail
+    // in its own way, and the user needs to know the file is the problem and
+    // that the backups exist, not watch the app misbehave.
+    console.error('Database failed its health check:', damage)
+    dialog.showErrorBox(
+      'The database is damaged',
+      `SQLite reports: ${damage}\n\n` +
+        'Your automatic backups are unaffected. Open Settings and use ' +
+        '"Restore from a backup" to rebuild from the most recent one.'
+    )
+  }
   registerIpc()
   startBackupSchedule()
   createTimerWindow()
@@ -633,9 +807,20 @@ app.whenReady().then(() => {
 })
 
 app.on('will-quit', () => {
-  tray?.destroy()
-  globalShortcut.unregisterAll()
+  // Engines first, then the tray. `updateTray()` runs on every 100ms tick and
+  // guards `!tray`, which catches null but not *destroyed* - Electron throws
+  // "Object has been destroyed" on a destroyed Tray, and a throw out of a
+  // timer callback is an uncaught exception in main, which is a crash dialog
+  // on the way out of the app. Today nothing can interleave, because this
+  // handler is synchronous and the event loop is single-threaded; disposing
+  // first and nulling the handle means that stays true if anything here ever
+  // becomes async.
   instances.forEach((i) => i.engine.dispose())
+  tray?.destroy()
+  tray = null
+  globalShortcut.unregisterAll()
+  // Last, and after the engines: a pending `checkpointSoon()` is flushed here,
+  // and nothing should still be able to write once it has run.
   closeDatabase()
 })
 

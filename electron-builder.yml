@@ -9,6 +9,33 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # Working material, not the app. Without these the installer carries every
+  # internal document and test harness in the repo - CLAUDE.md alone is 57KB
+  # of reasoning aimed at whoever is editing the code, `notes/` is one session
+  # arguing with another, and `scripts/` is seven harnesses that only run
+  # against a checkout. None of it is read at runtime, all of it is in git,
+  # and a doc-only commit should not change what ships.
+  - '!{notes,scripts}/**'
+  - '!{AGENTS.md,CLAUDE.md,PROJECT_PLAN.md}'
+  - '!SPEC-*.md'
+  # `out/` holds the three real build targets and also whatever a harness was
+  # last bundled into - `out/shoot` and `out/record-failure` were both shipping
+  # inside app.asar, which is test code that opens windows and seeds databases
+  # sitting in the installed app. An allowlist rather than two more `!` lines,
+  # so the next harness is excluded by being new rather than by being
+  # remembered. Excluding then re-including works because later patterns win.
+  #
+  # NOTE: adding any non-negated pattern turns this whole list into an
+  # allowlist - everything not matched is dropped. The first version of this
+  # listed only `out/...` and silently removed `resources/`, which the main
+  # bundle resolves at runtime as `../../resources/icon.png` for the tray. The
+  # app packaged, installed and started with no tray icon and no error. So
+  # every directory the app needs has to be named here, and the asar listing
+  # checked after any change to these lines.
+  - '!out/*/**'
+  - 'out/{main,preload,renderer}/**'
+  - 'resources/**'
+  - 'package.json'
 asarUnpack:
   - resources/**
 win:

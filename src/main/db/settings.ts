@@ -1,4 +1,4 @@
-import { openDatabase } from './index'
+import { checkpointSoon, openDatabase } from './index'
 
 /**
  * Key/value settings that must survive a restart.
@@ -21,8 +21,11 @@ export function setSetting(key: string, value: string): void {
        ON CONFLICT (key) DO UPDATE SET value = excluded.value`
     )
     .run(key, value)
+  // The backup directory lives here, and it is acted on unattended.
+  checkpointSoon()
 }
 
 export function clearSetting(key: string): void {
   openDatabase().prepare('DELETE FROM app_settings WHERE key = ?').run(key)
+  checkpointSoon()
 }

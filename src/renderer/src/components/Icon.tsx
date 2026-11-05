@@ -22,8 +22,44 @@ const PATHS: Record<IconName, React.JSX.Element> = {
   play: <path d="M5 3.5v9l8-4.5z" />,
   pause: <path d="M5 3.5h2.2v9H5zm3.8 0H11v9H8.8z" />,
   stop: <rect x="4.5" y="4.5" width="7" height="7" rx="1.2" />,
-  ring: <circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" strokeWidth="1.6" />,
-  bar: <rect x="2.5" y="6.5" width="11" height="3" rx="1.5" />,
+  /*
+   * The variant toggle's two glyphs are a matched pair, and have to read as
+   * one at a glance.
+   *
+   * The bar glyph used to be a solid rounded rect, which is the minimise glyph
+   * with a few tenths more height - so the filmed window showed two
+   * indistinguishable dashes at opposite ends of the same row, one switching
+   * the dial and one hiding the window. Thickness alone is not a distinction
+   * anyone can use at 21px.
+   *
+   * Both are now an outline containing a filled portion, which is what the
+   * dials themselves look like: a track with progress in it. That separates
+   * them from every window control in the row, which are all solid, and ties
+   * them to each other. The convention they keep is that the toggle shows the
+   * mode you would switch *to*, not the one you are in.
+   */
+  ring: (
+    <g fill="none" stroke="currentColor">
+      <circle cx="8" cy="8" r="5.1" strokeWidth="1.6" opacity="0.6" />
+      <path d="M8 2.9a5.1 5.1 0 014.42 2.55" strokeWidth="2" strokeLinecap="round" />
+    </g>
+  ),
+  bar: (
+    <g>
+      <rect
+        x="2"
+        y="5.6"
+        width="12"
+        height="4.8"
+        rx="1.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        opacity="0.6"
+      />
+      <rect x="3.3" y="6.9" width="5.4" height="2.2" rx="0.8" />
+    </g>
+  ),
   expand: (
     <path
       d="M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10"

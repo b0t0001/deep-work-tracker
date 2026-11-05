@@ -2,6 +2,24 @@ import { useEffect, useState } from 'react'
 import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
+import { previousDay, weekOverWeek, type Analytics } from '@shared/analytics'
+import {
+  MAX_FONT_SCALE,
+  MIN_FONT_SCALE,
+  visiblePanels,
+  type Layout,
+  type PanelId
+} from '@shared/layout'
+import { useLayout } from './lib/layout'
+import { useAccentSync } from './lib/accent'
+import {
+  ByProject,
+  HoursOverTime,
+  PaceAccuracy,
+  PlannedVsActual,
+  RateTrend
+} from './components/AnalyticsCharts'
+import { CalendarHeatmap, TimeOfDayHeatmap } from './components/Heatmaps'
 
 type Tab = 'settings' | 'data' | 'analytics' | 'import'
 
@@ -275,6 +293,66 @@ function Backups(): React.JSX.Element {
 
   useEffect(load, [])
 
+  /**
+   * Restoring replaces the whole history, so it asks with the numbers in hand -
+   * how many rows are coming in against how many are going out - rather than a
+   * generic warning nobody reads.
+   */
+  async function restore(): Promise<void> {
+    const file = await window.api.backups.pickRestore()
+    if (!file) return
+    setResult(null)
+
+    const preview = (await window.api.backups.previewRestore(file)) as {
+      ok: boolean
+      problem: string | null
+      rows: number
+      hours: number
+      firstDate: string
+      lastDate: string
+      projects: number
+      replaces: number
+    }
+    if (!preview.ok) {
+      setResult(`Cannot restore: ${preview.problem ?? 'unreadable file'}`)
+      return
+    }
+
+    const confirmed = await window.api.ui.confirm({
+      title: 'Restore from a backup',
+      message:
+        `Replace everything with ${preview.rows.toLocaleString()} sessions ` +
+        `(${preview.hours.toFixed(1)} h, ${preview.projects} projects)?`,
+      detail:
+        `The backup covers ${preview.firstDate} to ${preview.lastDate}.\n\n` +
+        (preview.replaces > 0
+          ? `${preview.replaces.toLocaleString()} sessions currently in the app will be replaced. A backup of them is written first, so this is reversible.`
+          : 'There is nothing in the app to replace.'),
+      confirmLabel: 'Restore'
+    })
+    if (!confirmed) return
+
+    setBusy(true)
+    try {
+      const done = (await window.api.backups.restore(file)) as {
+        sessions: number
+        projects: number
+        pauses: number
+        replaced: number
+        safetyBackup: string | null
+      }
+      setResult(
+        `Restored ${done.sessions.toLocaleString()} sessions across ${done.projects} projects.` +
+          (done.safetyBackup ? ' The previous contents were backed up first.' : '')
+      )
+      load()
+    } catch (error) {
+      setResult(`Restore failed, nothing was changed. ${String(error)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function backupNow(): Promise<void> {
     setBusy(true)
     setResult(null)
@@ -324,7 +402,10 @@ function Backups(): React.JSX.Element {
 
       <div className="row">
         <button className="action action--primary" disabled={busy} onClick={() => void backupNow()}>
-          {busy ? 'Backing up…' : 'Back up now'}
+          {busy ? 'Working…' : 'Back up now'}
+        </button>
+        <button className="action" disabled={busy} onClick={() => void restore()}>
+          Restore from a backup…
         </button>
         <span className="muted">
           {newest
@@ -362,26 +443,433 @@ function Backups(): React.JSX.Element {
   )
 }
 
-function AnalyticsTab(): React.JSX.Element {
+/** One local `YYYY-MM-DD`, for the streak and week windows. */
+function localToday(): string {
+  const now = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
+
+function hoursLabel(value: number): string {
+  if (value >= 100) return `${Math.round(value).toLocaleString()} h`
+  return `${value.toFixed(1)} h`
+}
+
+/**
+ * What each panel is called when it is not on screen, and how wide it wants to
+ * be.
+ *
+ * Width is a property of the panel rather than of the row it happens to be in.
+ * Once the order can change, fixed rows cannot survive - two panels paired in
+ * the markup would come apart the moment something was dragged between them.
+ * Declaring that a chart reads well at half width and letting the grid pair
+ * whatever ends up adjacent keeps the default layout exactly as it was while
+ * making any other arrangement land sensibly.
+ */
+const PANELS: Record<PanelId, { label: string; full: boolean }> = {
+  calendar: { label: 'Every day', full: true },
+  hoursPerWeek: { label: 'Hours per week', full: true },
+  projects: { label: 'Hours by project', full: false },
+  plannedRatio: { label: 'How much of the timer you run', full: false },
+  rateTrend: { label: 'Work rate over time', full: true },
+  timeOfDay: { label: 'Time of day', full: false },
+  pace: { label: 'Pace against target', full: false }
+}
+
+function panelFor(id: PanelId, data: Analytics, accent: string): React.JSX.Element {
+  switch (id) {
+    case 'calendar':
+      return <CalendarHeatmap daily={data.daily} accent={accent} />
+    case 'hoursPerWeek':
+      return <HoursOverTime daily={data.daily} accent={accent} />
+    case 'projects':
+      return <ByProject byProject={data.byProject} accent={accent} />
+    case 'plannedRatio':
+      return <PlannedVsActual data={data.plannedVsActual} accent={accent} />
+    case 'rateTrend':
+      return <RateTrend ratesByUnit={data.ratesByUnit} units={data.units} accent={accent} />
+    case 'timeOfDay':
+      return (
+        <TimeOfDayHeatmap
+          byHour={data.byHour}
+          timedSessions={data.timedSessions}
+          timedFirst={data.timedFirst}
+          timedLast={data.timedLast}
+          accent={accent}
+        />
+      )
+    case 'pace':
+      return <PaceAccuracy pace={data.pace} accent={accent} />
+  }
+}
+
+/** Moves `moved` to sit where `target` currently is. */
+function reorder(order: PanelId[], moved: PanelId, target: PanelId): PanelId[] {
+  if (moved === target) return order
+  const next = order.filter((id) => id !== moved)
+  const at = next.indexOf(target)
+  if (at === -1) return order
+  next.splice(at, 0, moved)
+  return next
+}
+
+function Slot({
+  id,
+  editing,
+  dragging,
+  onDragging,
+  layout,
+  onChange,
+  children
+}: {
+  id: PanelId
+  editing: boolean
+  dragging: PanelId | null
+  onDragging: (id: PanelId | null) => void
+  layout: Layout
+  onChange: (next: Layout) => void
+  children: React.ReactNode
+}): React.JSX.Element {
+  const meta = PANELS[id]
   return (
-    <section className="panel">
-      <h2>Analytics</h2>
-      <p className="muted">Not built yet. Planned, in roughly this order:</p>
-      <ul className="plan">
-        <li>Total hours over time, this week against last</li>
-        <li>Breakdown by project, and by task within a project</li>
-        <li>Calendar heatmap, one cell per day</li>
-        <li>Consistency and streaks</li>
-        <li>
-          Time-of-day heatmap &mdash; <strong>app-recorded sessions only</strong>, since imported
-          rows have no clock times
-        </li>
-        <li>
-          Rate trends, scoped to one unit at a time &mdash; words per minute and questions per
-          minute are not comparable
-        </li>
-        <li>Planned against actual duration, and pace target against what happened</li>
-      </ul>
+    <div
+      className={`an-slot${meta.full ? ' an-slot--full' : ''}${dragging === id ? ' is-dragging' : ''}`}
+      draggable={editing}
+      onDragStart={(event) => {
+        onDragging(id)
+        // A drag will not start at all unless some data is set.
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', id)
+      }}
+      onDragOver={(event) => {
+        if (!editing || dragging === null) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+      }}
+      onDrop={(event) => {
+        if (!editing || dragging === null) return
+        event.preventDefault()
+        onChange({ ...layout, order: reorder(layout.order, dragging, id) })
+        onDragging(null)
+      }}
+      onDragEnd={() => onDragging(null)}
+    >
+      {children}
+      {/* Declared after the panel it overlays, which is the house rule for
+          anything sitting on top of another surface. */}
+      {editing && (
+        <div className="an-slot__tools">
+          <span className="an-slot__grip" aria-hidden="true">
+            ⠿
+          </span>
+          <button
+            type="button"
+            className="an-slot__hide"
+            title={`Hide ${meta.label}`}
+            onClick={() => onChange({ ...layout, hidden: [...layout.hidden, id] })}
+          >
+            &times;
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The controls, behind a mode rather than always on screen.
+ *
+ * The tab is read far more often than it is rearranged, and it is the surface
+ * that is meant to feel like progress rather than an audit - so a grip and a
+ * close button on every panel, permanently, is the wrong trade. Entering a
+ * mode costs one click and gives the hidden panels somewhere to live, which is
+ * the constraint that actually matters: a panel you cannot find again is a
+ * panel you have lost.
+ */
+function LayoutBar({
+  editing,
+  onEditing,
+  layout,
+  persists,
+  onChange,
+  onReset
+}: {
+  editing: boolean
+  onEditing: (next: boolean) => void
+  layout: Layout
+  persists: boolean
+  onChange: (next: Layout) => void
+  onReset: () => void
+}): React.JSX.Element {
+  const scaleBy = (delta: number): void => {
+    const next = Math.round((layout.fontScale + delta) * 100) / 100
+    onChange({
+      ...layout,
+      fontScale: Math.min(MAX_FONT_SCALE, Math.max(MIN_FONT_SCALE, next))
+    })
+  }
+
+  return (
+    <div className={`an-bar${editing ? ' is-arranging' : ''}`}>
+      <button type="button" className="an-bar__toggle" onClick={() => onEditing(!editing)}>
+        {editing ? 'Done' : 'Customise'}
+      </button>
+
+      {editing && (
+        <>
+          <div className="an-bar__scale" role="group" aria-label="Text size">
+            <button
+              type="button"
+              onClick={() => scaleBy(-0.1)}
+              disabled={layout.fontScale <= MIN_FONT_SCALE}
+              title="Smaller text"
+            >
+              A
+            </button>
+            <span>{Math.round(layout.fontScale * 100)}%</span>
+            <button
+              type="button"
+              className="is-big"
+              onClick={() => scaleBy(0.1)}
+              disabled={layout.fontScale >= MAX_FONT_SCALE}
+              title="Larger text"
+            >
+              A
+            </button>
+          </div>
+
+          {layout.hidden.length > 0 && (
+            <div className="an-tray">
+              <span className="an-tray__label">Hidden</span>
+              {layout.hidden.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  className="an-tray__item"
+                  title={`Show ${PANELS[id].label}`}
+                  onClick={() =>
+                    onChange({ ...layout, hidden: layout.hidden.filter((other) => other !== id) })
+                  }
+                >
+                  {PANELS[id].label} <span aria-hidden="true">+</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <button type="button" className="an-bar__reset" onClick={onReset}>
+            Reset
+          </button>
+
+          {!persists && (
+            <span className="an-bar__warn" role="status">
+              Not saved &mdash; this session only
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function AnalyticsTab(): React.JSX.Element {
+  const accent = useAccentSync()
+  const { layout, persists, update, reset } = useLayout()
+  const [editing, setEditing] = useState(false)
+  const [dragging, setDragging] = useState<PanelId | null>(null)
+  const [data, setData] = useState<Analytics | null>(null)
+  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading')
+
+  useEffect(() => {
+    let alive = true
+    window.api.analytics
+      .get()
+      .then((payload) => {
+        if (!alive) return
+        // Null is the main process telling us the read failed - see the
+        // `analytics:get` handler. It is deliberately not an empty payload,
+        // because zeroes would render as "you have never worked", which is the
+        // most alarming possible way to report a query error.
+        if (payload === null) {
+          setState('failed')
+          return
+        }
+        setData(payload as Analytics)
+        setState('ready')
+      })
+      .catch(() => {
+        // A rejected invoke is the same situation as a null payload. Without
+        // this the promise would reject unhandled and the tab would sit on
+        // "Reading" forever with the reason only in the console.
+        if (alive) setState('failed')
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  if (state === 'loading') {
+    return (
+      <section className="panel panel--wide">
+        <h2>Analytics</h2>
+        <p className="muted">Reading the history&hellip;</p>
+      </section>
+    )
+  }
+
+  if (state === 'failed' || data === null) {
+    return (
+      <section className="panel panel--wide">
+        <h2>Analytics</h2>
+        <p className="muted">
+          The history could not be read, so nothing here would be trustworthy. Your sessions are not
+          affected &mdash; this is a failure to query them, not a failure to store them. The Data
+          tab reads the same rows and is worth trying; if that is empty too, Settings has Restore
+          from backup.
+        </p>
+      </section>
+    )
+  }
+
+  if (data.totalSessions === 0) {
+    return (
+      <section className="panel panel--wide">
+        <h2>Analytics</h2>
+        <p className="muted">
+          Nothing recorded yet. Run a timer and stop it, add a session by hand, or bring in the
+          spreadsheet from the Import tab.
+        </p>
+      </section>
+    )
+  }
+
+  const today = localToday()
+  // The window ends on the last COMPLETE day, not today. A day still in
+  // progress is not a data point, and it does not merely depress the figure -
+  // it flatters it, because a day with no hours yet drops out of the
+  // per-worked-day denominator while the week before it is counted in full.
+  // Measured on the real history: ending today reported -31%, ending
+  // yesterday reports -37%, and -37% is the honest one.
+  const week = weekOverWeek(data.daily, previousDay(today))
+
+  // Over calendar days in the range, not over active days only. CLAUDE.md
+  // settled this: dividing by active days answers "how long is a working day",
+  // which flatters a fortnight off into nothing.
+  const perDay = data.calendarDays > 0 ? data.totalHours / data.calendarDays : 0
+
+  // Per worked day, not totals. Comparing a five-day week's total against a
+  // seven-day week's punishes the shape of the week rather than the work in
+  // it. It is still negative here - no honest ratio turns a lighter week into
+  // a heavier one - which is why the fix for "this reads as discouraging" was
+  // to move the comparison out of the hero slot rather than to find a kinder
+  // number.
+  // With no worked day in the window there is nothing to compare, and the
+  // honest reading is that the record stops rather than that the work did.
+  // Every row in this database arrived by import, so a quiet week here can
+  // mean the spreadsheet has not been brought in lately - and a decline drawn
+  // from that would be measuring how stale the import is, not how much work
+  // happened. Say which it is instead of printing a number the data cannot
+  // support.
+  const stale = week.thisWeekDays === 0
+  const change = stale
+    ? data.lastDate
+      ? `no sessions logged since ${data.lastDate}`
+      : 'no sessions logged yet'
+    : week.perDayChangePercent === null
+      ? 'nothing the week before to compare against'
+      : `${week.perDayChangePercent >= 0 ? '+' : ''}${Math.round(week.perDayChangePercent)}% a day on the week before`
+
+  return (
+    <section className="panel panel--wide">
+      <header className="data-head">
+        <h2>Analytics</h2>
+        {data.firstDate && data.lastDate && (
+          <p className="data-head__span">
+            recorded {data.firstDate} to {data.lastDate}
+          </p>
+        )}
+      </header>
+
+      {/*
+       * The tab is meant to be motivating as much as analytical, so which
+       * figure occupies the hero slot is a design decision rather than a
+       * ranking of which number is most recent.
+       *
+       * A week-on-week comparison can always go down, and this one does:
+       * 18.6h against 37.9h is -51%. Per *active* day it is 3.7h against
+       * 5.4h, which is fairer - comparing a five-day week's total against a
+       * seven-day week's punishes the shape of the week rather than the work
+       * in it - but it is still -31%. No honest ratio turns a lighter week
+       * into a heavier one, and one that did would be lying about data the
+       * user makes real decisions on. So the fix is which figure leads, not
+       * which ratio is printed: the comparison stays, told fairly, demoted.
+       *
+       * The hero and the two beside it are totals that only ever grow. Honest
+       * and encouraging at the same time, which is the combination to reach
+       * for when a panel could be truthful in either direction.
+       *
+       * The streak tile is gone. `60 · best streak · current 0` says your
+       * best was months ago and today you have nothing - a verdict rather
+       * than a measurement. `streaks()` stays in `shared/analytics.ts`
+       * because it is pure and covered by the harness; nothing renders it.
+       */}
+      <div className="an-stats">
+        <div className="an-stat an-stat--lead">
+          <strong>{hoursLabel(data.totalHours)}</strong>
+          <span>of deep work recorded &middot; {data.totalSessions.toLocaleString()} sessions</span>
+        </div>
+        <div className="an-stat">
+          <strong>{data.activeDays.toLocaleString()}</strong>
+          <span>days worked, of {data.calendarDays.toLocaleString()} since you started</span>
+        </div>
+        <div className="an-stat">
+          <strong>{perDay.toFixed(1)} h</strong>
+          <span>a day, across every day in range</span>
+        </div>
+        <div className="an-stat">
+          <strong>{hoursLabel(week.thisWeekPerDay)}</strong>
+          <span>
+            a day over {week.thisWeekDays} {week.thisWeekDays === 1 ? 'day' : 'days'} worked this
+            week &middot;{' '}
+            {stale || week.perDayChangePercent === null ? (
+              change
+            ) : (
+              <span className={week.perDayChangePercent >= 0 ? 'is-up' : 'is-down'}>{change}</span>
+            )}
+          </span>
+        </div>
+      </div>
+
+      {/* Rows rather than one column: a chart that reads fine at half the
+          width should not stretch a 220px plot across the whole panel. The
+          calendar leads because the user asked for it by name. */}
+      <LayoutBar
+        editing={editing}
+        onEditing={setEditing}
+        layout={layout}
+        persists={persists}
+        onChange={update}
+        onReset={reset}
+      />
+
+      <div
+        className={`an${editing ? ' is-arranging' : ''}`}
+        style={{ '--an-fs': layout.fontScale } as React.CSSProperties}
+      >
+        {visiblePanels(layout).map((id) => (
+          <Slot
+            key={id}
+            id={id}
+            editing={editing}
+            dragging={dragging}
+            onDragging={setDragging}
+            layout={layout}
+            onChange={update}
+          >
+            {panelFor(id, data, accent)}
+          </Slot>
+        ))}
+      </div>
     </section>
   )
 }
@@ -786,6 +1274,7 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
           }}
         >
           <option value="">All projects</option>
+          <option value="-1">— Unlabelled —</option>
           {projects.map((option) => (
             <option key={option.id} value={String(option.id)}>
               {option.name} ({option.sessions.toLocaleString()})
@@ -945,7 +1434,14 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
                 className={editing !== 'new' && editing?.id === row.id ? 'is-editing-row' : ''}
               >
                 <td>{row.session_date ?? '—'}</td>
-                <td>{row.project_name ?? <span className="muted">—</span>}</td>
+                {/* Named, not dashed. A session with no project is a specific
+                    thing the user can act on - the project filter has an
+                    Unlabelled option and the whole point of it is that a week
+                    of missed labels is one filter and a few edits rather than
+                    archaeology. A bare em dash reads as "nothing here" and
+                    does not connect the row to the filter that finds it.
+                    Muted, because it is an absence rather than a value. */}
+                <td>{row.project_name ?? <span className="muted">Unlabelled</span>}</td>
                 <td>{row.task ?? <span className="muted">unlabelled</span>}</td>
                 <td className="num">{hours(row.planned_duration_s)}</td>
                 <td className="num">{hours(row.running_duration_s)}</td>

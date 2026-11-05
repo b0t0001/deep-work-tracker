@@ -7,6 +7,7 @@ import {
   type TimerSnapshot
 } from '@shared/timer'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
+import { canonicalProjectName, rankProjects } from '@shared/projects'
 import TimerDial from './components/TimerDial'
 import { expiryCue, primeAudio } from './lib/sounds'
 import { useAccentSync } from './lib/accent'
@@ -77,19 +78,18 @@ function useFullScreen(): [boolean, (value: boolean) => void] {
   return [full, (value) => void window.api.window.setFullScreen(value)]
 }
 
-const CAPTIONS: Record<TimerSnapshot['status'], string> = {
-  idle: 'ready',
-  running: 'running',
-  paused: 'paused',
-  expired: 'time is up'
-}
-
 export default function App(): React.JSX.Element {
   const { snapshot, now } = useTimer()
   const [full, setFullScreen] = useFullScreen()
   useAccentSync()
   const [label, setLabel] = useState('')
   const [labelFocused, setLabelFocused] = useState(false)
+  const [project, setProject] = useState('')
+  const [projectFocused, setProjectFocused] = useState(false)
+  const [projectNames, setProjectNames] = useState<string[]>([])
+  const projectRef = useRef<HTMLInputElement>(null)
+  const [projectOpen, setProjectOpen] = useState(false)
+  const [highlight, setHighlight] = useState(0)
   const [draft, setDraft] = useState('1:00:00')
   const [variant, setVariant] = useState<'ring' | 'bar'>('bar')
   const [flashing, setFlashing] = useState(false)
@@ -144,7 +144,72 @@ export default function App(): React.JSX.Element {
     setPace(config)
     void window.api.timer.setPace(config)
   }
+  /**
+   * The project defaults to whatever the last session was filed under, because
+   * work comes in runs - several HW sessions, then several on the essay - so
+   * the previous answer is nearly always this one too. The list feeds a
+   * ranked suggestion list rather than a plain dropdown: it both offers what
+   * exists and accepts a name that does not, and it matches on more than a
+   * literal prefix so `hw`, `HW 2` and a typo all find the same project.
+   */
+  useEffect(() => {
+    // Suggestions are a convenience. If they cannot be read the field still
+    // works as free text, so a failure here must not become an unhandled
+    // rejection that looks like the timer breaking.
+    void window.api.timer
+      .projectNames()
+      .then(setProjectNames)
+      .catch(() => setProjectNames([]))
+    void window.api.timer
+      .lastProject()
+      .then((name) => {
+        if (!name) return
+        setProject(name)
+        void window.api.timer.setProject(name)
+      })
+      .catch(() => undefined)
+  }, [])
+
+  /**
+   * Ranked suggestions for what is in the field, best first.
+   *
+   * Recomputed every keystroke rather than debounced: the list is at most a
+   * few dozen names and the match runs in microseconds, so the lag of a
+   * debounce would be the only thing you could feel.
+   */
+  const matches = rankProjects(project, projectNames, 4)
+
+  /** Committing snaps to an existing name when one plainly means the same. */
+  function commitProject(value: string): void {
+    const canonical = canonicalProjectName(value, projectNames) ?? value
+    setProject(canonical)
+    void window.api.timer.setProject(canonical)
+    setProjectOpen(false)
+  }
+
+  function chooseProject(name: string): void {
+    setProject(name)
+    void window.api.timer.setProject(name)
+    setProjectOpen(false)
+  }
+
   const [stopPrompt, setStopPrompt] = useState(false)
+  /**
+   * Set when a run could not be written, or when a write from the stop prompt
+   * is refused. It replaces the prompt rather than sitting beside it: the
+   * window is 250px, and asking for a quantity that cannot be stored is worse
+   * than asking for nothing.
+   *
+   * It never auto-dismisses. Everything else here clears itself after thirty
+   * seconds because missing it costs a label; missing this one means not
+   * knowing a session was lost.
+   */
+  const [recordError, setRecordError] = useState<string | null>(null)
+  const [qty, setQty] = useState('')
+  const [qtyUnit, setQtyUnit] = useState('')
+  const qtyRef = useRef<HTMLInputElement>(null)
+  const qtyUnitRef = useRef<HTMLInputElement>(null)
+  const dismissRef = useRef<number | null>(null)
   const clockRef = useRef<HTMLInputElement>(null)
 
   // Closing the pace window means "remove this", so the fields clear with it.
@@ -161,6 +226,25 @@ export default function App(): React.JSX.Element {
   // same pace can be re-armed for the next run with one click.
   useEffect(() => {
     return window.api.pace.onEnded(() => setPace(null))
+  }, [])
+
+  /*
+   * The session could not be written.
+   *
+   * Main catches the throw so the clock still stops cleanly, which is right -
+   * a crash dialog over a timer that will not stop is worse - but it means
+   * nothing else on screen looks wrong. Without this subscription the run
+   * vanished in silence while the stop prompt went on accepting a quantity
+   * for a row that was never created.
+   *
+   * The prompt is closed as well as replaced, so there is no field left to
+   * type into.
+   */
+  useEffect(() => {
+    return window.api.timer.onRecordFailed((reason) => {
+      setRecordError(reason)
+      setStopPrompt(false)
+    })
   }, [])
 
   // Expiry cue: sound plus a flash, matching Hourglass - three flashes at 0.2s.
@@ -180,7 +264,7 @@ export default function App(): React.JSX.Element {
   // While a field is focused the card stops being a drag region. Electron drag
   // regions swallow mouse events outright, so without this a click on the card
   // body never reaches the handler that drops focus.
-  const editing = labelFocused || paceOpen
+  const editing = labelFocused || projectFocused || paceOpen
 
   const canonical = plannedMs === null ? null : formatDurationInput(plannedMs)
 
@@ -192,15 +276,92 @@ export default function App(): React.JSX.Element {
 
   const clockMs = idle ? (plannedMs ?? 0) : remainingMs(snapshot, now)
   const fraction = idle ? 0 : progressOf(snapshot, now)
-  // While typing, the caption shows how the input was read, so `one hour`
-  // confirms itself as 1:00:00 before you commit to it.
-  const caption = idle
-    ? canonical === null
-      ? 'enter a time'
-      : canonical !== draft.trim()
-        ? canonical
-        : (paceLabel ?? 'ready')
-    : CAPTIONS[snapshot.status]
+  /**
+   * The line under the clock is the project. Nothing else ever goes there.
+   *
+   * It used to show the status - `ready`, `running` - which restated what the
+   * digits already said, and then the echo of how a typed duration had been
+   * read. Both are gone at the user's request: the clock rewrites itself into
+   * canonical form on Enter and on leaving the field, so `30 min` visibly
+   * becomes `30:00` in the field itself, and a second copy of that in grey
+   * underneath was noise sitting where the useful answer belongs.
+   */
+  const caption: React.ReactNode = (
+    <div className="project-box">
+      <input
+        ref={projectRef}
+        className="dial__project"
+        value={project}
+        placeholder="project"
+        spellCheck={false}
+        autoComplete="off"
+        title="Which category this session counts towards"
+        onChange={(event) => {
+          setProject(event.target.value)
+          setProjectOpen(true)
+          setHighlight(0)
+          // Main owns it for the same reason it owns the task: auto-end can
+          // record a session this window never sees stop.
+          void window.api.timer.setProject(event.target.value)
+        }}
+        onFocus={() => {
+          setProjectFocused(true)
+          setProjectOpen(true)
+          setHighlight(0)
+        }}
+        onBlur={() => {
+          setProjectFocused(false)
+          // A click on a suggestion fires blur first, so closing is deferred
+          // by a tick or the mousedown never lands.
+          window.setTimeout(() => setProjectOpen(false), 120)
+          commitProject(project)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault()
+            setProjectOpen(true)
+            setHighlight((h) => Math.min(h + 1, matches.length - 1))
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault()
+            setHighlight((h) => Math.max(h - 1, 0))
+          } else if (event.key === 'Escape') {
+            setProjectOpen(false)
+          } else if (event.key === 'Enter' || event.key === 'Tab') {
+            // Enter takes the highlighted suggestion when the list is open -
+            // that is what makes it behave like a dropdown - and otherwise
+            // just commits what was typed.
+            const pick = projectOpen ? matches[highlight] : undefined
+            if (pick) {
+              event.preventDefault()
+              chooseProject(pick.name)
+            } else {
+              commitProject(project)
+            }
+            if (event.key === 'Enter') event.currentTarget.blur()
+          }
+        }}
+      />
+      {projectOpen && matches.length > 0 && (
+        <ul className="project-menu">
+          {matches.map((match, index) => (
+            <li key={match.name}>
+              <button
+                className={index === highlight ? 'is-active' : ''}
+                // mousedown, not click: blur would close the list first.
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  chooseProject(match.name)
+                }}
+                onMouseEnter={() => setHighlight(index)}
+              >
+                {match.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 
   /** Rewrites the field into canonical form, so what was typed visibly took. */
   function normalizeDraft(): void {
@@ -211,27 +372,88 @@ export default function App(): React.JSX.Element {
     if (plannedMs === null) return
     normalizeDraft()
     setStopPrompt(false)
+    // The warning is about the run that just failed, not the one starting. It
+    // persists until something replaces it precisely so it cannot be missed,
+    // but leaving it over a running clock would make it look like this session
+    // is the broken one.
+    setRecordError(null)
     void window.api.timer.start(plannedMs)
   }
 
-  /** Stopping opens a short window to undo it or say why - never a blocking one. */
+  function closeStopPrompt(): void {
+    if (dismissRef.current !== null) window.clearTimeout(dismissRef.current)
+    dismissRef.current = null
+    setStopPrompt(false)
+  }
+
+  /**
+   * Stopping opens a short window to undo it, record what got done, or say why
+   * it ended - never a blocking one.
+   */
   function stop(): void {
+    const task = snapshot.task
     void window.api.timer.stop()
+    setQty('')
+    // Almost every session is one of a few repeated shapes, so the unit this
+    // task was last measured in is nearly always the right answer.
+    void window.api.timer.lastUnit(task).then((unit) => setQtyUnit(unit ?? ''))
     setStopPrompt(true)
-    window.setTimeout(() => setStopPrompt(false), 30_000)
+    dismissRef.current = window.setTimeout(() => setStopPrompt(false), 30_000)
+  }
+
+  /**
+   * The countdown to auto-dismiss stops the moment the output fields are
+   * touched. A prompt that vanishes mid-word while you are typing into it is
+   * one you stop bothering with.
+   */
+  function holdStopPrompt(): void {
+    if (dismissRef.current === null) return
+    window.clearTimeout(dismissRef.current)
+    dismissRef.current = null
+  }
+
+  /**
+   * Written as it is typed rather than behind a confirm button, matching the
+   * pace panel. There is no moment where what is on screen is not what is
+   * stored, so dismissing the prompt can never lose an entry.
+   *
+   * That guarantee is only true if a refused write says so. `void` silences
+   * the floating-promise lint; it does not handle a rejection, so without the
+   * catch the sentence above was simply false whenever the row was missing or
+   * the database refused the update.
+   */
+  function saveQuantity(nextQty: string, nextUnit: string): void {
+    const amount = nextQty.trim() === '' ? null : Number(nextQty)
+    window.api.timer
+      .setQuantity(
+        amount !== null && Number.isFinite(amount) ? amount : null,
+        nextUnit.trim() === '' ? null : nextUnit.trim()
+      )
+      .catch((error: unknown) => setRecordError(String(error)))
   }
 
   function answerStop(reason: string | null): void {
-    if (reason) void window.api.timer.setStopReason(reason, null)
-    setStopPrompt(false)
+    if (reason) {
+      window.api.timer
+        .setStopReason(reason, null)
+        .catch((error: unknown) => setRecordError(String(error)))
+    }
+    closeStopPrompt()
   }
 
   function undoStop(): void {
-    void window.api.timer.undoStop().then(() => {
-      // Undo may have brought a pace loop back with the session.
-      void window.api.timer.getPace().then(setPace)
-    })
-    setStopPrompt(false)
+    window.api.timer
+      .undoStop()
+      .then(() => {
+        // Undo may have brought a pace loop back with the session.
+        void window.api.timer.getPace().then(setPace)
+      })
+      .catch((error: unknown) => setRecordError(String(error)))
+    // The row it was written to is gone, so the fields must not carry over to
+    // whatever is stopped next.
+    setQty('')
+    setQtyUnit('')
+    closeStopPrompt()
   }
 
   function releaseFocus(event: React.MouseEvent): void {
@@ -307,6 +529,7 @@ export default function App(): React.JSX.Element {
         onDraftChange={setDraft}
         onSubmit={start}
         onNormalize={normalizeDraft}
+        onTabForward={() => projectRef.current?.focus()}
         inputRef={clockRef}
         controls={controls}
       />
@@ -372,7 +595,55 @@ export default function App(): React.JSX.Element {
         </div>
       )}
 
-      {stopPrompt && (
+      {/* `&& recordError === null`: when the write failed there is no row to
+          attach anything to, so a field that accepts a quantity is a field
+          that throws it away. The error replaces the prompt rather than
+          sitting beside it - at 250px there is no room for both, and only one
+          of them is true. */}
+      {stopPrompt && recordError === null && (
+        <div className="stop-output">
+          <input
+            ref={qtyRef}
+            className="stop-output__qty"
+            value={qty}
+            placeholder="340"
+            inputMode="decimal"
+            title="How much got done"
+            onFocus={holdStopPrompt}
+            onChange={(event) => {
+              // Decimals allowed: half a problem set is `0.5 question`.
+              if (!/^\d{0,7}(\.\d{0,2})?$/.test(event.target.value)) return
+              holdStopPrompt()
+              setQty(event.target.value)
+              saveQuantity(event.target.value, qtyUnit)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') qtyUnitRef.current?.focus()
+            }}
+          />
+          <input
+            ref={qtyUnitRef}
+            className="stop-output__unit"
+            value={qtyUnit}
+            placeholder="words"
+            title="Measured in"
+            onFocus={holdStopPrompt}
+            onChange={(event) => {
+              // A digit here was always meant for the box beside it, so it is
+              // dropped rather than rejected - the rest of the word still lands.
+              const next = event.target.value.replace(/[0-9]/g, '')
+              holdStopPrompt()
+              setQtyUnit(next)
+              saveQuantity(qty, next)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur()
+            }}
+          />
+        </div>
+      )}
+
+      {stopPrompt && recordError === null && (
         <div className="stop-prompt">
           <button className="stop-prompt__undo" onClick={undoStop} title="Resume the session">
             Undo
@@ -381,6 +652,35 @@ export default function App(): React.JSX.Element {
           <button onClick={() => answerStop('tired')}>tired</button>
           <button onClick={() => answerStop('interrupted')}>cut off</button>
           <button className="stop-prompt__skip" onClick={() => answerStop(null)} title="Skip">
+            &times;
+          </button>
+        </div>
+      )}
+
+      {/* Declared after the dial, like the rest of the chrome: Electron
+          resolves overlapping drag regions by document order, so a control
+          declared before the surface it covers renders, highlights in
+          devtools, and never receives a click.
+
+          The inline styles are a placeholder so this is legible today without
+          reaching into `main.css`, which the artist owns. They belong in a
+          `.card__error` rule — the markup is already classed for it. */}
+      {recordError !== null && (
+        <div className="card__error" role="alert">
+          <span className="card__error-body">
+            <b>This session was not saved.</b>
+            The timer stopped normally, but writing it to the database failed, so nothing you typed
+            about it was stored either. The run&apos;s timing is lost.
+            {/* The raw reason, kept but set apart. Running it into the prose
+                read as a sentence that trailed off into jargon; on its own
+                line it is what it is - the detail to quote when asking why. */}
+            <span className="card__error-reason">{recordError}</span>
+          </span>
+          <button
+            className="card__error-dismiss"
+            onClick={() => setRecordError(null)}
+            title="Dismiss"
+          >
             &times;
           </button>
         </div>
@@ -436,19 +736,27 @@ export default function App(): React.JSX.Element {
         />
 
         <div className="tools">
-          <button
-            className="icon"
-            onClick={() => setFullScreen(!full)}
-            title={full ? 'Exit full screen' : 'Full screen'}
-          >
-            <Icon name={full ? 'collapse' : 'expand'} />
-          </button>
+          {/* Minimise, then full screen, then close - the order every Windows
+              title bar uses. These three are siblings in one flex row and none
+              overlaps another, so swapping them is a plain markup move: the
+              drag-region rule is about a control overlapping a draggable
+              surface, and the whole `.tools` group already sits after the dial
+              in document order. No `order` needed, and no CSS depends on their
+              positions - nothing in main.css selects them by :first-child,
+              :last-child or :nth-. */}
           <button
             className="icon"
             onClick={() => void window.api.window.minimize()}
             title="Minimise"
           >
             <Icon name="minimize" />
+          </button>
+          <button
+            className="icon"
+            onClick={() => setFullScreen(!full)}
+            title={full ? 'Exit full screen' : 'Full screen'}
+          >
+            <Icon name={full ? 'collapse' : 'expand'} />
           </button>
           <button
             className="icon icon--danger"

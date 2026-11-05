@@ -8,12 +8,22 @@
   --border: #ffffff14;
   --text: #f2f4f7;
   --text-dim: #8b919c;
+  /* Between the page and a raised control: the Analytics panels sit above
+     `--surface` without reading as something you can press, which is what
+     `--surface-raised` implies and is too light for. */
+  --surface-panel: #1a1d23;
 
   /* Everything scales off the viewport, so one layout serves the compact
      window, a hand-resized window, and a projector in full screen. */
   --pad: clamp(6px, 6.6vmin, 44px);
   --gap: clamp(2px, 2.6vmin, 24px);
-  --clock: clamp(17px, min(18vmin, 24vw), 240px);
+  /* Sized for the mono, which is wider than the proportional face this was
+     tuned against: JetBrains Mono advances 0.6em a character, so `1:00:00` is
+     4.2em where Segoe was about 3.5em, and at the old 18vmin the last digit
+     ran past the ring's face box. The face box is fitted to the stroke and is
+     not the thing to widen - CLAUDE.md records why - so the type comes down to
+     it. Still well clear of Hourglass's own 18pt cap. */
+  --clock: clamp(15px, min(15vmin, 20vw), 200px);
   --caption: clamp(8px, 7vmin, 30px);
   --control: clamp(10px, 9vmin, 36px);
   --radius: clamp(10px, 5vmin, 24px);
@@ -46,6 +56,90 @@ input {
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
+}
+
+/* Narrower than the task field and dimmer: the category is a short repeated
+   word you mostly accept rather than type, so it should not compete with what
+   you are actually working on. Shares the label treatment otherwise. */
+/* The project sits where the status word used to, inside the dial.
+   `ready` / `running` restated what the digits already showed; what actually
+   belongs under the clock - and on camera - is what the session is for.
+
+   It borrows the clock's treatment rather than the caption's: same inherited
+   family, the same light weight and tight tracking, no uppercasing, because
+   project names are words rather than a label. Sized between the caption and
+   the clock so it reads as a subtitle and not a second headline. */
+/* The box the suggestion list hangs off. */
+.project-box {
+  position: relative;
+  width: 100%;
+}
+
+.dial__project {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  /* White, like the clock above it. It is the answer to what this session is
+     for, which is the one thing besides the time worth reading at a glance. */
+  color: var(--text);
+  font-family: inherit;
+  font-size: calc(var(--caption) * 1.15);
+  font-weight: 300;
+  letter-spacing: -0.01em;
+  text-align: center;
+  outline: none;
+}
+
+/* The placeholder stays dim - an empty field is a prompt, not a value. */
+.dial__project::placeholder {
+  color: var(--text-dim);
+}
+
+/* Floats over the dial rather than pushing it: the window is 136px at its
+   smallest and there is no room to grow. Four entries is the most that fits
+   above the controls. */
+.project-menu {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  z-index: 6;
+  min-width: 108px;
+  max-width: 190px;
+  margin: 0;
+  padding: 3px;
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px #0009;
+  list-style: none;
+  -webkit-app-region: no-drag;
+}
+
+.project-menu button {
+  display: block;
+  width: 100%;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: clamp(9px, 4.4vmin, 14px);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+/* The highlighted row is the one Enter takes, so it has to be unmistakable. */
+.project-menu button.is-active {
+  background: var(--accent);
+  color: #0b0d10;
+  font-weight: 600;
 }
 
 .label {
@@ -132,11 +226,16 @@ input {
   justify-content: center;
 }
 
+/* The one thing a viewer reads, so it takes the mono: digits on a fixed
+   advance rather than a proportional face asked to behave. Weight 350 rather
+   than 300 - a mono at its lightest goes thin against near-black, and a clock
+   that dissolves on camera is the one thing this window cannot do. */
 .dial__clock {
+  font-family: var(--font-mono);
   font-size: var(--clock);
-  font-weight: 300;
+  font-weight: 350;
   line-height: 1.05;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.035em;
   /* Stops the digits jittering as they change - important on camera. */
   font-variant-numeric: tabular-nums;
 }
@@ -964,7 +1063,7 @@ input {
 }
 
 .mono {
-  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   word-break: break-all;
 }
@@ -1471,8 +1570,13 @@ input {
 
 /* A circle gives much less room than a bar, so the ring runs its own scale. */
 .card.is-ring .dial__clock,
+/* The ring keeps its own clock size, and the mono needed it down.
+   Measured at 250x220 with JetBrains Mono: the text wanted 109px of advance in
+   a 104px box, so the last digit was clipped. 8.6vmin brings it inside with a
+   little margin, and the face box - 127px here - is not the thing to widen,
+   because it is fitted to the stroke. */
 .card.is-ring .dial__clock--input {
-  font-size: clamp(12px, 9.5vmin, 130px);
+  font-size: clamp(11px, 8.6vmin, 120px);
 }
 
 .card.is-ring .dial__caption {
@@ -1494,6 +1598,51 @@ input {
    layout, and clears itself after 30 seconds. Roughly three quarters of
    sessions end early, so a prompt that demanded an answer would fire almost
    every time and the logging would simply stop happening. */
+/* Sits directly above the reason row, sharing its treatment. Both overlay the
+   card and both are declared after the dial, which is what keeps the card
+   draggable - see CLAUDE.md on drag regions. */
+.stop-output {
+  position: absolute;
+  right: var(--pad);
+  bottom: calc(var(--pad) + 36px);
+  left: var(--pad);
+  z-index: 3;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-app-region: no-drag;
+}
+
+.stop-output input {
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-family: inherit;
+  font-size: clamp(9px, 5vmin, 15px);
+}
+
+.stop-output input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.stop-output__qty {
+  flex: 0 0 36%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.stop-output__unit {
+  flex: 1 1 auto;
+}
+
 .stop-prompt {
   position: absolute;
   right: var(--pad);
@@ -1586,7 +1735,7 @@ code {
   margin: 0 2px;
   border-radius: 5px;
   background: var(--surface-raised);
-  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -1600,9 +1749,16 @@ code {
   height: 54%;
 }
 
+/* Down from 12vmin for the mono, which is wider than the proportional face
+   this was tuned against.
+   Measured at 250x220: at 12vmin the clock wanted 109px of advance inside a
+   104px box and the last digit was clipped. The box is 82% of the face on
+   purpose - a full-width input turned the middle of the window into a dead
+   band nothing could drag - and the face itself is fitted to the stroke, so
+   neither is the thing to widen. The type comes down to them instead. */
 .card.is-ring .dial__clock,
 .card.is-ring .dial__clock--input {
-  font-size: clamp(15px, 12vmin, 160px);
+  font-size: clamp(14px, 11vmin, 150px);
 }
 
 /* ---------- controls stay visible ---------- */
@@ -1659,7 +1815,7 @@ code {
   border-radius: 8px;
   background: var(--surface-raised);
   color: var(--text);
-  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   cursor: pointer;
 }
@@ -1952,4 +2108,567 @@ code {
 
 .is-editing-row td {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* ---------- Analytics tab ---------- */
+
+/* The tab was one undifferentiated column of six full-width charts in a single
+   accent, so nothing led and everything weighed the same. Panels give it
+   rhythm, and let a chart that only needs half the width take half the width
+   rather than stretching a 300px plot across 1,500px.
+
+   Every colour here is `var(--accent)` or a neutral. Nothing hardcodes a hue,
+   so changing the accent in Settings recolours the whole tab - the charts take
+   the resolved string as a prop instead, because Recharts computes fills in
+   JavaScript where `var(...)` is not a colour. */
+
+/* Two columns, with each panel declaring whether it wants one or both.
+   Fixed rows could not survive the order becoming the user's to change - a
+   pair written into the markup comes apart the moment something is dragged
+   between them. Letting the grid pair whatever ends up adjacent keeps the
+   default arrangement identical and makes every other one land sensibly. */
+.an {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.an-slot {
+  display: flex;
+  min-width: 0;
+}
+
+.an-slot > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.an-slot--full {
+  grid-column: 1 / -1;
+}
+
+/* Below this a half-width panel stops being a readable chart. */
+@media (max-width: 1040px) {
+  .an {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- arranging ---------- */
+
+/* A mode rather than permanent furniture: the tab is read far more often than
+   it is rearranged, and a grip and a close button on every panel would make
+   the thing that is supposed to feel like progress look like a settings
+   screen. */
+.an-slot {
+  position: relative;
+}
+
+.an.is-arranging .an-slot {
+  cursor: grab;
+}
+
+.an.is-arranging .an-slot .an-panel {
+  outline: 1px dashed #ffffff2b;
+  outline-offset: -1px;
+}
+
+.an-slot.is-dragging {
+  opacity: 0.4;
+}
+
+/* While arranging, a panel's own controls step aside for the drag tools.
+   The pager on the calendar, the range buttons on hours per week and the unit
+   picker all live in the top right of the panel head, which is exactly where
+   the grip and the hide button have to go - and none of them is any use while
+   you are moving panels around rather than reading them. Hidden rather than
+   removed, so nothing reflows on the way in or out of the mode. */
+.an.is-arranging .an-panel__head > *:not(.an-panel__title) {
+  visibility: hidden;
+}
+
+.an-slot__tools {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.an-slot__grip {
+  padding: 0 4px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: grab;
+}
+
+.an-slot__hide {
+  padding: 1px 6px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.1;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.an-slot__hide:hover {
+  color: #d4707a;
+}
+
+/* ---------- the bar ---------- */
+
+.an-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  min-height: 30px;
+}
+
+.an-bar__toggle,
+.an-bar__reset {
+  padding: 4px 11px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.an-bar__toggle:hover,
+.an-bar__reset:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text);
+}
+
+.an-bar.is-arranging .an-bar__toggle {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--accent);
+}
+
+.an-bar__scale {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.an-bar__scale button {
+  min-width: 24px;
+  padding: 1px 5px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.an-bar__scale button.is-big {
+  font-size: 15px;
+}
+
+.an-bar__scale button:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.an-bar__scale button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.an-bar__scale span {
+  min-width: 38px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* Hidden panels have to be findable again - a panel with no way back is a
+   panel the user has lost, which is the one failure this feature must not
+   have. So they are listed by name rather than by a count. */
+.an-tray {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.an-tray__label {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.an-tray__item {
+  padding: 3px 9px;
+  border: 1px dashed #ffffff2b;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.an-tray__item:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  border-style: solid;
+  color: var(--text);
+}
+
+.an-bar__warn {
+  color: #c98b8b;
+  font-size: 11px;
+}
+
+.an-panel {
+  padding: 16px 18px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-panel);
+  min-width: 0;
+}
+
+/* The calendar was explicitly asked for and was the faintest thing on the
+   page. It leads now, and a wash of the accent marks it as the one panel that
+   is not simply another chart. */
+.an-panel--hero {
+  background: linear-gradient(
+    170deg,
+    color-mix(in srgb, var(--accent) 7%, var(--surface-panel)),
+    var(--surface-panel) 60%
+  );
+}
+
+.an-panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.an-panel__title {
+  margin: 0;
+  font-size: calc(13.5px * var(--an-fs, 1));
+  font-weight: 620;
+  letter-spacing: 0.01em;
+  color: var(--text);
+}
+
+/* The caption used to float under the chart as a loose paragraph. The part
+   that says what you are looking at belongs beside the title. */
+.an-panel__sub {
+  margin-left: 9px;
+  font-size: calc(11.5px * var(--an-fs, 1));
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.an-panel__note {
+  margin: 9px 0 0;
+  font-size: calc(11.5px * var(--an-fs, 1));
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.an-panel__note b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ---------- Analytics: the figure row ---------- */
+
+/* Four identical grey boxes said four equally important things. The week just
+   gone is the one a reader opens the tab for, so it leads and takes the
+   accent; the rest support it. */
+.an-stats {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 1040px) {
+  .an-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.an-stat {
+  padding: 15px 17px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-panel);
+}
+
+.an-stat--lead {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 16%, var(--surface-panel)),
+    var(--surface-panel)
+  );
+}
+
+.an-stat strong {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: calc(27px * var(--an-fs, 1));
+  font-weight: 640;
+  letter-spacing: -0.6px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.an-stat--lead strong {
+  color: var(--accent);
+}
+
+.an-stat span {
+  display: block;
+  margin-top: 5px;
+  font-size: calc(11.5px * var(--an-fs, 1));
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+/* Direction is worth a colour because it is the one thing in the row that is
+   good or bad rather than merely a quantity - but muted, not alarm red.
+   Demoting the week comparison out of the hero slot is pointless if it is
+   still the loudest thing on the row, and a lighter week is a fact about a
+   week rather than an error state. Dim enough to read as a note on the figure
+   above it, saturated enough to tell the two directions apart at a glance. */
+.an-stat .is-down {
+  color: #c98b8b;
+}
+
+.an-stat .is-up {
+  color: #7fc4a0;
+}
+
+/* ---------- Analytics: panels that have no data ---------- */
+
+/* Two panels lack data for different reasons, and both must read as
+   deliberately unfilled rather than broken. Time of day can never be filled
+   from imported history, because a countdown reading is not a clock time; the
+   pace chart fills as soon as the app is in daily use. Same treatment, so they
+   look like one kind of thing, with different sentences.
+
+   The track stays drawn as a dashed outline rather than being hidden: a panel
+   that disappears until it has data cannot teach anyone the feature exists. */
+.an-empty {
+  margin-top: 13px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #ffffff06;
+}
+
+.an-empty__title {
+  display: block;
+  margin-bottom: 4px;
+  font-size: calc(12.5px * var(--an-fs, 1));
+  font-weight: 600;
+  color: var(--text);
+}
+
+.an-empty__body {
+  margin: 0;
+  font-size: calc(11.5px * var(--an-fs, 1));
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.an-empty__meter {
+  margin-top: 10px;
+  height: 4px;
+  border-radius: 3px;
+  background: #ffffff0d;
+  overflow: hidden;
+}
+
+.an-empty__meter i {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+/* The placeholder track: the shape the chart will take, drawn as an outline so
+   it reads as a slot waiting to be filled rather than as empty cells. */
+.an-track {
+  display: flex;
+  gap: 3px;
+}
+
+.an-track span {
+  flex: 1 1 0;
+  height: 30px;
+  border: 1px dashed #ffffff1a;
+  border-radius: 5px;
+}
+
+.an-track span.is-on {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.an-track__axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: 10px;
+  color: #6b717c;
+}
+
+/* ---------- Analytics: a panel's own range control ---------- */
+
+/* Small, quiet, and in the panel header rather than above the chart: it
+   changes what one panel shows, so it must not read as a filter over the
+   whole tab the way the Data tab's date presets do.
+
+   Buttons rather than a dropdown, because these are one-tap shortcuts between
+   three fixed spans rather than a persistent selection out of many - the same
+   split the Data tab already makes between its date presets and its Source
+   picker. The selected one is marked with a surface rather than the accent
+   fill, which at this size would make a range control the loudest thing in
+   the panel. */
+.an-seg {
+  display: flex;
+  gap: 3px;
+}
+
+.an-seg button {
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.an-seg button:hover {
+  color: var(--text);
+}
+
+.an-seg button.is-on {
+  border-color: var(--border);
+  background: #ffffff0f;
+  color: var(--text);
+}
+
+/* ---------- a run that could not be saved ---------- */
+
+/* The one message in this window that reports a loss, so it is the one thing
+   allowed to break the palette - but quietly. It sits in a window that is
+   filmed, and a saturated red slab is both louder than the clock and the kind
+   of thing nobody wants in footage.
+
+   So: the accent's own geometry - the radius and inset of the stop prompt it
+   replaces - with a desaturated red that reads as serious at a glance and
+   does not shout from across a room. A left rule rather than a full border,
+   because the border was doing the whole job of saying "this is different"
+   and a rule says it with a tenth of the ink.
+
+   It never auto-dismisses, so it must stay legible at 250px for as long as it
+   takes to read twice. */
+.card__error {
+  position: absolute;
+  inset: auto var(--pad) var(--pad);
+  z-index: 6;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px 8px 11px;
+  border-radius: 9px;
+  border-left: 2px solid #d4707a;
+  background: color-mix(in srgb, #d4707a 11%, var(--surface));
+  backdrop-filter: blur(8px);
+  color: var(--text);
+  font-size: clamp(9px, 4.6vmin, 15px);
+  line-height: 1.4;
+  text-align: left;
+  -webkit-app-region: no-drag;
+}
+
+.card__error-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.card__error-body b {
+  display: block;
+  font-weight: 600;
+}
+
+/* The raw reason, set apart rather than run into the prose - it is the detail
+   to quote when asking why, not part of the sentence. */
+.card__error-reason {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-family: var(--font-mono, 'Cascadia Mono', Consolas, monospace);
+  font-size: 0.85em;
+  word-break: break-word;
+}
+
+.card__error-dismiss {
+  flex: 0 0 auto;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 1.2em;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.card__error-dismiss:hover {
+  color: var(--text);
+}
+
+/* ---------- numerals ---------- */
+
+/* Numbers get the mono everywhere, not only where they line up in a column. A
+   figure and its unit belong to one system, so a tile, an axis tick and a
+   table value sit on the same advance - which is also what stops an axis
+   shifting as its labels change width.
+
+   `.ac` reaches inside Recharts' own SVG, where a CSS rule lands reliably and
+   a font-family attribute on a tick does not. */
+.ac .recharts-cartesian-axis-tick text,
+.ac .recharts-label,
+.ac .recharts-text.recharts-label {
+  font-family: var(--font-mono);
 }

@@ -1,4 +1,4 @@
-import { openDatabase } from './index'
+import { checkpoint, openDatabase } from './index'
 import type { ImportRow } from '../import/csv'
 
 export interface ImportResult {
@@ -42,16 +42,24 @@ export function importRows(rows: ImportRow[]): ImportResult {
     let projectsCreated = 0
 
     for (const row of rows) {
-      let projectId = projectIds.get(row.project)
-      if (projectId === undefined) {
-        const existing = findProject.get(row.project) as { id: number } | undefined
-        if (existing) {
-          projectId = Number(existing.id)
-        } else {
-          projectId = Number(insertProject.run(row.project).lastInsertRowid)
-          projectsCreated += 1
+      // A null project is stored as a null `project_id`, not as a project
+      // literally called "Unlabelled". Unlabelled is the absence of a row in
+      // `projects`, which is what `querySessions`'s -1 sentinel filters on; a
+      // real project by that name would be a 37th category that the user never
+      // created and would have to maintain.
+      let projectId: number | null = null
+      if (row.project !== null) {
+        projectId = projectIds.get(row.project) ?? null
+        if (projectId === null) {
+          const existing = findProject.get(row.project) as { id: number } | undefined
+          if (existing) {
+            projectId = Number(existing.id)
+          } else {
+            projectId = Number(insertProject.run(row.project).lastInsertRowid)
+            projectsCreated += 1
+          }
+          projectIds.set(row.project, projectId)
         }
-        projectIds.set(row.project, projectId)
       }
 
       insertSession.run(
@@ -68,6 +76,8 @@ export function importRows(rows: ImportRow[]): ImportResult {
     }
 
     db.exec('COMMIT')
+    // Thousands of rows is exactly the case that must not sit in the -wal.
+    checkpoint()
     return { sessions: rows.length, projectsCreated, replaced: Number(replaced) }
   } catch (error) {
     db.exec('ROLLBACK')

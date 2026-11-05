@@ -21,6 +21,14 @@ export function openDatabase(): DatabaseSync {
   // foreign keys are off by default in SQLite, which would silently orphan pauses.
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA foreign_keys = ON')
+  // Without this the default is zero: a write while any other connection holds
+  // the lock fails instantly with `database is locked` rather than waiting.
+  // Two copies of the app - the installed one and a `npm run dev`, say - then
+  // throw on every session they try to record, and the throw lands in an event
+  // handler where Electron turns it into a crash dialog. Verified across two
+  // real processes: without it the second writer threw immediately; with it the
+  // write waited 1,087 ms for the lock and succeeded.
+  db.exec('PRAGMA busy_timeout = 5000')
   migrate(db)
   return db
 }
@@ -59,7 +67,89 @@ function migrate(connection: DatabaseSync): void {
   }
 }
 
+/**
+ * Forces the write-ahead log into the database file.
+ *
+ * In WAL mode a committed row lives in `deepwork.db-wal` until a checkpoint
+ * copies it across. That is normally invisible - SQLite reads both files as
+ * one, and checkpoints on the last clean close. But if the `-wal` is ever
+ * separated from the `.db` while nothing is running, the database opens fine
+ * and is simply missing everything since the last checkpoint: no error, no
+ * corruption, just rows that are gone. That is the shape of the loss seen on
+ * 2026-09-23, where the main file had never grown past an empty schema while a
+ * backup proved 2,363 rows had existed.
+ *
+ * So anything that writes rows worth keeping calls this immediately after
+ * committing. It costs milliseconds and removes the window entirely. TRUNCATE
+ * rather than PASSIVE because the point is to leave nothing behind; a reader
+ * can refuse it, which is why it is allowed to fail quietly - the next write
+ * will try again, and a clean close still checkpoints.
+ */
+export function checkpoint(): void {
+  try {
+    db?.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+  } catch {
+    /* a concurrent reader can block it; the next attempt or a clean close wins */
+  }
+}
+
+/**
+ * Whether the file is readable, checked once at startup.
+ *
+ * `quick_check` is the cheap half of `integrity_check` - it verifies page
+ * structure and indexes without the full cross-reference - and it is run once
+ * rather than on every open so a large history does not pay for it repeatedly.
+ * A database that fails this will throw `database disk image is malformed`
+ * from whichever query happens to touch the damaged page first, which reads
+ * like a bug in that query rather than a damaged file.
+ */
+export function healthCheck(): string | null {
+  try {
+    const rows = openDatabase().prepare('PRAGMA quick_check').all() as Array<{
+      quick_check: string
+    }>
+    const first = rows[0]?.quick_check ?? 'no result'
+    return first === 'ok' ? null : first
+  } catch (error) {
+    return String(error)
+  }
+}
+
+let pendingCheckpoint: NodeJS.Timeout | null = null
+
+/**
+ * A checkpoint for writes that arrive in bursts, coalesced into one.
+ *
+ * `checkpoint()` takes an exclusive lock, so calling it on every write is the
+ * wrong shape for the writes that are not one-shot: work quantity is written
+ * as the user types it, and an edit in the Data tab is a field at a time. A
+ * TRUNCATE per keystroke would thrash the lock for no benefit, since what
+ * matters is that the rows are in the `.db` shortly after the user stops, not
+ * within a millisecond of each one.
+ *
+ * The window this leaves open is the delay below - a kill inside it can still
+ * strand those frames. That is a far smaller window than the one it closes,
+ * which was unbounded: before this, work quantity, stop reasons, manual
+ * sessions, every edit, undo, and the backup directory could sit in the `-wal`
+ * indefinitely, and the session row they belonged to had already been
+ * checkpointed without them.
+ */
+export function checkpointSoon(delayMs = 1500): void {
+  if (pendingCheckpoint) clearTimeout(pendingCheckpoint)
+  pendingCheckpoint = setTimeout(() => {
+    pendingCheckpoint = null
+    checkpoint()
+  }, delayMs)
+  // Never a reason to hold the process open; a clean close checkpoints anyway.
+  pendingCheckpoint.unref?.()
+}
+
 export function closeDatabase(): void {
+  if (pendingCheckpoint) {
+    clearTimeout(pendingCheckpoint)
+    pendingCheckpoint = null
+    checkpoint()
+  }
   db?.close()
   db = null
 }
