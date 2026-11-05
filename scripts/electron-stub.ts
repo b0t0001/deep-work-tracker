@@ -21,9 +21,22 @@ export const app = {
   }
 }
 
+/**
+ * What the stub was asked to trash or open, in call order.
+ *
+ * Recorded rather than ignored for two reasons: an empty function body is a
+ * lint error, and a check that exercises retention should be able to assert
+ * *which* files would have gone to the bin without any of them moving.
+ */
+export const trashed: string[] = []
+export const opened: string[] = []
+
 export const shell = {
-  async trashItem(): Promise<void> {},
-  async openPath(): Promise<string> {
+  async trashItem(path: string): Promise<void> {
+    trashed.push(path)
+  },
+  async openPath(path: string): Promise<string> {
+    opened.push(path)
     return ''
   }
 }
