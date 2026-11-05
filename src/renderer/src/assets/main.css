@@ -2560,7 +2560,11 @@ code {
   color: var(--accent);
 }
 
-.an-stat span {
+/* The direct child only. `.an-stat span` also matched the coloured span
+   nested inside the caption, which inherited `display: block` and so forced a
+   line break either side of it - "down 37%" sat alone on a line of its own
+   with room to spare on both. */
+.an-stat > span {
   display: block;
   margin-top: 5px;
   font-size: calc(11.5px * var(--an-fs, 1));

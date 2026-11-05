@@ -936,7 +936,7 @@ function AnalyticsTab(): React.JSX.Element {
                 days answers "how long is a working day", which flatters a
                 fortnight off into nothing - settled in CLAUDE.md before this
                 control existed, and the control must not unsettle it. */}
-            {average === null ? '' : ` · every day counted, ${average.days} of them`}
+            {average === null ? '' : ` · all ${average.days} days counted`}
           </span>
         </div>
 
@@ -978,7 +978,7 @@ function AnalyticsTab(): React.JSX.Element {
               ''
             ) : (
               <>
-                {' · '}
+                {', '}
                 <span className={period.perDayChangePercent >= 0 ? 'is-up' : 'is-down'}>
                   {period.perDayChangePercent >= 0 ? 'up' : 'down'}{' '}
                   {Math.abs(Math.round(period.perDayChangePercent))}%
