@@ -119,6 +119,17 @@ const api = {
   analytics: {
     get: (): Promise<unknown> => ipcRenderer.invoke('analytics:get')
   },
+  /**
+   * What build this is, when it is not the ordinary one.
+   *
+   * `null` in the installed app and in a plain `npm run dev`; a snapshot
+   * description under `npm run preview`, where the database is a copy of the
+   * real history and everything written is disposable.
+   */
+  build: {
+    preview: (): Promise<{ takenAt: string | null; sessions: number | null } | null> =>
+      ipcRenderer.invoke('app:preview')
+  },
   ui: {
     confirm: (options: {
       title: string

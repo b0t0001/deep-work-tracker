@@ -21,6 +21,7 @@
     "dist": "npm run build:win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
+    "preview": "esbuild scripts/preview.ts --bundle --platform=node --format=cjs --target=node22 --external:node:sqlite --outfile=out/preview/index.js && node out/preview/index.js",
     "shoot": "esbuild scripts/shoot.ts --bundle --platform=node --format=cjs --target=node22 --external:electron --external:node:sqlite --outfile=out/shoot/index.js && electron out/shoot/index.js"
   },
   "dependencies": {

@@ -11,7 +11,7 @@ import {
   nativeImage,
   type IpcMainInvokeEvent
 } from 'electron'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -668,6 +668,35 @@ function registerIpc(): void {
   ipcMain.handle('backup:now', () => runBackup())
   ipcMain.handle('backup:reveal', () => revealBackups())
 
+  /**
+   * Null everywhere except a preview run, where it describes the snapshot.
+   *
+   * The dashboard says so in its header, because a preview holds a copy of
+   * the real history and is therefore the one build where the numbers look
+   * exactly right and are not the real ones. Anything the user does here is
+   * thrown away at the next `npm run preview`, and nothing warns them of that
+   * but this.
+   *
+   * It is read from a file rather than passed in the environment so that it
+   * survives relaunching the preview build by hand - the marker should not
+   * quietly disappear the second time the window is opened.
+   *
+   * Through `safely()` because it is a convenience: a preview with no marker
+   * is a cosmetic fault, and it must not be able to take the dashboard down.
+   */
+  ipcMain.handle('app:preview', () =>
+    safely(() => {
+      if (!isPreview) return null
+      const marker = join(app.getPath('userData'), 'preview-snapshot.json')
+      if (!existsSync(marker)) return { takenAt: null, sessions: null }
+      const read = JSON.parse(readFileSync(marker, 'utf8')) as {
+        takenAt?: string
+        sessions?: number
+      }
+      return { takenAt: read.takenAt ?? null, sessions: read.sessions ?? null }
+    }, null)
+  )
+
   ipcMain.handle('backup:pickRestore', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Choose a backup to restore',
@@ -747,7 +776,33 @@ function registerShortcuts(): Record<ShortcutAction, boolean> {
  * Set before `whenReady`, because `userData` is resolved the first time
  * anything asks for a path and cannot be moved afterwards.
  */
-if (is.dev) {
+/**
+ * A third profile, for testing against a copy of the real history.
+ *
+ * The dev profile deliberately holds a handful of throwaway rows, which makes
+ * it useless for judging anything the Analytics tab says - eight sessions
+ * cannot show a trend, a streak or a chart worth looking at. Copying the real
+ * history into the dev profile is the obvious fix and the wrong one: it is
+ * shared between sessions, so one session's snapshot silently becomes another
+ * session's test data.
+ *
+ * So `npm run preview` gets its own folder, filled from a snapshot by
+ * `scripts/preview.ts`. It is a copy and is always treated as disposable;
+ * nothing written here is ever copied back.
+ *
+ * The variable is honoured only when unpackaged. A packaged build ignores it
+ * entirely, so an environment variable can never move the real history's
+ * location out from under the installed app.
+ *
+ * Set before `whenReady`, with the dev split below, because `userData` is
+ * resolved the first time anything asks for a path and cannot be moved
+ * afterwards. Checked first because `is.dev` is also true here.
+ */
+const isPreview = !app.isPackaged && process.env['DWT_PROFILE'] === 'preview'
+
+if (isPreview) {
+  app.setPath('userData', join(app.getPath('appData'), 'deep-work-tracker-preview'))
+} else if (is.dev) {
   app.setPath('userData', join(app.getPath('appData'), 'deep-work-tracker-dev'))
 }
 

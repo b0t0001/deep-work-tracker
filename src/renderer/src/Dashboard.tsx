@@ -33,6 +33,7 @@ import {
 } from './components/AnalyticsCharts'
 import { StatsTable } from './components/StatsTable'
 import { CalendarHeatmap, TimeOfDayHeatmap } from './components/Heatmaps'
+import { PreviewBanner } from './components/PreviewBanner'
 
 type Tab = 'settings' | 'data' | 'analytics' | 'import'
 
@@ -1847,6 +1848,9 @@ export default function Dashboard(): React.JSX.Element {
 
   return (
     <div className="dashboard">
+      {/* Above the tabs, so it is the first thing read and is on screen
+          whichever tab is open. Renders nothing outside a preview build. */}
+      <PreviewBanner />
       <nav className="tabs">
         {TABS.map((entry) => (
           <button

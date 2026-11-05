@@ -509,6 +509,7 @@ one that has already wasted time here.
 | --- | --- | --- |
 | `deep-work-tracker` | **The real history.** The installed app. | 2,474 imported + 3 app sessions |
 | `deep-work-tracker-dev` | `npm run dev`. The only build any session may write to. **Shared between sessions**, so never overwrite it with other data - a probe that needs the real history copies `.db` + `-wal` + `-shm` into its own temp folder. | a handful of test rows |
+| `deep-work-tracker-preview` | `npm run preview`. A fresh copy of the real history, for testing anything the dev profile's handful of rows cannot show - charts, streaks, trends. Rebuilt from a snapshot on every run and **never copied back**. Owned by that command; do not hand-edit it. | whatever the last snapshot held |
 | `Electron` | Historical. A run from before `app.name` was set, so Electron used its own default. | `deepwork.db` exists, **15 pages, 0 sessions** |
 
 `Roaming\Electron\deepwork.db` is dated 2026-09-23 01:58 - twenty-eight minutes
@@ -527,6 +528,38 @@ never held a row. It is worth knowing about for two reasons:
   a bigger problem than the rows.
 
 Do not delete it without asking the user. It costs 146 KB and it is evidence.
+
+### Testing against real data: `npm run preview`
+
+The dev profile holds a handful of throwaway rows, so nothing it shows about
+charts, streaks or trends means anything. The fix is **not** to copy the real
+history into it - it is shared between sessions, and doing that once already
+turned one session's snapshot into another session's test data.
+
+`npm run preview` builds a third profile from a fresh snapshot and launches
+the app against it. Two details in `scripts/preview.ts` are the point of it:
+
+- **The snapshot is `VACUUM INTO`, not a file copy.** The installed app may be
+  running and a committed row lives in `-wal` until a checkpoint moves it, so
+  copying `.db`, `-wal` and `-shm` separately reads three files at three
+  instants that need not agree. `VACUUM INTO` writes one consistent file from
+  a single read transaction. The source is opened **read-only**, and the run
+  compares the real `.db` and `-wal` mtimes before and after and refuses to
+  launch if either moved.
+- **It asserts before it replaces.** Session counts must match and the
+  snapshot must pass `quick_check`, or nothing is overwritten. The old
+  preview `-wal` and `-shm` are deleted with the old `.db`, because a `-wal`
+  left beside a new database is the 2026-09-23 failure with the halves
+  mismatched rather than missing.
+
+Rows created in a preview are written `source='test'` like any unpackaged
+build, so they show orange and stay out of analytics. The dashboard carries a
+`Preview` banner naming the snapshot time; the timer window deliberately does
+not, because it is filmed.
+
+`DWT_PROFILE=preview` is honoured **only when unpackaged**. A packaged build
+ignores it, so the variable can never move the real history out from under the
+installed app.
 
 # Handoff - manager session, 2026-11-05
 
