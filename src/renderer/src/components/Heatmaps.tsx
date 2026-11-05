@@ -17,6 +17,7 @@
 import { useMemo, useState } from 'react'
 import type { DayTotal, HourTotal } from '@shared/analytics'
 import { EmptyState } from './AnalyticsCharts'
+import { formatDate, formatDateRange } from '@shared/dates'
 
 const DAY_MS = 86_400_000
 
@@ -161,8 +162,8 @@ function percentileHours(daily: DayTotal[]): number {
 }
 
 function dayTitle(day: DayTotal): string {
-  if (day.hours <= 0 && day.sessions === 0) return `${day.date} — no work`
-  return `${day.date} — ${formatHours(day.hours)} h, ${plural(day.sessions, 'session')}`
+  if (day.hours <= 0 && day.sessions === 0) return `${formatDate(day.date)} — no work`
+  return `${formatDate(day.date)} — ${formatHours(day.hours)} h, ${plural(day.sessions, 'session')}`
 }
 
 function monthYear(date: string): string {
@@ -426,8 +427,8 @@ export function TimeOfDayHeatmap({
     timedFirst === null || timedLast === null
       ? ''
       : timedFirst === timedLast
-        ? `, all on ${timedFirst}`
-        : `, ${timedFirst} to ${timedLast}`
+        ? `, all on ${formatDate(timedFirst)}`
+        : `, ${formatDateRange(timedFirst, timedLast)}`
 
   /*
    * Below the threshold the grid is not drawn at all.

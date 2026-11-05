@@ -17,6 +17,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   ReferenceLine,
   ResponsiveContainer,
   Scatter,
@@ -26,6 +27,7 @@ import {
   YAxis,
   ZAxis
 } from 'recharts'
+import { formatDate } from '@shared/dates'
 import type {
   DayTotal,
   PacePoint,
@@ -186,6 +188,14 @@ const CHART_CSS = `
   fill: var(--text-dim);
   font-size: 11px;
 }
+/* The value drawn on a point or a bar. It is the series speaking rather than a
+   caption about it, so it takes the accent - and it needs its own selector
+   because the rule above wins over a fill attribute on the element. */
+.ac .recharts-text.ac__value {
+  fill: var(--accent);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
 `
 
 /**
@@ -342,6 +352,8 @@ interface Point {
   from: string
   /** Pre-labelled; blank elsewhere so Recharts cannot thin the wrong ones. */
   tick: string
+  /** The value drawn on the point, or blank where it would collide. */
+  label: string
 }
 
 export function HoursOverTime({
@@ -394,7 +406,10 @@ export function HoursOverTime({
         <Empty height={220}>No sessions recorded yet.</Empty>
       ) : (
         <ResponsiveContainer width="100%" height={220}>
-          <AreaChart data={points} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+          {/* Top margin carries the value labels. At 4 the peak sits on the
+              axis ceiling and its own label is clipped off the top - which is
+              the one point you most want named. */}
+          <AreaChart data={points} margin={{ top: 18, right: 10, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={GRID} vertical={false} />
             <XAxis dataKey="tick" interval={0} tickLine={false} />
             <YAxis width={36} tickLine={false} />
@@ -404,7 +419,7 @@ export function HoursOverTime({
               labelFormatter={(_label: React.ReactNode, payload): string => {
                 const row = payload?.[0]?.payload as Point | undefined
                 if (!row) return ''
-                return byDay ? row.from : `Week of ${row.from}`
+                return byDay ? formatDate(row.from) : `Week of ${formatDate(row.from)}`
               }}
             />
             {/* A flat fill, not a gradient. The area is there to give the line
@@ -422,7 +437,12 @@ export function HoursOverTime({
               dot={false}
               activeDot={{ r: 3, strokeWidth: 0 }}
               isAnimationActive={false}
-            />
+            >
+              {/* The value on the point, the way a spreadsheet does it. Accent
+                  rather than --text-dim: it is the series speaking, not a
+                  caption about it. */}
+              <LabelList dataKey="label" position="top" offset={7} className="ac__value" />
+            </Area>
           </AreaChart>
         </ResponsiveContainer>
       )}
@@ -467,10 +487,36 @@ function seriesFor(daily: DayTotal[], days: number, byDay: boolean): Point[] {
       hours: round(found.hours, 2),
       sessions: found.sessions,
       from: isoDate(key),
-      tick: ''
+      tick: '',
+      label: ''
     })
   }
-  return label(out, byDay)
+  return valueLabels(label(out, byDay))
+}
+
+/**
+ * Which points carry their value on the chart.
+ *
+ * All of them while they fit - a fortnight of daily points is 14 numbers
+ * and reads like the spreadsheet this replaces. Past that they collide,
+ * and the honest thinning is to keep the peak rather than every nth: an
+ * arbitrary sample labels whichever days happen to land on the stride,
+ * which tells the reader nothing about why those and not others.
+ *
+ * Zeroes never carry a label. A run of empty days would otherwise be a row
+ * of `0 h` along the axis, which is the loudest possible way to say nothing
+ * happened.
+ */
+const LABEL_ALL_UP_TO = 16
+
+function valueLabels(points: Point[]): Point[] {
+  if (points.length === 0) return points
+  const show = (hours: number): string => (hours > 0 ? round(hours, 1).toString() : '')
+  if (points.length <= LABEL_ALL_UP_TO) {
+    return points.map((point) => ({ ...point, label: show(point.hours) }))
+  }
+  const peak = points.reduce((best, point) => (point.hours > best.hours ? point : best))
+  return points.map((point) => (point === peak ? { ...point, label: show(point.hours) } : point))
 }
 
 /**
@@ -588,7 +634,19 @@ export function ByProject({
               fill={accent}
               radius={[0, 2, 2, 0]}
               isAnimationActive={false}
-            />
+            >
+              {/* Eleven bars, so every one carries its value. Outside the bar
+                  end rather than inside it: the shortest bars have no room
+                  within them, and a label that sometimes sits inside and
+                  sometimes outside reads as two different things. */}
+              <LabelList
+                dataKey="hours"
+                position="right"
+                offset={6}
+                className="ac__value"
+                formatter={(value: React.ReactNode) => `${Math.round(Number(value))} h`}
+              />
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -985,7 +1043,7 @@ export function RateTrend({
               cursor={{ stroke: '#ffffff20' }}
               labelFormatter={(_label: React.ReactNode, payload): string => {
                 const row = payload?.[0]?.payload as RateDot | undefined
-                return row ? `${row.date} — ${row.quantity} ${unit}` : ''
+                return row ? `${formatDate(row.date)} — ${row.quantity} ${unit}` : ''
               }}
             />
             <Scatter
@@ -1093,7 +1151,7 @@ export function PaceAccuracy({
                   className={i < dots.length ? 'is-on' : undefined}
                   title={
                     i < dots.length
-                      ? `${dots[i].date} — ${dots[i].actual} of ${dots[i].target} ${dots[i].unit} (${Math.round(dots[i].ratio * 100)}%)`
+                      ? `${formatDate(dots[i].date)} — ${dots[i].actual} of ${dots[i].target} ${dots[i].unit} (${Math.round(dots[i].ratio * 100)}%)`
                       : 'no paced session yet'
                   }
                 />
@@ -1168,7 +1226,9 @@ export function PaceAccuracy({
             cursor={{ stroke: '#ffffff20' }}
             labelFormatter={(_label: React.ReactNode, payload): string => {
               const row = payload?.[0]?.payload as PaceDot | undefined
-              return row ? `${row.date} — ${row.actual} of ${row.target} ${row.unit}` : ''
+              return row
+                ? `${formatDate(row.date)} — ${row.actual} of ${row.target} ${row.unit}`
+                : ''
             }}
           />
           <Scatter

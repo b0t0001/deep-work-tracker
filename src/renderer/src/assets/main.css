@@ -2076,33 +2076,50 @@ code {
 
 .row-actions {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   justify-content: flex-end;
 }
 
-.row-actions button {
-  padding: 3px 9px;
+/* Icons rather than the words Edit and Delete - two words of chrome in every
+   one of 2,478 rows was most of what the column weighed. Sized to the row's
+   text rather than to a toolbar: a 14px glyph sits on the cap height of the
+   line beside it instead of forcing the row taller, which is the fault the
+   date column already had. */
+.row-action {
+  display: inline-flex;
+  padding: 4px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
   color: var(--text-dim);
-  font-size: 12px;
   cursor: pointer;
   transition:
     color 120ms ease,
     border-color 120ms ease;
 }
 
-.row-actions button:hover {
-  color: var(--text);
-  border-color: var(--border);
+.row-action svg {
+  display: block;
+  width: 14px;
+  height: 14px;
 }
 
-/* Delete is reversible here - undo is one button away - so it is marked rather
-   than guarded behind a confirmation that would be in the way every time. */
-.row-actions__danger:hover {
-  color: #fca5a5 !important;
-  border-color: #fca5a555 !important;
+.row-action:hover {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* Red on hover only. A destructive colour sitting in every row of a
+   2,478-row table is noise that stops being read, and this column is scrolled
+   past far more often than it is used.
+
+   It must not read as lighter than the word it replaces, though: CLAUDE.md
+   records that deleting an imported row asks twice, and this one icon is the
+   trigger for both that and the single-confirm case. So the hover state is the
+   full danger colour rather than a tint. */
+.row-action--danger:hover {
+  border-color: #fca5a555;
+  color: #fca5a5;
 }
 
 .is-editing-row td {

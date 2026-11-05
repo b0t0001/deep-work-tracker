@@ -17,6 +17,8 @@ export type IconName =
   | 'check'
   | 'minimize'
   | 'close'
+  | 'edit'
+  | 'trash'
 
 const PATHS: Record<IconName, React.JSX.Element> = {
   play: <path d="M5 3.5v9l8-4.5z" />,
@@ -104,6 +106,28 @@ const PATHS: Record<IconName, React.JSX.Element> = {
       d="M8 5.6a2.4 2.4 0 100 4.8 2.4 2.4 0 000-4.8zM7.1 1.5h1.8l.3 1.7 1.3.5 1.4-1 1.3 1.3-1 1.4.5 1.3 1.7.3v1.8l-1.7.3-.5 1.3 1 1.4-1.3 1.3-1.4-1-1.3.5-.3 1.7H7.1l-.3-1.7-1.3-.5-1.4 1-1.3-1.3 1-1.4-.5-1.3-1.7-.3V7.1l1.7-.3.5-1.3-1-1.4 1.3-1.3 1.4 1 1.3-.5z"
       fillRule="evenodd"
     />
+  ),
+  /* Outline, 1.5 stroke, like expand/collapse/close rather than the solid
+     glyphs - these sit in a table row at text size, where a filled shape
+     reads as a blob. */
+  edit: (
+    <path
+      d="M2.8 10.4l6.6-6.6 2.8 2.8-6.6 6.6-3.2.4zM10.2 2.4l1.3-1.3a1 1 0 011.4 0l1.4 1.4a1 1 0 010 1.4l-1.3 1.3z"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinejoin="round"
+    />
+  ),
+  /* A lid that overhangs and a tapered body - the silhouette has to read as a
+     bin at 14px, where a plain rectangle reads as a box. Two ribs rather than
+     three: at this size three fill in. */
+  trash: (
+    <g fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+      <path d="M2.6 4.2h10.8M6.3 4.2V2.9a.9.9 0 01.9-.9h1.6a.9.9 0 01.9.9v1.3" />
+      <path d="M4 4.2l.7 8.5a1 1 0 001 .9h4.6a1 1 0 001-.9l.7-8.5" strokeLinejoin="round" />
+      <path d="M6.7 6.9v4M9.3 6.9v4" />
+    </g>
   ),
   minimize: <rect x="3" y="7.4" width="10" height="1.4" rx="0.7" />,
   close: (

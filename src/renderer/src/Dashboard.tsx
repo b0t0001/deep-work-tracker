@@ -3,6 +3,7 @@ import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/acce
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
 import { previousDay, weekOverWeek, type Analytics } from '@shared/analytics'
+import { formatDate, formatDateRange } from '@shared/dates'
 import {
   MAX_FONT_SCALE,
   MIN_FONT_SCALE,
@@ -10,6 +11,7 @@ import {
   type Layout,
   type PanelId
 } from '@shared/layout'
+import Icon from './components/Icon'
 import { useLayout } from './lib/layout'
 import { useAccentSync } from './lib/accent'
 import {
@@ -324,7 +326,7 @@ function Backups(): React.JSX.Element {
         `Replace everything with ${preview.rows.toLocaleString()} sessions ` +
         `(${preview.hours.toFixed(1)} h, ${preview.projects} projects)?`,
       detail:
-        `The backup covers ${preview.firstDate} to ${preview.lastDate}.\n\n` +
+        `The backup covers ${formatDateRange(preview.firstDate, preview.lastDate)}.\n\n` +
         (preview.replaces > 0
           ? `${preview.replaces.toLocaleString()} sessions currently in the app will be replaced. A backup of them is written first, so this is reversible.`
           : 'There is nothing in the app to replace.'),
@@ -775,7 +777,7 @@ function AnalyticsTab(): React.JSX.Element {
   const stale = week.thisWeekDays === 0
   const change = stale
     ? data.lastDate
-      ? `no sessions logged since ${data.lastDate}`
+      ? `no sessions logged since ${formatDate(data.lastDate)}`
       : 'no sessions logged yet'
     : week.perDayChangePercent === null
       ? 'nothing the week before to compare against'
@@ -796,7 +798,7 @@ function AnalyticsTab(): React.JSX.Element {
         <h2>Analytics</h2>
         {data.firstDate && data.lastDate && (
           <p className="data-head__span">
-            recorded {data.firstDate} to {data.lastDate}
+            recorded {formatDateRange(data.firstDate, data.lastDate)}
           </p>
         )}
       </header>
@@ -1203,7 +1205,7 @@ function DataTab(): React.JSX.Element {
     const confirmed = await window.api.ui.confirm({
       title: 'Delete session',
       message: `Delete ${row.task ?? 'this unlabelled session'}?`,
-      detail: `${row.session_date ?? 'no date'} · ${hours(row.running_duration_s)} recorded.
+      detail: `${formatDate(row.session_date) || 'no date'} · ${hours(row.running_duration_s)} recorded.
 
 This can be undone.`,
       confirmLabel: 'Delete'
@@ -1219,7 +1221,7 @@ This can be undone.`,
       const again = await window.api.ui.confirm({
         title: 'This row came from the spreadsheet',
         message: 'Delete imported history?',
-        detail: `${row.session_date ?? 'no date'} · ${row.task ?? 'unlabelled'}
+        detail: `${formatDate(row.session_date) || 'no date'} · ${row.task ?? 'unlabelled'}
 
 Undo brings it back, and so does re-importing the CSV — but re-importing replaces every imported row, so it would discard any edits made to the others.`,
         confirmLabel: 'Delete imported row'
@@ -1260,9 +1262,7 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
             : `${firstShown.toLocaleString()}–${lastShown.toLocaleString()} of ${total.toLocaleString()} · ${hours(totalRunningS)} ${filtered ? 'in this filter' : 'in total'}`}
         </p>
         {earliest && latest && (
-          <p className="data-head__span">
-            recorded {earliest} to {latest}
-          </p>
+          <p className="data-head__span">recorded {formatDateRange(earliest, latest)}</p>
         )}
       </header>
 
@@ -1441,7 +1441,7 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
                 key={row.id}
                 className={editing !== 'new' && editing?.id === row.id ? 'is-editing-row' : ''}
               >
-                <td>{row.session_date ?? '—'}</td>
+                <td className="nowrap">{formatDate(row.session_date) || '—'}</td>
                 {/* Named, not dashed. A session with no project is a specific
                     thing the user can act on - the project filter has an
                     Unlabelled option and the whole point of it is that a week
@@ -1460,15 +1460,24 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
                   <span className={`badge badge--${row.source}`}>{row.source}</span>
                 </td>
                 <td className="row-actions">
-                  <button onClick={() => setEditing(row)} title="Edit">
-                    Edit
+                  {/* The words are gone but the accessible name is not: this
+                      column is how a mislabelled session gets fixed, and it is
+                      the only place in the app that can lose a row. */}
+                  <button
+                    className="row-action"
+                    onClick={() => setEditing(row)}
+                    title="Edit"
+                    aria-label={`Edit the session on ${formatDate(row.session_date) || 'no date'}`}
+                  >
+                    <Icon name="edit" />
                   </button>
                   <button
-                    className="row-actions__danger"
+                    className="row-action row-action--danger"
                     onClick={() => void remove(row)}
                     title="Delete — undoable"
+                    aria-label={`Delete the session on ${formatDate(row.session_date) || 'no date'}`}
                   >
-                    Delete
+                    <Icon name="trash" />
                   </button>
                 </td>
               </tr>
@@ -1589,9 +1598,7 @@ function ImportTab(): React.JSX.Element {
               <span>projects</span>
             </div>
             <div>
-              <strong>
-                {preview.firstDate} → {preview.lastDate}
-              </strong>
+              <strong>{formatDateRange(preview.firstDate, preview.lastDate)}</strong>
               <span>range</span>
             </div>
           </div>
