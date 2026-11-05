@@ -34,6 +34,20 @@ export function formatDate(iso: string | null | undefined): string {
 }
 
 /**
+ * `MM/DD` - a day without its year, for chart axes and other places where
+ * the year is already on screen.
+ *
+ * Month first for the same reason as `formatDate`. The axes printed `11 Sep`,
+ * which is day-first: unambiguous because the month is a word, but it is the
+ * order the user asked never to see, and two orders on one screen is how
+ * `05/11` got read as May.
+ */
+export function formatMonthDay(iso: string | null | undefined): string {
+  const full = formatDate(iso)
+  return /^\d{2}\/\d{2}\/\d{4}$/.test(full) ? full.slice(0, 5) : full
+}
+
+/**
  * A stored timestamp as a date and a time.
  *
  * `started_at` and `ended_at` are ISO 8601 UTC, so they are converted to local

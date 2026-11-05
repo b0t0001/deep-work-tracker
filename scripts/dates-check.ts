@@ -9,7 +9,7 @@
  * than the ones where it works: something that is not a stored date must come
  * back untouched, not be reinterpreted into a plausible wrong day.
  */
-import { formatDate, formatDateRange, formatDateTime } from '../src/shared/dates'
+import { formatDate, formatDateRange, formatDateTime, formatMonthDay } from '../src/shared/dates'
 
 let pass = 0
 let fail = 0
@@ -65,6 +65,13 @@ eq(
 eq('one day is one date', formatDateRange('2026-10-02', '2026-10-02'), '10/02/2026')
 eq('a missing end gives the start', formatDateRange('2026-10-02', null), '10/02/2026')
 eq('both missing is empty', formatDateRange(null, null), '')
+
+console.log('')
+console.log('--- formatMonthDay: chart axes, month first ---')
+eq('September 11th is 09/11, never 11 Sep', formatMonthDay('2026-09-11'), '09/11')
+eq('padded', formatMonthDay('2026-01-05'), '01/05')
+eq('null is empty', formatMonthDay(null), '')
+eq('not a stored date: untouched', formatMonthDay('Sep 11'), 'Sep 11')
 
 console.log('')
 console.log(pass + ' passed, ' + fail + ' failed')

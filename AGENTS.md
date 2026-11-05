@@ -462,6 +462,19 @@ in-flight work to unblock your own build.
   draws right - a band scale maps by index - so no screenshot shows it; only
   hovering does, and the tooltip then reports a day up to 1,000 px from the
   cursor (item 15). Thin labels with `tickFormatter`, never by blanking the key.
+- **A chart can be drawn right and wired wrong, and no still image says so.**
+  A band scale places the area, the labels and the axis text by index, but
+  resolves a hover by value - so item 15 was correct in every screenshot ever
+  taken of it. Hover behaviour needs a hover check: `scripts/hours-tooltip-check.ts`
+  is the pattern (real input through `webContents.debugger`, window-occlusion
+  detection off, chart found by its heading, and a missing chart fails rather
+  than skips). A covered window is treated as hidden and stops running hover
+  state: the same sweep gave 29/60 and then 0/48 against one build.
+- **`git add <path>` commits everyone's edits to that path.** In the shared
+  tree, a file you touched may also hold another session's unfinished work;
+  042fd89 swept up the item 15 fix that way. Before committing, check
+  `git status` / `git diff <path>` for hunks you did not write, and use
+  `git add -p` or wait for the owner to commit.
 - **Probe one chart, not the page.** Scope every selector to that panel's
   wrapper: there are seven charts, and a page-wide `.recharts-tooltip-wrapper`
   reads whichever one answers first. Hover with real input (CDP
