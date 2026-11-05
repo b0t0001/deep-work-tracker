@@ -9,6 +9,15 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # Working material, not the app. Without these the installer carries every
+  # internal document and test harness in the repo - CLAUDE.md alone is 57KB
+  # of reasoning aimed at whoever is editing the code, `notes/` is one session
+  # arguing with another, and `scripts/` is seven harnesses that only run
+  # against a checkout. None of it is read at runtime, all of it is in git,
+  # and a doc-only commit should not change what ships.
+  - '!{notes,scripts}/**'
+  - '!{AGENTS.md,CLAUDE.md,PROJECT_PLAN.md}'
+  - '!SPEC-*.md'
 asarUnpack:
   - resources/**
 win:
