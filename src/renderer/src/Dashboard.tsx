@@ -4,7 +4,13 @@ import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
 import { streaks, weekOverWeek, type Analytics } from '@shared/analytics'
 import { useAccentSync } from './lib/accent'
-import { ByProject, HoursOverTime, PlannedVsActual, RateTrend } from './components/AnalyticsCharts'
+import {
+  ByProject,
+  HoursOverTime,
+  PaceAccuracy,
+  PlannedVsActual,
+  RateTrend
+} from './components/AnalyticsCharts'
 import { CalendarHeatmap, TimeOfDayHeatmap } from './components/Heatmaps'
 
 type Tab = 'settings' | 'data' | 'analytics' | 'import'
@@ -592,6 +598,13 @@ function AnalyticsTab(): React.JSX.Element {
             timedLast={data.timedLast}
             accent={accent}
           />
+        </div>
+        {/* Full width and last for now. It may read better beside the
+            time-of-day panel, since those two are the pair that fill from use
+            rather than from the import and will sit in their empty state
+            together — but that is a layout call, so it is the artist's. */}
+        <div className="an-row">
+          <PaceAccuracy pace={data.pace} accent={accent} />
         </div>
       </div>
     </section>

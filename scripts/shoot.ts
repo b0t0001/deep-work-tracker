@@ -235,7 +235,7 @@ const SHOTS: Shot[] = [
     // which succeeded, moved nothing, and produced a picture of the top of the
     // tab filed as the bottom of it. A window taller than the content cannot
     // fail that way, and the window is never shown, so the size costs nothing.
-    height: 1900,
+    height: 2400,
     route: '/dashboard',
     drive: `click('.tabs .tab:nth-child(3)'); await wait(2500);`,
     note: 'The whole Analytics tab in one frame. It is six visualisations tall, so the 660px shot shows the first two and every fault that matters - an empty series, a wrapped label, a thinned axis, the time-of-day caveat - is below that fold.'

@@ -59,6 +59,21 @@ function monthLabel(date: string): string {
   return `${MONTHS[m - 1]} ’${String(y).slice(2)}`
 }
 
+/**
+ * A month name is the wrong grain for a short span.
+ *
+ * The pace chart starts out covering a fortnight, and `monthLabel` across one
+ * gives `Oct '26, Oct '26, Nov '26, Nov '26` — four ticks saying two things,
+ * which reads as a broken axis. Under about four months the day is what
+ * distinguishes one tick from the next; past that the day is noise and the
+ * month carries it.
+ */
+function spanLabel(date: string, days: number): string {
+  if (days > 120) return monthLabel(date)
+  const [, m, d] = date.split('-').map(Number)
+  return `${d} ${MONTHS[m - 1]}`
+}
+
 /** Captions read as prose, so a count of one must not say "1 sessions". */
 function count(n: number, noun: string): string {
   return `${n.toLocaleString()} ${noun}${n === 1 ? '' : 's'}`
@@ -904,8 +919,9 @@ export function PaceAccuracy({
             Set a target from the pace button beside start — something like 100 words per 20 minutes
             — and the session is recorded against it. This chart then shows what you produced as a
             share of what you aimed at, with 1.0 the line where the prediction landed. The imported
-            history never contributes: Hourglass stored a countdown reading with no target attached,
-            so none of those {count(2474, 'row')} carries one.
+            history never contributes, however much of it there is: Hourglass stored a countdown
+            reading with no target attached, so not one of those rows carries a pace to compare
+            against.
           </p>
           <div className="an-empty__meter">
             <i style={{ width: `${Math.min(100, (dots.length / FEW_PACED) * 100)}%` }} />
@@ -924,8 +940,12 @@ export function PaceAccuracy({
   const met = dots.filter((d) => d.ratio >= 1).length
   const mean = dots.reduce((sum, d) => sum + d.ratio, 0) / dots.length
   // Headroom above the reference line, so a run that beat its target is not
-  // drawn flush against the top edge.
-  const ceiling = Math.max(1.2, round(Math.max(...dots.map((d) => d.ratio)) * 1.1, 2))
+  // drawn flush against the top edge. Rounded up to a half, and ticked in
+  // halves, because letting Recharts divide an arbitrary ceiling gave
+  // `0.35× 0.7× 1.05×` - gridlines at values nobody thinks in. Halves put a
+  // line exactly on 1.0, which is the one number this chart is about.
+  const ceiling = Math.max(1.5, Math.ceil(Math.max(...dots.map((d) => d.ratio)) * 2.2) / 2)
+  const ticks = Array.from({ length: Math.round(ceiling * 2) + 1 }, (_, i) => i / 2)
 
   return (
     <Frame
@@ -941,7 +961,9 @@ export function PaceAccuracy({
             dataKey="day"
             domain={[low - pad, high + pad]}
             tickLine={false}
-            tickFormatter={(value: string | number): string => monthLabel(isoDate(Number(value)))}
+            tickFormatter={(value: string | number): string =>
+              spanLabel(isoDate(Number(value)), high - low)
+            }
           />
           <YAxis
             type="number"
@@ -949,6 +971,7 @@ export function PaceAccuracy({
             width={48}
             tickLine={false}
             domain={[0, ceiling]}
+            ticks={ticks}
             allowDataOverflow
             tickFormatter={(value: string | number): string => `${Number(value)}×`}
           />
