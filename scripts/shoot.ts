@@ -197,6 +197,22 @@ const SHOTS: Shot[] = [
     route: '/dashboard',
     drive: `click('.tabs .tab:nth-child(2)'); await wait(400);`,
     note: 'Data at a size the user is more likely to work at.'
+  },
+  {
+    id: 'dash-analytics-tall',
+    width: 1280,
+    height: 1500,
+    route: '/dashboard',
+    drive: `click('.tabs .tab:nth-child(3)'); await wait(2500);`,
+    note: 'Analytics full height. The tab is six charts tall, so the 660px shot shows only the first two and the faults that matter most - an empty series, a wrapped label, a thinned axis - are all below that fold.'
+  },
+  {
+    id: 'dash-analytics-foot',
+    width: 1280,
+    height: 900,
+    route: '/dashboard',
+    drive: `click('.tabs .tab:nth-child(3)'); await wait(2500); document.querySelector('.panel').scrollIntoView(false); window.scrollTo(0, document.body.scrollHeight); await wait(300);`,
+    note: 'The end of Analytics: rate trend and the time-of-day heatmap, which must say it covers app-recorded sessions only.'
   }
 ]
 

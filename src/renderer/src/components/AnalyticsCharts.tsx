@@ -264,7 +264,14 @@ export function HoursOverTime({
                 return row ? `Week of ${row.from}` : ''
               }}
             />
-            <Bar dataKey="hours" name="Hours" unit=" h" fill={accent} radius={[2, 2, 0, 0]} />
+            <Bar
+              dataKey="hours"
+              name="Hours"
+              unit=" h"
+              fill={accent}
+              radius={[2, 2, 0, 0]}
+              isAnimationActive={false}
+            />
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -358,7 +365,14 @@ export function ByProject({
                 identify. A bar without its label is not a chart. */}
             <YAxis type="category" dataKey="name" width={150} interval={0} tickLine={false} />
             <Tooltip {...TOOLTIP} cursor={{ fill: '#ffffff0a' }} />
-            <Bar dataKey="hours" name="Hours" unit=" h" fill={accent} radius={[0, 2, 2, 0]} />
+            <Bar
+              dataKey="hours"
+              name="Hours"
+              unit=" h"
+              fill={accent}
+              radius={[0, 2, 2, 0]}
+              isAnimationActive={false}
+            />
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -467,6 +481,7 @@ export function PlannedVsActual({
               unit=" min"
               fill={accent}
               radius={[0, 0, 2, 2]}
+              isAnimationActive={false}
             />
             <Bar
               dataKey="short"
@@ -477,6 +492,7 @@ export function PlannedVsActual({
               stroke={tint(accent, '66')}
               strokeDasharray="3 3"
               radius={[2, 2, 0, 0]}
+              isAnimationActive={false}
             />
             <Bar
               dataKey="over"
@@ -485,6 +501,7 @@ export function PlannedVsActual({
               unit=" min"
               fill="#ffffff59"
               radius={[2, 2, 0, 0]}
+              isAnimationActive={false}
             />
           </BarChart>
         </ResponsiveContainer>
@@ -640,6 +657,7 @@ export function RateTrend({
               data={dots}
               fill={tint(accent, 'cc')}
               stroke={accent}
+              isAnimationActive={false}
             />
           </ScatterChart>
         </ResponsiveContainer>
