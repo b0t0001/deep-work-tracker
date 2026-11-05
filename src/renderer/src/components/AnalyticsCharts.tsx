@@ -300,6 +300,24 @@ interface WeekBar {
  * Empty weeks are filled rather than skipped: a month off must read as a gap,
  * not be closed up into a continuous run of work that never happened.
  */
+/**
+ * How far back the bars go.
+ *
+ * The whole history is 189 weeks, which across this panel is about 6px a bar
+ * with no gap - a seismograph rather than a chart. Two years is the default
+ * because it is the shortest span that still shows the thing the data has to
+ * say, which is that the weekly load roughly doubled through 2024; one year is
+ * there to read recent weeks individually, and the whole record is one click
+ * away rather than the thing you have to start from.
+ */
+const SPANS = [
+  { id: '1y', label: '1y', weeks: 53 },
+  { id: '2y', label: '2y', weeks: 105 },
+  { id: 'all', label: 'all', weeks: Infinity }
+] as const
+
+type SpanId = (typeof SPANS)[number]['id']
+
 export function HoursOverTime({
   daily,
   accent
@@ -307,14 +325,39 @@ export function HoursOverTime({
   daily: DayTotal[]
   accent: string
 }): React.JSX.Element {
-  const bars = weeklyBars(daily)
+  const [span, setSpan] = useState<SpanId>('2y')
+  const all = weeklyBars(daily)
+  const weeks = SPANS.find((s) => s.id === span)?.weeks ?? Infinity
+  // Trimmed from the end, so a shorter span is the most recent weeks rather
+  // than the first ones recorded.
+  const bars = Number.isFinite(weeks) ? all.slice(-weeks) : all
 
   return (
     <Frame
       title="Hours per week"
+      sub={bars.length > 0 ? `${bars.length} weeks, Monday to Sunday` : undefined}
+      aside={
+        all.length > SPANS[0].weeks ? (
+          <div className="an-seg">
+            {SPANS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={option.id === span ? 'is-on' : undefined}
+                aria-pressed={option.id === span}
+                onClick={() => setSpan(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        ) : undefined
+      }
       note={
         bars.length > 0
-          ? `Each bar is one week, Monday to Sunday — ${bars.length} weeks of history. Running time only; paused time is never counted.`
+          ? `Running time only; paused time is never counted.${
+              bars.length < all.length ? ` The whole record runs to ${all.length} weeks.` : ''
+            }`
           : undefined
       }
     >

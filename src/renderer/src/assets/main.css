@@ -2307,3 +2307,42 @@ code {
   font-size: 10px;
   color: #6b717c;
 }
+
+/* ---------- Analytics: a panel's own range control ---------- */
+
+/* Small, quiet, and in the panel header rather than above the chart: it
+   changes what one panel shows, so it must not read as a filter over the
+   whole tab the way the Data tab's date presets do.
+
+   Buttons rather than a dropdown, because these are one-tap shortcuts between
+   three fixed spans rather than a persistent selection out of many - the same
+   split the Data tab already makes between its date presets and its Source
+   picker. The selected one is marked with a surface rather than the accent
+   fill, which at this size would make a range control the loudest thing in
+   the panel. */
+.an-seg {
+  display: flex;
+  gap: 3px;
+}
+
+.an-seg button {
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.an-seg button:hover {
+  color: var(--text);
+}
+
+.an-seg button.is-on {
+  border-color: var(--border);
+  background: #ffffff0f;
+  color: var(--text);
+}
