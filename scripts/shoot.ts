@@ -19,7 +19,15 @@
  * state worth seeing (open a tab, switch to the ring, start the clock).
  */
 import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { join, resolve } from 'node:path'
 import { restoreFromCsv } from '../src/main/restore'
 import {
@@ -67,6 +75,86 @@ const only = arg('only')
  * beside this one and are never opened, which is the whole point: a screenshot
  * run must not be able to write a row into three and a half years of history.
  */
+/**
+ * Refuses to shoot a bundle older than the source it came from.
+ *
+ * `npm run shoot` renders whatever is in `out/`. It does not rebuild it. So
+ * editing a component and shooting gives a real screenshot of a real page -
+ * of the previous build. On 2026-11-05 that produced a shot of the week tile
+ * reading the old figure with total conviction, minutes after the change that
+ * altered it; it was only caught because the expected number was known in
+ * advance. An unpredicted result would have been read as the change not
+ * working.
+ *
+ * That is the same shape as the stale installed app one level down, and the
+ * same shape as a capture taken before the frame settled: the artifact is
+ * real, and it is of something else. The answer in all three cases is to
+ * assert the artifact is of what you think it is, rather than to remember.
+ *
+ * Refusing rather than warning, because a warning scrolls past and the whole
+ * failure mode is a result that looks right. `--stale-ok` is there for the
+ * case where shooting the previous build is deliberate.
+ */
+/**
+ * Stops the run with a message.
+ *
+ * Not a `throw`: this is an Electron main process, and an exception at module
+ * scope does not exit it the way it would under plain Node - the first
+ * version of this guard hung for two hundred seconds instead of refusing.
+ */
+function refuse(lines: string[]): never {
+  console.error('')
+  for (const line of lines) console.error(line)
+  console.error('')
+  process.exit(1)
+}
+
+function assertBundleIsCurrent(): void {
+  if (process.argv.includes('--stale-ok')) return
+
+  const page = join(__dirname, '../renderer/index.html')
+  if (!existsSync(page)) {
+    refuse(['No renderer build at out/renderer. Run `npm run build` first.'])
+  }
+  const built = statSync(page).mtimeMs
+
+  // Only the sources that end up in a window. `scripts/` is bundled per-run
+  // by the shoot script itself, so it is never stale.
+  const roots = ['../../src/renderer', '../../src/preload', '../../src/shared']
+  let newest = 0
+  let culprit = ''
+  for (const root of roots) {
+    const dir = resolve(__dirname, root)
+    if (!existsSync(dir)) continue
+    for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile()) continue
+      const file = join(entry.parentPath ?? entry.path, entry.name)
+      const at = statSync(file).mtimeMs
+      if (at > newest) {
+        newest = at
+        culprit = file
+      }
+    }
+  }
+
+  if (newest > built) {
+    const behind = Math.round((newest - built) / 1000)
+    // Joined rather than escaped: a backslash-n has arrived in a file here as
+    // a literal newline before, and a broken string in the guard would take
+    // the harness down with it.
+    refuse([
+      `out/renderer is ${behind}s older than the source it was built from.`,
+      `  newest source: ${culprit}`,
+      '  `npm run shoot` renders out/ and does not rebuild it, so this would',
+      '  have produced a real screenshot of the previous build. Run',
+      '  `npm run build` first, or pass --stale-ok if shooting the old bundle',
+      '  is deliberate.'
+    ])
+  }
+}
+
+assertBundleIsCurrent()
+
 const profile = join(app.getPath('temp'), `dwt-shots-${process.pid}`)
 app.setPath('userData', profile)
 

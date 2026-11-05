@@ -83,3 +83,74 @@ The same failure in a different hat: a probe that reads the DOM before
 confirming it reached the state it means to measure. See
 `implementer-hidden-window-capture.md` — a true reading of the wrong state
 looks exactly like a false reading of the right one.
+
+## The escape hatch: build from a worktree, not the shared tree
+
+Added 2026-11-05 after the rule above blocked a build twice in ten minutes.
+
+The rule is right and it has a cost: with three sessions in one checkout, a
+clean tree is a rare and short-lived condition, and "wait for everyone to
+stop" is not a plan. There is no need to wait.
+
+```sh
+WT=<somewhere outside the repo>
+git worktree add --detach "$WT" HEAD
+cmd //c mklink //J "$WT\node_modules" "<repo>\node_modules"   # Windows
+cd "$WT" && npm run dist
+git worktree remove --force "$WT"
+```
+
+A detached worktree at `HEAD` is a clean checkout of exactly what is
+committed. It cannot see the shared working tree, so nobody's in-flight edits
+can reach the installer and nobody has to stop. The junction means no second
+`npm install` and no second 246 MB Electron download.
+
+Two cautions, both learned here:
+
+- **`rm -rf` on a Windows junction can recurse into the target.** Remove the
+  worktree with `git worktree remove --force`, and if you do delete the
+  junction by hand, check `node_modules` afterwards. Losing it is recoverable
+  but slow, and `npm install` needs the `allowScripts` approval or you get an
+  Electron that cannot start.
+- **`git worktree prune` afterwards**, so the repo does not accumulate
+  registrations pointing at deleted temp directories.
+
+This was first used to ship SPEC item 12a while the artist was mid-way
+through a typography change. Worth knowing that the blocking work was reverted
+minutes later, so waiting would in fact have been short — but that was not
+knowable at the time, and the tree had already moved under a decision twice in
+five minutes.
+
+## The same bug one level down: `npm run shoot` does not rebuild
+
+`npm run shoot` renders whatever is in `out/`. It does not build it. So
+editing a component and shooting produces a real screenshot of a real page —
+of the previous build.
+
+This fired on 2026-11-05: a shot of the week tile showed the old figure with
+total conviction, minutes after the change that altered it. It was caught only
+because the expected number was known in advance. An unpredicted result would
+have been read as the change not working.
+
+`scripts/shoot.ts` now refuses to run when any file under `src/renderer`,
+`src/preload` or `src/shared` is newer than `out/renderer/index.html`, naming
+the file that is ahead. `--stale-ok` is there for deliberately shooting an old
+bundle. It refuses rather than warns because a warning scrolls past and the
+whole failure mode is a result that looks correct.
+
+One implementation note, since it cost a 200-second hang: **do not `throw` at
+module scope in an Electron main process.** It does not exit the way it would
+under plain Node. Print and `process.exit(1)`.
+
+## The pattern behind all of these
+
+Stale installed app, stale `out/` under the harness, a capture taken before
+the frame settled, a probe that read bar mode and reported it as ring, a
+`:hover` left stuck by an earlier synthetic click, a tree reading that expired
+in transit. Six distinct bugs on one day, one shape:
+
+> The artifact is real, and it is of something else.
+
+None of them is caught by looking harder at the artifact, because the artifact
+is not lying. They are caught by asserting that it is of what you think it is
+— which is a check you can write down, not a thing to remember.
