@@ -262,6 +262,8 @@ they are put side by side:
 | a `:hover` reading of 8 | a synthetic pointer left by an earlier click |
 | "the tree is clean" | a moment that had passed before the message was read |
 | "the `--an-fs` fix landed" | a commit that was present while its effect was absent |
+| "56 ticks now instead of 3" | `.recharts-cartesian-axis-tick`, which is the tick-*line* group - empty under `tickLine={false}`. Label text is on `.recharts-cartesian-axis-tick-label`. |
+| a hover probe's tooltip reading | another of the seven charts' tooltip, read through a page-wide selector |
 
 **None of these is caught by looking harder at the artifact, because the
 artifact is not lying.** The screenshot is a real screenshot, the probe really
@@ -454,6 +456,17 @@ in-flight work to unblock your own build.
 - **Manual rows are remembered, not measured.** Weight or exclude them in
   anything about when focus happens, and never mix precise and remembered
   timings in one series without saying so.
+- **A category `XAxis` needs a `dataKey` that is unique per point.** Recharts
+  dedupes a category domain, so keying on a label that is blank on most
+  points collapses 56 days into the 3-4 bands that have text. The area still
+  draws right - a band scale maps by index - so no screenshot shows it; only
+  hovering does, and the tooltip then reports a day up to 1,000 px from the
+  cursor (item 15). Thin labels with `tickFormatter`, never by blanking the key.
+- **Probe one chart, not the page.** Scope every selector to that panel's
+  wrapper: there are seven charts, and a page-wide `.recharts-tooltip-wrapper`
+  reads whichever one answers first. Hover with real input (CDP
+  `Input.dispatchMouseEvent` on a visible window); `dispatchEvent` on the SVG
+  does not drive Recharts' hit-testing.
 
 ## Handing work back
 
@@ -475,7 +488,7 @@ one that has already wasted time here.
 | Path under `%APPDATA%` | What it is | State |
 | --- | --- | --- |
 | `deep-work-tracker` | **The real history.** The installed app. | 2,474 imported + 3 app sessions |
-| `deep-work-tracker-dev` | `npm run dev`. The only build any session may write to. | empty by design |
+| `deep-work-tracker-dev` | `npm run dev`. The only build any session may write to. **Shared between sessions**, so never overwrite it with other data - a probe that needs the real history copies `.db` + `-wal` + `-shm` into its own temp folder. | a handful of test rows |
 | `Electron` | Historical. A run from before `app.name` was set, so Electron used its own default. | `deepwork.db` exists, **15 pages, 0 sessions** |
 
 `Roaming\Electron\deepwork.db` is dated 2026-09-23 01:58 - twenty-eight minutes
