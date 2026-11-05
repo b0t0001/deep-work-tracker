@@ -666,53 +666,20 @@ export default function App(): React.JSX.Element {
           reaching into `main.css`, which the artist owns. They belong in a
           `.card__error` rule — the markup is already classed for it. */}
       {recordError !== null && (
-        <div
-          className="card__error"
-          role="alert"
-          style={{
-            position: 'absolute',
-            inset: 'auto 8px 8px',
-            zIndex: 6,
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 8,
-            padding: '8px 10px',
-            borderRadius: 8,
-            border: '1px solid #ff6b6b66',
-            background: '#2a1416f2',
-            color: 'var(--text)',
-            fontSize: 11,
-            lineHeight: 1.35,
-            textAlign: 'left'
-          }}
-        >
-          <span style={{ flex: '1 1 auto' }}>
-            <b style={{ display: 'block' }}>This session was not saved.</b>
+        <div className="card__error" role="alert">
+          <span className="card__error-body">
+            <b>This session was not saved.</b>
             The timer stopped normally, but writing it to the database failed, so nothing you typed
             about it was stored either. The run&apos;s timing is lost.
             {/* The raw reason, kept but set apart. Running it into the prose
                 read as a sentence that trailed off into jargon; on its own
                 line it is what it is - the detail to quote when asking why. */}
-            <span
-              style={{ display: 'block', marginTop: 4, color: 'var(--text-dim)', fontSize: 10 }}
-            >
-              {recordError}
-            </span>
+            <span className="card__error-reason">{recordError}</span>
           </span>
           <button
             className="card__error-dismiss"
             onClick={() => setRecordError(null)}
             title="Dismiss"
-            style={{
-              flex: '0 0 auto',
-              background: 'none',
-              border: 'none',
-              color: 'var(--text-dim)',
-              cursor: 'pointer',
-              fontSize: 14,
-              lineHeight: 1,
-              padding: 2
-            }}
           >
             &times;
           </button>
