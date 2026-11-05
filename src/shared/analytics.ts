@@ -103,20 +103,24 @@ export interface Analytics {
   /** Keyed by unit; only units in `units` are present. */
   ratesByUnit: Record<string, RatePoint[]>
   /**
-   * Computed but **deliberately not rendered yet**, as of 2026-11-05.
+   * How close the pace loop's prediction came, per session.
    *
-   * It is empty and will stay empty until the app is in daily use: only an
-   * app-recorded session can carry `pace_target_qty` and
-   * `pace_target_interval_s`, imported rows never can, and there are three
-   * app rows. A seventh chart drawing an empty box on the tab the user judges
-   * the app by is worse than no chart - the dashboard's whole brief is that
-   * someone opens it because they want to.
+   * Empty until the app is in daily use: only an app-recorded session can
+   * carry `pace_target_qty` and `pace_target_interval_s`, so no imported row
+   * will ever contribute one. **The chart still renders**, with an empty state
+   * that says what fills it.
    *
-   * Left computed rather than removed because the cost is one cheap query and
-   * the alternative is rediscovering the shape later. Not dead code, deferred
-   * code: build the chart when this is non-empty, and plot `ratio`, never
-   * `target` against `actual` - `250 words` and `19 questions` on one axis is
-   * the same category error as trending rates across units.
+   * That was argued the other way first and the user overruled it, rightly.
+   * A chart that hides itself until it has data cannot teach anyone the
+   * feature exists - the user would have had to already know the pace loop is
+   * recorded before they would ever see the chart that proves it. An empty
+   * state is a prompt; a missing chart is invisible. The same project had
+   * already settled this for the time-of-day heatmap, which renders on three
+   * rows with an honest caption.
+   *
+   * Plot `ratio`, never `target` against `actual` - `250 words` and
+   * `19 questions` on one axis is the same category error as trending rates
+   * across units.
    */
   pace: PacePoint[]
 }
