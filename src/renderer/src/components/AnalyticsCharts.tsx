@@ -926,51 +926,48 @@ export function PaceAccuracy({
 
   if (dots.length < FEW_PACED) {
     return (
-      <div className="an-panel">
-        <div className="an-panel__head">
-          <h4 className="an-panel__title">
-            Pace against target
-            <span className="an-panel__sub">not enough data yet</span>
-          </h4>
-        </div>
-
-        {/* The slot keeps its shape so the panel reads as a chart waiting for
-            data rather than as a gap in the page. One mark per paced session,
-            lit when there is one. */}
-        <div className="an-track">
-          {Array.from({ length: FEW_PACED * 4 }, (_, i) => (
-            <span
-              key={i}
-              className={i < dots.length ? 'is-on' : undefined}
-              title={
-                i < dots.length
-                  ? `${dots[i].date} — ${dots[i].actual} of ${dots[i].target} ${dots[i].unit} (${Math.round(dots[i].ratio * 100)}%)`
-                  : 'no paced session yet'
-              }
-            />
-          ))}
-        </div>
-
-        <div className="an-empty">
-          <b className="an-empty__title">
-            {dots.length === 0
+      <Frame
+        title="Pace against target"
+        /* "not enough data yet" is the wrong sub for this panel. Time of day
+           is EARLY - it thickens as the app gets used. This one is
+           structurally empty: no imported row can ever carry a pace target,
+           so it is not waiting for history to catch up, it is waiting for the
+           feature to be switched on. A sub implying patience would fix it
+           would be a small lie. */
+        sub={dots.length === 0 ? 'not switched on yet' : 'ratio of actual to target'}
+      >
+        <EmptyState
+          title={
+            dots.length === 0
               ? 'No session has run against a pace target yet'
-              : `${count(dots.length, 'paced session')}${span}`}
-          </b>
-          <p className="an-empty__body">
-            {dots.length > 0 && first === last ? 'One sitting is not a trend. ' : ''}
-            Set a target from the pace button beside start — something like 100 words per 20 minutes
-            — and the session is recorded against it. This chart then shows what you produced as a
-            share of what you aimed at, with 1.0 the line where the prediction landed. The imported
-            history never contributes, however much of it there is: Hourglass stored a countdown
-            reading with no target attached, so not one of those rows carries a pace to compare
-            against.
-          </p>
-          <div className="an-empty__meter">
-            <i style={{ width: `${Math.min(100, (dots.length / FEW_PACED) * 100)}%` }} />
-          </div>
-        </div>
-      </div>
+              : `${count(dots.length, 'session')} run with a pace target${span}`
+          }
+          progress={dots.length / FEW_PACED}
+          /* The shape the chart would occupy, so the panel reads as a slot
+             waiting rather than a gap in the page. One mark per session it
+             would take to be worth plotting. */
+          track={
+            <div className="an-track">
+              {Array.from({ length: FEW_PACED * 4 }, (_, i) => (
+                <span
+                  key={i}
+                  className={i < dots.length ? 'is-on' : undefined}
+                  title={
+                    i < dots.length
+                      ? `${dots[i].date} — ${dots[i].actual} of ${dots[i].target} ${dots[i].unit} (${Math.round(dots[i].ratio * 100)}%)`
+                      : 'no paced session yet'
+                  }
+                />
+              ))}
+            </div>
+          }
+        >
+          Set a pace from the button beside start — something like 100 words per 20 minutes — and
+          this starts filling: each session appears as what you actually produced over what you
+          aimed at. The imported history never contributes, however much of it there is, because
+          Hourglass stored a countdown reading with no target attached.
+        </EmptyState>
+      </Frame>
     )
   }
 
@@ -993,8 +990,8 @@ export function PaceAccuracy({
   return (
     <Frame
       title="Pace against target"
-      sub="produced as a share of predicted"
-      note={`${count(dots.length, 'paced session')}, ${met} at or above target. Mean ${round(mean, 2)}× what was aimed at. The ratio is unit-free, so sessions counted in words and in questions belong on one axis — the absolute amounts never would.`}
+      sub="ratio of actual to target"
+      note={`${count(dots.length, 'paced session')}, ${met} at or above target. Mean ${round(mean, 2)}× what was aimed at; the dashed line at 1.0 is where a prediction landed exactly. The ratio is unit-free, so sessions counted in words and in questions belong on one axis — the absolute amounts never would.`}
     >
       <ResponsiveContainer width="100%" height={220}>
         <ScatterChart margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
