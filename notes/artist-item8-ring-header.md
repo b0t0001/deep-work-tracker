@@ -108,9 +108,53 @@ page:
 A scroll also does not reach a single capture: the same shot captured once shows
 the top of the tab, and captured twice shows the scrolled position.
 
-## Still open
+## Closed on the installed build
 
-Nobody has looked at the **installed build** in ring mode at rest. Both the
-original claim and this refutation came from harnesses. Thirty seconds at the
-real window closes it, and it is worth doing because this is the component the
-user films and it has produced three real bugs and one phantom.
+This was the one thing left open: both the original claim and the refutation
+above came from harnesses, and the window the user films deserved a reading
+from the real build. The implementer took one over CDP on the installed app,
+nothing hovered, after clicking the variant toggle:
+
+    { card: "card is-ring", isRing: 1, headOpacity: "0", anims: 0, hovered: 0 }
+
+The header hides correctly in the shipped app. `main.css` was never changed and
+never needed to be. The window was restored to bar afterwards.
+
+## A narrower rule than the one first drawn
+
+It was briefly proposed that React cannot commit a re-render without a frame,
+and therefore that any probe reading the DOM after a state change in a hidden
+window is unreliable. That is too broad, and the evidence is against it.
+
+The `ring-rest` probe ran on a **freshly created hidden window on which
+`capturePage()` had never been called** — load, wait 500 ms, click the variant
+toggle, wait 400 ms, read. It returned `cardClass: "card is-ring"` with
+`head.opacity: "0"`. The class was applied and the cascade had resolved it,
+with no frame ever composited. That is what React 18 should do: a `setState`
+inside a click handler is a discrete update flushed at the end of the event,
+and the scheduler runs on MessageChannel rather than `requestAnimationFrame`.
+Style recalculation is likewise not frame-gated.
+
+Only painting is. So the rule worth keeping is:
+
+> In an uncomposited window the DOM and computed styles are trustworthy. The
+> pixels are not.
+
+Drawn the other way round it would have told us to disbelieve the two readings
+that actually solved this — the class being present, and the computed opacity
+being 0 while the icons were painted.
+
+`getAnimations()` returning 0 fits this rather than contradicting it: by the
+time it was read the style had already settled at 0, so there was no transition
+left to be in. What was stale was the painted frame, which predated the change.
+
+## Discarding one capture was not enough
+
+The suggested fix was to discard a single capture. On the real `shoot()` path
+that still produced painted icons; three `capturePage()` calls 500 ms apart
+cleared it, and `scripts/shoot.ts` now loops three (`dd7bb41`).
+
+Unchased, but the likeliest difference: `shoot()` reuses one window across every
+shot, while the probe here created a fresh one per process, so the shared
+compositor arrives carrying prior state and needs more than one frame to catch
+up. First thing to look at if a shot ever regresses.
