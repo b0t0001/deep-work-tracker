@@ -881,7 +881,7 @@ export default function App(): React.JSX.Element {
               clockRef.current.focus()
             }
           }}
-          placeholder="What are you working on?"
+          placeholder="Working on…"
           spellCheck={false}
         />
 
