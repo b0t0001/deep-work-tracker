@@ -116,43 +116,66 @@ code is not verification.
 **Report what you did not do** as well as what you did. A report that lists
 only successes is one the manager has to re-audit from scratch.
 
-## A screenshot of an uncomposited window is not evidence of a bug
+## In a hidden window the readings are true and the pixels are not
 
-This has now produced **four** phantom defects in one day, each of which cost
-real time and two of which were written into a spec as fact:
+`scripts/shoot.ts` opens `show: false` windows. A window that is never shown is
+never composited, and Chromium drives **painting** off frames rather than off
+wall-clock time. `capturePage()` is one of the few things that asks a hidden
+window for a frame.
+
+So until something forces a frame, a CSS transition stays pinned on the value
+it started from, and a scroll set from script is not reflected in the capture.
+Waiting longer never helps, because nothing during the wait draws anything.
+The harness discards three captures 500 ms apart before keeping one; a single
+discard *looks* sufficient and is not, measured through the real `shoot()`
+path.
+
+**The rule to carry away: distrust the PNG, not the reading.** The DOM and
+computed styles in a hidden window are trustworthy. It is the image that lags
+them.
+
+That direction matters more than it sounds. An earlier version of this section
+said React could not commit a state update without a frame. **That is wrong**,
+and it is wrong in the dangerous direction: it tells the next session to
+disbelieve the probe readings that actually solve things, which would have
+made every investigation here harder rather than safer. Corrected 2026-11-05
+by the implementer session, who disproved their own earlier claim.
+
+Four phantom defects came out of this in one day, two of them written into a
+spec as fact. Three were the image lagging. The fourth was something else
+entirely and is worth separating:
 
 | Reported | Actually |
 | --- | --- |
-| Ring-mode header icons never hide | the capture caught a 160 ms opacity transition on frame zero |
-| `is-ring` is on no element, 46 CSS rules dead | React had not committed the re-render, because it had no frame to commit on |
-| Settings tab renders white while inactive | `.tab` has `transition: color 120ms ease`; the frame caught it part way back from the active colour |
-| Analytics series render empty | *not* this - `isAnimationActive={false}`, and the shots are byte-identical across 0, 1 and 3 discarded frames |
+| Ring-mode header icons never hide | image lag - the capture caught a 160 ms opacity transition on its first frame |
+| Settings tab renders white while inactive | image lag - `.tab` has `transition: color 120ms ease`, caught part way back from the active colour |
+| Analytics series render empty | **neither** - `isAnimationActive={false}`, and the shots are byte-identical across 0, 1 and 3 discarded frames. They were always fine. |
+| `is-ring` is on no element, 46 CSS rules dead | **not image lag at all** - the probe never clicked the toggle, so it read bar mode correctly and reported it as ring. A true reading of the wrong state. |
 
-One root cause: a `show: false` BrowserWindow is never composited, so Chromium
-never ticks its frame clock. CSS transitions do not advance and **React does
-not commit state updates**, so a drive script that clicks something and then
-waits is photographing the page as it was before the click. Waiting longer
-never helps, because nothing during the wait draws anything. `capturePage()`
-is one of the few things that forces a frame, which is why the fix is a loop
-of three captures rather than one - a single discard looks sufficient and is
-not, measured.
+The last row is the one that gets misfiled. It was not a frozen frame and it
+was not a lying DOM; it was a measurement of a page that had never been put
+into the state being measured. The fix for that is to assert you reached the
+state before you measure it, not to distrust the reading.
 
-**So, before reporting any visual finding as a defect:**
+**Before reporting any visual finding as a defect:**
 
-1. Confirm it on a **settled** capture - the three-frame loop in `shoot.ts`,
+1. Confirm it on a **settled** capture - the three-capture loop in `shoot.ts`,
    not a single shot - or on a real composited window over CDP.
-2. If the element has a `transition`, assume the frozen frame until shown
-   otherwise. Grep the stylesheet for one before writing up a mechanism.
-3. `document.getAnimations().length === 0` does **not** mean nothing was
+2. Assert the page is in the state you think it is. Read back the class, the
+   route, the row count - whatever defines it - before measuring anything else.
+3. If the element has a `transition`, suspect image lag first. Grep the
+   stylesheet for one before writing up a mechanism.
+4. `document.getAnimations().length === 0` does **not** mean nothing was
    animating. It also means the class carrying the transition never applied.
-4. Prefer the installed build for anything about the timer window. It is the
-   only thing the user actually looks at, and it is composited.
+5. Prefer the installed build for anything about the timer window. It is what
+   the user looks at, and it is composited.
 
-The last entry in the table is the one to remember: the Analytics series were
-fine, and "the harness fix landed so the evidence is sound" was the wrong
-reason to believe it. The right reason was that the images were byte-identical
-with and without the fix. A correct conclusion reached through a broken
-argument leaves the broken argument in place for next time.
+One more thing worth keeping, from the third row. The Analytics series were
+fine all along, and "the harness fix landed, so the evidence is sound" was the
+wrong reason to believe it - the right reason was that the images came back
+byte-identical with and without the fix. A correct conclusion reached through a
+broken argument leaves the broken argument in place for next time, which is
+how the first three of these happened.
 
 ## Before adding any control that overlays the dial
 
