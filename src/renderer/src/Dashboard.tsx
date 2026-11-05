@@ -589,8 +589,21 @@ function AnalyticsTab(): React.JSX.Element {
           <ByProject byProject={data.byProject} accent={accent} />
           <PlannedVsActual data={data.plannedVsActual} accent={accent} />
         </div>
+        {/* Full width: 774 dots over three and a half years, and a picker in
+            the header. It is a time series like the two above it and reads
+            better long than tall. */}
+        <RateTrend ratesByUnit={data.ratesByUnit} units={data.units} accent={accent} />
+        {/* The two that fill from using the app rather than from the import,
+            side by side and last.
+
+            Together they read as "these fill in as you use this"; scattered
+            among five populated charts they would read as two things that are
+            broken. They are empty for different reasons and their captions say
+            so — time of day is early and thickens with use, while pace is
+            structurally empty, because no imported row can ever carry a pace
+            target. Being adjacent is what makes that contrast legible instead
+            of looking like the same apology twice. */}
         <div className="an-row an-row--two">
-          <RateTrend ratesByUnit={data.ratesByUnit} units={data.units} accent={accent} />
           <TimeOfDayHeatmap
             byHour={data.byHour}
             timedSessions={data.timedSessions}
@@ -598,12 +611,6 @@ function AnalyticsTab(): React.JSX.Element {
             timedLast={data.timedLast}
             accent={accent}
           />
-        </div>
-        {/* Full width and last for now. It may read better beside the
-            time-of-day panel, since those two are the pair that fill from use
-            rather than from the import and will sit in their empty state
-            together — but that is a layout call, so it is the artist's. */}
-        <div className="an-row">
           <PaceAccuracy pace={data.pace} accent={accent} />
         </div>
       </div>
