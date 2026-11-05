@@ -7,7 +7,8 @@
   "homepage": "https://github.com/b0t0001/deep-work-tracker",
   "scripts": {
     "format": "prettier --write .",
-    "lint": "eslint --cache .",
+    "lint:chars": "esbuild scripts/control-char-check.ts --bundle --platform=node --format=esm --outfile=out/checks/control-char.mjs --log-level=warning && node out/checks/control-char.mjs",
+    "lint": "npm run lint:chars && eslint --cache .",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
