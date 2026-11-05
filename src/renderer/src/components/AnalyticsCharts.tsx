@@ -27,7 +27,7 @@ import {
   YAxis,
   ZAxis
 } from 'recharts'
-import { formatDate } from '@shared/dates'
+import { formatDate, formatMonthDay } from '@shared/dates'
 import { WINDOWS, windowDef, type WindowId } from '@shared/windows'
 import { plannedFit } from '@shared/analytics'
 import type {
@@ -76,8 +76,7 @@ function monthLabel(date: string): string {
  */
 function spanLabel(date: string, days: number): string {
   if (days > 120) return monthLabel(date)
-  const [, m, d] = date.split('-').map(Number)
-  return `${d} ${MONTHS[m - 1]}`
+  return formatMonthDay(date)
 }
 
 /** Captions read as prose, so a count of one must not say "1 sessions". */
@@ -574,25 +573,18 @@ function label(points: Point[], byDay: boolean): Point[] {
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-const SHORT_MONTHS = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec'
-]
-
-/** `3 Sep` once the weekday stops meaning anything. */
+/**
+ * `09/03` once the weekday stops meaning anything.
+ *
+ * Month first, like every other date the app prints. It used to read `3 Sep`,
+ * which is unambiguous on its own - the month is a word - but it is the order
+ * the user asked never to see, and mixing two orders on one screen is how
+ * `05/11` gets read as May. The month names this needed are gone with it;
+ * `MONTHS` above survives for the month-only labels, which have no day to
+ * misorder.
+ */
 function shortDate(date: string): string {
-  const [, m, d] = date.split('-').map(Number)
-  return `${d} ${SHORT_MONTHS[m - 1]}`
+  return formatMonthDay(date)
 }
 
 /** `Mon 3` over a short span, where the weekday is the thing you orient by. */

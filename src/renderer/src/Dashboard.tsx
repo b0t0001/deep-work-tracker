@@ -13,7 +13,7 @@ import {
   windowRange,
   type WindowId
 } from '@shared/windows'
-import { formatDate, formatDateRange } from '@shared/dates'
+import { formatDate, formatDateRange, formatDateTime } from '@shared/dates'
 import {
   MAX_FONT_SCALE,
   MIN_FONT_SCALE,
@@ -283,9 +283,17 @@ interface BackupStatus {
   sessions: number
 }
 
+/**
+ * A backup's timestamp, in the app's own date order.
+ *
+ * `toLocaleDateString()` was the one date on this screen the app did not
+ * control: it follows the machine's locale, so the backup list could print
+ * `11/05/2026` or `05/11/2026` or `2026-11-05` depending on the install while
+ * every other date beside it was MM/DD. Deferring to the OS looks like the
+ * considerate choice and is the one that puts two orders on one screen.
+ */
 function when(iso: string): string {
-  const date = new Date(iso)
-  return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  return formatDateTime(iso)
 }
 
 function size(bytes: number): string {

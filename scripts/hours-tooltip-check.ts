@@ -270,6 +270,17 @@ app.whenReady().then(async () => {
     .map((t) => t.textContent).filter(Boolean).slice(0, 3))()`)) as string[]
   check('dates are still printed along the axis', ticks.length > 0, true)
   console.log(`       axis reads ${JSON.stringify(ticks)}`)
+  // Month first, like every other date the app prints. This used to read
+  // `11 Sep`, which is the one order the user asked never to see. Asserted
+  // rather than just printed, because an axis label is read at a glance and a
+  // silently reordered date is the kind of wrong that looks right - and the
+  // daily span is the only one with a day in it to misorder, which is why
+  // this is checked here and not after the switch to weeks.
+  check(
+    'and they read month-first, MM/DD',
+    ticks.every((text) => /^\d{2}\/\d{2}$/.test(text)),
+    true
+  )
 
   console.log('')
   console.log(`3. by day: every hover names the bucket under the pointer (${SAMPLES} positions)`)
