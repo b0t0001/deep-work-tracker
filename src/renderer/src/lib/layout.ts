@@ -48,7 +48,13 @@ function channel(): LayoutChannel | null {
   // `Partial` rather than a cast: a preload built before this channel existed
   // genuinely has no `layout`, and that is worth handling - but it is absence
   // being handled, not the shape being hidden.
-  const found = (window.api as Partial<DeepWorkApi>).layout
+  //
+  // `| undefined` and the optional chain are the artist's, kept deliberately.
+  // The rest of the renderer calls `window.api.x` unguarded thirty-five times
+  // over, so a missing bridge breaks the app long before this file runs - but
+  // this module's whole argument is that losing a *preference* must not take
+  // the dashboard down, and that argument is worth one character.
+  const found = (window.api as Partial<DeepWorkApi> | undefined)?.layout
   return found && typeof found.get === 'function' && typeof found.set === 'function' ? found : null
 }
 
