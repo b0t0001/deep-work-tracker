@@ -64,7 +64,10 @@ export function analytics(): Analytics {
     plannedVsActual: [],
     units: [],
     ratesByUnit: {},
-    pace: []
+    pace: [],
+    unitTotals: [],
+    longestSession: null,
+    editingHours: 0
   }
   if (span.first === null || span.last === null || Number(span.sessions) === 0) return empty
   const rawDaily = (
@@ -237,6 +240,56 @@ export function analytics(): Analytics {
       }
     })
     .filter((point) => point.target > 0)
+  // Fun-fact aggregates. Unquantifiable rows carry no number and are left out
+  // rather than counted as zero, which would understate every total they sit in.
+  const unitTotals = (
+    db
+      .prepare(
+        `SELECT work_unit AS unit, SUM(work_quantity) AS quantity, COUNT(*) AS sessions
+           FROM sessions
+          WHERE work_unit IS NOT NULL AND work_unit <> ''
+            AND work_quantity IS NOT NULL AND unquantifiable = 0
+          GROUP BY work_unit
+          ORDER BY sessions DESC, quantity DESC
+          LIMIT 20`
+      )
+      .all() as Array<{ unit: string; quantity: number; sessions: number }>
+  ).map((r) => ({ unit: r.unit, quantity: Number(r.quantity), sessions: Number(r.sessions) }))
+
+  const longestRow = db
+    .prepare(
+      `SELECT s.session_date AS date, s.task AS task, p.name AS project,
+              s.running_duration_s AS seconds
+         FROM sessions s LEFT JOIN projects p ON p.id = s.project_id
+        ORDER BY s.running_duration_s DESC
+        LIMIT 1`
+    )
+    .get() as
+    | { date: string | null; task: string | null; project: string | null; seconds: number }
+    | undefined
+  const longestSession = longestRow
+    ? {
+        date: longestRow.date,
+        task: longestRow.task,
+        project: longestRow.project,
+        hours: Number(longestRow.seconds) / 3600
+      }
+    : null
+
+  // LIKE narrows it in SQL; the word test below is the real one. A letter in
+  // front of "edit" means it is part of another word - "credit" - and the
+  // character class rather than a word-boundary escape is deliberate: an
+  // escape has collapsed in transit in this repo more than once.
+  const editRows = db
+    .prepare(
+      "SELECT task, running_duration_s AS seconds FROM sessions WHERE lower(task) LIKE '%edit%'"
+    )
+    .all() as Array<{ task: string; seconds: number }>
+  const editingHours =
+    editRows
+      .filter((r) => /(^|[^a-z])edit/.test(r.task.toLowerCase()))
+      .reduce((sum, r) => sum + Number(r.seconds), 0) / 3600
+
   const dayMs = 86_400_000
   const calendarDays =
     Math.round(
@@ -258,6 +311,9 @@ export function analytics(): Analytics {
     plannedVsActual,
     units,
     ratesByUnit,
-    pace
+    pace,
+    unitTotals,
+    longestSession,
+    editingHours
   }
 }

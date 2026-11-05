@@ -68,6 +68,21 @@ export interface PacePoint {
   ratio: number
 }
 
+/** Everything recorded in one unit, across the whole history. Feeds the fun facts. */
+export interface UnitTotal {
+  unit: string
+  quantity: number
+  sessions: number
+}
+
+/** The single longest run on record. */
+export interface LongestSession {
+  date: string | null
+  task: string | null
+  project: string | null
+  hours: number
+}
+
 export interface Analytics {
   /** Null when the database is empty. */
   firstDate: string | null
@@ -102,6 +117,19 @@ export interface Analytics {
   units: string[]
   /** Keyed by unit; only units in `units` are present. */
   ratesByUnit: Record<string, RatePoint[]>
+  /**
+   * Output per unit over the whole history, most-used first. Units are typed
+   * by the user and keep arriving, so the fun facts are built from whatever is
+   * here rather than from a list someone wrote down.
+   */
+  unitTotals: UnitTotal[]
+  longestSession: LongestSession | null
+  /**
+   * Hours on tasks whose name contains "edit" as a word - so "Edit MEAM 1010
+   * Video" and "editing" count and "credit" does not. The user's own example
+   * of a fun fact, and honest only because the fact says how it was counted.
+   */
+  editingHours: number
   /**
    * How close the pace loop's prediction came, per session.
    *
@@ -233,6 +261,19 @@ export function previousDay(date: string): string {
  * rolling windows for exactly this reason.
  */
 export function weekOverWeek(daily: DayTotal[], today: string): WeekComparison {
+  return periodOverPeriod(daily, today, 7)
+}
+
+/**
+ * The last `days` days against the `days` before them.
+ *
+ * The general form of `weekOverWeek`, which the stat row needs once the user
+ * can choose the window: "X hours a day this week, up Y% from last week" has
+ * to mean the same shape at a month or a year. The field names keep `Week`
+ * because the comparison type is shared and every existing caller reads them;
+ * read them as "this period" and "the period before".
+ */
+export function periodOverPeriod(daily: DayTotal[], today: string, days: number): WeekComparison {
   const [y, m, d] = today.split('-').map(Number)
   const dayNumber = (date: string): number => {
     const [yy, mm, dd] = date.split('-').map(Number)
@@ -247,10 +288,10 @@ export function weekOverWeek(daily: DayTotal[], today: string): WeekComparison {
   for (const day of daily) {
     const n = dayNumber(day.date)
     if (n > end) continue
-    if (n > end - 7) {
+    if (n > end - days) {
       thisWeek += day.hours
       if (isDayWorked(day)) thisWeekDays += 1
-    } else if (n > end - 14) {
+    } else if (n > end - 2 * days) {
       lastWeek += day.hours
       if (isDayWorked(day)) lastWeekDays += 1
     }
