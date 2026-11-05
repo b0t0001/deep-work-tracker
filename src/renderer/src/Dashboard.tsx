@@ -2,7 +2,17 @@ import { useEffect, useState } from 'react'
 import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
-import { previousDay, weekOverWeek, type Analytics } from '@shared/analytics'
+import { periodOverPeriod, previousDay, type Analytics } from '@shared/analytics'
+import { buildFacts, pickFact, type Fact } from '@shared/facts'
+import {
+  WINDOWS,
+  aboveBaseline,
+  averagePerDay,
+  baseline,
+  windowDef,
+  windowRange,
+  type WindowId
+} from '@shared/windows'
 import { formatDate, formatDateRange } from '@shared/dates'
 import {
   MAX_FONT_SCALE,
@@ -698,11 +708,55 @@ function LayoutBar({
   )
 }
 
+/** Remembered so the same fact is not shown twice running. */
+const FACT_KEY = 'dwt.lastFact'
+
+/**
+ * One fun fact for this opening of the tab.
+ *
+ * The last one is remembered so the same figure cannot come up twice running.
+ * Both storage calls are wrapped because a blocked or cleared profile must
+ * cost a repeat, not a crash - and a null back from `pickFact` means there was
+ * nothing worth saying, which the row renders by leaving the tile out.
+ */
+function chooseFact(data: Analytics): Fact | null {
+  let last: string | null = null
+  try {
+    last = localStorage.getItem(FACT_KEY)
+  } catch {
+    /* storage blocked; the worst case is repeating the last fact */
+  }
+  const chosen = pickFact(buildFacts(data), Math.random(), last)
+  try {
+    if (chosen !== null) localStorage.setItem(FACT_KEY, chosen.id)
+  } catch {
+    /* same */
+  }
+  return chosen
+}
+
 function AnalyticsTab(): React.JSX.Element {
   const accent = useAccentSync()
   const { layout, persists, update, reset } = useLayout()
   const [editing, setEditing] = useState(false)
   const [dragging, setDragging] = useState<PanelId | null>(null)
+  const [window_, setWindow] = useState<WindowId>('1w')
+  /*
+   * The fact is chosen where the history lands, not while rendering it.
+   *
+   * Two earlier versions picked it in the body. A `useState` initializer was
+   * the first, and it can only sit after this component's early returns for
+   * loading and failure, so it ran on some renders and not others - React
+   * error #310, and the tab rendered white. A ref filled in during render was
+   * the second, and it works, but choosing involves `Math.random` and a
+   * `localStorage` write, which is a side effect in the render phase whatever
+   * holds the result; the compiler rejects both the impure call and the ref.
+   *
+   * The payload handler below is where it belongs: it runs once, off the
+   * render path, and `setFact` batches with `setData`, so the tile arrives
+   * with the rest of the row rather than a frame after it.
+   */
+  const [fact, setFact] = useState<Fact | null>(null)
   const [data, setData] = useState<Analytics | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading')
 
@@ -721,6 +775,7 @@ function AnalyticsTab(): React.JSX.Element {
           return
         }
         setData(payload as Analytics)
+        setFact(chooseFact(payload as Analytics))
         setState('ready')
       })
       .catch(() => {
@@ -770,40 +825,25 @@ function AnalyticsTab(): React.JSX.Element {
   }
 
   const today = localToday()
-  // The window ends on the last COMPLETE day, not today. A day still in
-  // progress is not a data point, and it does not merely depress the figure -
-  // it flatters it, because a day with no hours yet drops out of the
-  // per-worked-day denominator while the week before it is counted in full.
-  // Measured on the real history: ending today reported -31%, ending
-  // yesterday reports -37%, and -37% is the honest one.
-  const week = weekOverWeek(data.daily, previousDay(today))
 
-  // Over calendar days in the range, not over active days only. CLAUDE.md
-  // settled this: dividing by active days answers "how long is a working day",
-  // which flatters a fortnight off into nothing.
-  const perDay = data.calendarDays > 0 ? data.totalHours / data.calendarDays : 0
-
-  // Per worked day, not totals. Comparing a five-day week's total against a
-  // seven-day week's punishes the shape of the week rather than the work in
-  // it. It is still negative here - no honest ratio turns a lighter week into
-  // a heavier one - which is why the fix for "this reads as discouraging" was
-  // to move the comparison out of the hero slot rather than to find a kinder
-  // number.
-  // With no worked day in the window there is nothing to compare, and the
-  // honest reading is that the record stops rather than that the work did.
-  // Every row in this database arrived by import, so a quiet week here can
-  // mean the spreadsheet has not been brought in lately - and a decline drawn
-  // from that would be measuring how stale the import is, not how much work
-  // happened. Say which it is instead of printing a number the data cannot
-  // support.
-  const stale = week.thisWeekDays === 0
-  const change = stale
-    ? data.lastDate
-      ? `no sessions logged since ${formatDate(data.lastDate)}`
-      : 'no sessions logged yet'
-    : week.perDayChangePercent === null
-      ? 'nothing the week before to compare against'
-      : `${week.perDayChangePercent >= 0 ? '+' : ''}${Math.round(week.perDayChangePercent)}% a day on the week before`
+  // Every figure in this row is derived from one window, so the picker cannot
+  // move the average without moving the comparison beside it.
+  const range = windowRange(window_, today, data.firstDate)
+  const average = range === null ? null : averagePerDay(data.daily, range)
+  const base = baseline(data.daily, data.firstDate)
+  /*
+   * The baseline tile does NOT follow the picker.
+   *
+   * It compares the last year against the first, and both ends have to be
+   * fixed for that to mean anything. Wired to the window it read +321% on
+   * "past week" and +295% on "past year" - the same claim, two numbers,
+   * depending on a control that says nothing about the comparison. A figure
+   * captioned "against your first year" has to choose its own other end.
+   */
+  const recentYear = windowRange('1y', today, data.firstDate)
+  const above =
+    recentYear === null ? null : aboveBaseline(averagePerDay(data.daily, recentYear).perDay, base)
+  const period = periodOverPeriod(data.daily, previousDay(today), range?.days ?? 0)
 
   return (
     // The text scale lives here rather than on the panel grid, because the
@@ -825,6 +865,16 @@ function AnalyticsTab(): React.JSX.Element {
       <header className="data-head data-head--with-action">
         <div>
           <h2>Analytics</h2>
+          {/* The lifetime total lives here now. The tile row is four windowed
+              figures after items 25-28, so the one number that only ever grows
+              would otherwise have left the tab entirely - and it is the figure
+              that answers "was any of this worth it". Quiet, because it does
+              not change while you look at it. */}
+          <p className="data-head__count">
+            {hoursLabel(data.totalHours)} of deep work &middot;{' '}
+            {data.totalSessions.toLocaleString()} sessions &middot;{' '}
+            {data.activeDays.toLocaleString()} days worked
+          </p>
           {data.firstDate && data.lastDate && (
             <p className="data-head__span">
               recorded {formatDateRange(data.firstDate, data.lastDate)}
@@ -842,50 +892,99 @@ function AnalyticsTab(): React.JSX.Element {
       </header>
 
       {/*
-       * The tab is meant to be motivating as much as analytical, so which
-       * figure occupies the hero slot is a design decision rather than a
-       * ranking of which number is most recent.
+       * The stat row, rebuilt around one window control.
        *
-       * A week-on-week comparison can always go down, and this one does:
-       * 18.6h against 37.9h is -51%. Per *active* day it is 3.7h against
-       * 5.4h, which is fairer - comparing a five-day week's total against a
-       * seven-day week's punishes the shape of the week rather than the work
-       * in it - but it is still -31%. No honest ratio turns a lighter week
-       * into a heavier one, and one that did would be lying about data the
-       * user makes real decisions on. So the fix is which figure leads, not
-       * which ratio is printed: the comparison stays, told fairly, demoted.
+       * Four figures and a picker that moves two of them together. The window
+       * is shared with every other panel through `shared/windows.ts`, so
+       * "past 8 weeks" cannot mean one thing here and another in the chart
+       * below - which it would have, since that chart had its own ladder
+       * first.
        *
-       * The hero and the two beside it are totals that only ever grow. Honest
-       * and encouraging at the same time, which is the combination to reach
-       * for when a panel could be truthful in either direction.
-       *
-       * The streak tile is gone. `60 · best streak · current 0` says your
-       * best was months ago and today you have nothing - a verdict rather
-       * than a measurement. `streaks()` stays in `shared/analytics.ts`
-       * because it is pure and covered by the harness; nothing renders it.
+       * What leads is still a figure that cannot report a loss. The average
+       * moves with the window and the baseline only grows; the comparison can
+       * fall, and it sits last, told fairly, as it did before.
        */}
+      <div className="an-window">
+        <label>
+          Averages over{' '}
+          <select
+            className="ac__unit"
+            value={window_}
+            onChange={(event) => setWindow(event.target.value as WindowId)}
+            aria-label="Window for the averages"
+          >
+            {WINDOWS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
       <div className="an-stats">
         <div className="an-stat an-stat--lead">
-          <strong>{hoursLabel(data.totalHours)}</strong>
-          <span>of deep work recorded &middot; {data.totalSessions.toLocaleString()} sessions</span>
-        </div>
-        <div className="an-stat">
-          <strong>{data.activeDays.toLocaleString()}</strong>
-          <span>days worked, of {data.calendarDays.toLocaleString()} since you started</span>
-        </div>
-        <div className="an-stat">
-          <strong>{perDay.toFixed(1)} h</strong>
-          <span>a day, across every day in range</span>
-        </div>
-        <div className="an-stat">
-          <strong>{hoursLabel(week.thisWeekPerDay)}</strong>
+          <strong>{average === null ? '—' : `${average.perDay.toFixed(2)} h`}</strong>
           <span>
-            a day over {week.thisWeekDays} {week.thisWeekDays === 1 ? 'day' : 'days'} worked this
-            week &middot;{' '}
-            {stale || week.perDayChangePercent === null ? (
-              change
+            {/* "over the all time" is not a sentence; the whole history gets
+                its own phrasing rather than a label that has to read after
+                "the" in every other panel too. */}
+            {windowDef(window_).days === null
+              ? 'a day, all time'
+              : `a day over the ${windowDef(window_).label}`}
+            {/* Every day counted, not only the ones worked. Dividing by worked
+                days answers "how long is a working day", which flatters a
+                fortnight off into nothing - settled in CLAUDE.md before this
+                control existed, and the control must not unsettle it. */}
+            {average === null ? '' : ` · every day counted, ${average.days} of them`}
+          </span>
+        </div>
+
+        {/* Hidden rather than shown as nothing when the history is under a
+            year: a baseline needs a first year to be a baseline. */}
+        {above !== null && (
+          <div className="an-stat">
+            <strong className="is-up">
+              {above >= 0 ? '+' : ''}
+              {Math.round(above)}%
+            </strong>
+            <span>
+              against your first year &middot; {base?.perDay.toFixed(2)} h a day then,{' '}
+              {recentYear === null
+                ? ''
+                : `${averagePerDay(data.daily, recentYear).perDay.toFixed(2)} h now`}
+            </span>
+          </div>
+        )}
+
+        {fact !== null && (
+          <div className="an-stat">
+            <strong>{fact.value}</strong>
+            <span>
+              {fact.label}
+              {fact.detail === '' ? '' : ` · ${fact.detail}`}
+            </span>
+          </div>
+        )}
+
+        <div className="an-stat">
+          <strong>{period.thisWeekPerDay.toFixed(2)} h</strong>
+          <span>
+            a day worked{' '}
+            {windowDef(window_).days === null ? 'all time' : `in the ${windowDef(window_).label}`}
+            {/* `all` has nothing before it to compare against, so the clause
+                is dropped rather than rendered as a null percentage. */}
+            {period.perDayChangePercent === null ? (
+              ''
             ) : (
-              <span className={week.perDayChangePercent >= 0 ? 'is-up' : 'is-down'}>{change}</span>
+              <>
+                {' · '}
+                <span className={period.perDayChangePercent >= 0 ? 'is-up' : 'is-down'}>
+                  {period.perDayChangePercent >= 0 ? 'up' : 'down'}{' '}
+                  {Math.abs(Math.round(period.perDayChangePercent))}%
+                </span>{' '}
+                on the one before
+              </>
             )}
           </span>
         </div>

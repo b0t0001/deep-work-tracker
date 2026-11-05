@@ -2500,9 +2500,29 @@ code {
 /* Four identical grey boxes said four equally important things. The week just
    gone is the one a reader opens the tab for, so it leads and takes the
    accent; the rest support it. */
+/* The window control for the figure row. Its own line above the tiles rather
+   than inside one of them: it moves two of the four, so belonging to any
+   single tile would misdescribe what it does. */
+.an-window {
+  margin-bottom: 10px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+
+.an-window label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Even columns now the tiles are peers. The old 1.35fr gave the lead figure
+   extra width when it was a lifetime total carrying a long caption; the
+   average that replaced it is four characters, and the baseline tile drops out
+   entirely on a history under a year, so a fixed four-column rule would leave
+   a hole. */
 .an-stats {
   display: grid;
-  grid-template-columns: 1.35fr 1fr 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 12px;
 }
 

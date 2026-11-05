@@ -28,6 +28,7 @@ import {
   ZAxis
 } from 'recharts'
 import { formatDate } from '@shared/dates'
+import { WINDOWS, windowDef, type WindowId } from '@shared/windows'
 import type {
   DayTotal,
   PacePoint,
@@ -297,49 +298,31 @@ function Empty({ height, children }: { height: number; children: string }): Reac
 }
 
 /**
- * Hours per week over the whole history.
+ * Hours over time, cut daily or weekly according to how far back you look.
  *
- * Weekly, not daily, because the history is ~1,280 days: at any window width
- * this app can show, a daily bar is under a pixel wide, so the chart becomes a
- * noise band and the real signal - which stretches were heavy - disappears.
- * A week is also the unit the user already thinks in (week-over-week is the
- * headline figure elsewhere). The axis and the caption both say so, since a
- * reader who assumes days would misread every height by a factor of seven.
+ * The range comes from `@shared/windows` rather than a ladder of this chart's
+ * own. It had one first - and that is exactly how "the past 8 weeks" ends up
+ * meaning 56 days under the chart and something else in the stat row above it.
+ * One list, one definition, and a window chosen in either place reads the same
+ * in both.
  *
- * Empty weeks are filled rather than skipped: a month off must read as a gap,
- * not be closed up into a continuous run of work that never happened.
- */
-/**
- * How far back the chart goes, and how finely it is cut.
+ * A dropdown, not a row of buttons. Seven of them would spend a row's width
+ * saying two characters each, which is the trade the Data tab already refused
+ * for its Source and rows-per-page pickers - it keeps buttons only for its
+ * date presets, where there are four and each is a one-tap shortcut rather
+ * than a persistent selection. This is a persistent selection, and the extra
+ * room lets the options read as words instead of abbreviations.
  *
- * Doubling steps rather than a few coarse ranges: the question "how has this
- * fortnight gone" is asked far more often than "how have three years gone",
- * and the old 1y/2y/all could not answer it at all.
- *
- * A dropdown, not a row of buttons. Six of them spent a row's width saying two
- * characters each, which is the trade the Data tab already refused for its
- * Source and rows-per-page pickers - it keeps buttons only for its date
- * presets, where there are four and each is a one-tap shortcut rather than a
- * persistent selection. This is a persistent selection, and the extra room
- * lets the options read as words instead of abbreviations.
- *
- * The bucket follows the span rather than being chosen separately. A week of
+ * The bucket follows the window rather than being chosen separately. A week of
  * weekly buckets is one point, which is not a chart - so anything up to eight
  * weeks is cut daily and anything longer is cut weekly. That keeps the number
  * of points between about seven and a hundred at every setting, which is the
  * range an area reads well over, and it means the control has one axis rather
  * than two for the user to reconcile.
+ *
+ * Empty buckets are filled rather than skipped: a month off must read as a
+ * gap, not be closed up into a continuous run of work that never happened.
  */
-const SPANS = [
-  { id: '1w', label: 'the last week', days: 7 },
-  { id: '2w', label: 'the last 2 weeks', days: 14 },
-  { id: '4w', label: 'the last 4 weeks', days: 28 },
-  { id: '8w', label: 'the last 8 weeks', days: 56 },
-  { id: '1y', label: 'the last year', days: 371 },
-  { id: 'all', label: 'everything', days: Infinity }
-] as const
-
-type SpanId = (typeof SPANS)[number]['id']
 
 /** Daily cuts stay legible to about eight weeks; past that the week is the unit. */
 const DAILY_LIMIT_DAYS = 56
@@ -350,7 +333,12 @@ interface Point {
   hours: number
   sessions: number
   from: string
-  /** Pre-labelled; blank elsewhere so Recharts cannot thin the wrong ones. */
+  /**
+   * The axis text for this bucket, blank where a label would collide.
+   *
+   * This is tick *text*, never the axis's `dataKey`. Keying the scale on it
+   * put every blank-tick day into one band - see the XAxis below.
+   */
   tick: string
   /** The value drawn on the point, or blank where it would collide. */
   label: string
@@ -363,11 +351,13 @@ export function HoursOverTime({
   daily: DayTotal[]
   accent: string
 }): React.JSX.Element {
-  const [span, setSpan] = useState<SpanId>('8w')
-  const chosen = SPANS.find((s) => s.id === span) ?? SPANS[SPANS.length - 1]
-  const byDay = Number.isFinite(chosen.days) && chosen.days <= DAILY_LIMIT_DAYS
+  const [span, setSpan] = useState<WindowId>('8w')
+  const chosen = windowDef(span)
+  const byDay = chosen.days !== null && chosen.days <= DAILY_LIMIT_DAYS
   const points = seriesFor(daily, chosen.days, byDay)
   const unit = byDay ? 'day' : 'week'
+  /** Axis text by bucket, so the scale can be keyed on something unique. */
+  const tickText = new Map(points.map((point) => [point.from, point.tick]))
 
   return (
     <Frame
@@ -384,10 +374,10 @@ export function HoursOverTime({
             <select
               className="ac__unit"
               value={span}
-              onChange={(event) => setSpan(event.target.value as SpanId)}
+              onChange={(event) => setSpan(event.target.value as WindowId)}
               aria-label="How far back to show"
             >
-              {SPANS.map((option) => (
+              {WINDOWS.map((option) => (
                 <option key={option.id} value={option.id}>
                   {option.label}
                 </option>
@@ -411,7 +401,26 @@ export function HoursOverTime({
               the one point you most want named. */}
           <AreaChart data={points} margin={{ top: 18, right: 10, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={GRID} vertical={false} />
-            <XAxis dataKey="tick" interval={0} tickLine={false} />
+            {/* Keyed on `from`, which is unique per bucket, with the tick text
+                supplied by the formatter.
+
+                `dataKey="tick"` is the bug this replaces, and it was not a
+                thinning problem - it was a tooltip one. A category axis
+                deduplicates its domain, and `tick` is deliberately blank on
+                every bucket that does not carry a label, so 56 days collapsed
+                into the three bands that had text. Recharts then resolved
+                almost every pointer position to the same collapsed band:
+                measured over 24 hover positions, 12 reported one identical day
+                while the pointer moved 800px, and 10 showed no tooltip at all.
+                The chart looked right, because the area and the labels are
+                drawn from the data rather than the scale. Only hovering it
+                showed anything was wrong. */}
+            <XAxis
+              dataKey="from"
+              interval={0}
+              tickLine={false}
+              tickFormatter={(value: string): string => tickText.get(value) ?? ''}
+            />
             <YAxis width={36} tickLine={false} />
             <Tooltip
               {...TOOLTIP}
@@ -458,7 +467,7 @@ export function HoursOverTime({
  * happened. That matters more for an area than it did for bars, because an
  * area connects its points and would draw a slope straight across the gap.
  */
-function seriesFor(daily: DayTotal[], days: number, byDay: boolean): Point[] {
+function seriesFor(daily: DayTotal[], days: number | null, byDay: boolean): Point[] {
   if (daily.length === 0) return []
 
   const totals = new Map<number, { hours: number; sessions: number }>()
@@ -477,7 +486,12 @@ function seriesFor(daily: DayTotal[], days: number, byDay: boolean): Point[] {
 
   const step = byDay ? 1 : 7
   const earliest = Math.min(...totals.keys())
-  const first = Number.isFinite(days) ? Math.max(earliest, last - (days - step)) : earliest
+  // Rounded up to whole buckets, because `last` is a bucket key and the loop
+  // walks back from `first` in steps of one bucket. A year cut weekly has to
+  // start 53 weeks back, not 365 days back: an offset that is not a multiple
+  // of seven lands between the week keys and every bucket then reads as zero.
+  const span = days === null ? null : (Math.ceil(days / step) - 1) * step
+  const first = span === null ? earliest : Math.max(earliest, last - span)
 
   const out: Point[] = []
   for (let key = first; key <= last; key += step) {
