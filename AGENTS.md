@@ -79,6 +79,13 @@ an error, which is the worst of both.
 
 ## Git: branch per session, manager merges
 
+**Push after every commit, and report a failed push - do not park it.**
+GitHub is the only offsite copy. On 2026-11-05 every multi-commit push failed
+for ~15 minutes with `remote: fatal error in commit_refs` while single-commit
+pushes went through: if that message appears, push commit by commit
+(`git push origin <sha>:refs/heads/<branch>`, oldest first) before assuming
+anything is wrong with the commits.
+
 - **Nobody commits to `main`.** Eight commits went straight onto it before this
   was noticed, which also cost the user the added/removed line counter in the
   desktop app - it measures a branch against its base.
