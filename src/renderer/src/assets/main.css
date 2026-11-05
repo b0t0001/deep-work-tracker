@@ -1679,19 +1679,30 @@ input {
   font-weight: 600;
 }
 
-/* The affirmative end of the strip, and the thing the user asked to be told.
-   It inherited `opacity: 0.6` from when it was a dismiss you were meant to
-   ignore - so the control that confirms the save was the faintest pixel in the
-   window. The glyph was right and the treatment still said "skip".
+/* Secondary, deliberately.
 
-   Accent and a size up, which puts it level with Undo at the other end. Those
-   two are the only controls here that end the interaction; the reasons in
-   between are optional and read as optional. */
+   This control has now been wrong in both directions. It began at
+   `opacity: 0.6`, inherited from when it was a dismiss nobody should notice,
+   which made the thing confirming the save the faintest pixel in the window.
+   I then overcorrected to the accent at a size up, which made it outrank the
+   reason buttons.
+
+   The reasons ARE the confirm - the user finishes on "done", "tired" or "cut
+   off", and this is the path for when none of them fits. So it takes the
+   reasons' own colour and close to their size; being a glyph among words it
+   reads a little quieter than they do without being told to. Hover brings it
+   up, the way everything else in this window announces itself.
+
+   No opacity. Dimming is what made it invisible, and "quieter than the
+   reasons" is a different instruction from "faded". */
 .stop-prompt__confirm {
   margin-left: 2px;
-  color: var(--accent) !important;
-  font-size: clamp(11px, 6vmin, 18px);
+  font-size: clamp(10px, 5.4vmin, 16px);
   line-height: 1;
+}
+
+.stop-prompt__confirm:hover:not(:disabled) {
+  color: var(--accent);
 }
 
 .stop-prompt__confirm:disabled {
