@@ -807,9 +807,20 @@ app.whenReady().then(() => {
 })
 
 app.on('will-quit', () => {
-  tray?.destroy()
-  globalShortcut.unregisterAll()
+  // Engines first, then the tray. `updateTray()` runs on every 100ms tick and
+  // guards `!tray`, which catches null but not *destroyed* - Electron throws
+  // "Object has been destroyed" on a destroyed Tray, and a throw out of a
+  // timer callback is an uncaught exception in main, which is a crash dialog
+  // on the way out of the app. Today nothing can interleave, because this
+  // handler is synchronous and the event loop is single-threaded; disposing
+  // first and nulling the handle means that stays true if anything here ever
+  // becomes async.
   instances.forEach((i) => i.engine.dispose())
+  tray?.destroy()
+  tray = null
+  globalShortcut.unregisterAll()
+  // Last, and after the engines: a pending `checkpointSoon()` is flushed here,
+  // and nothing should still be able to write once it has run.
   closeDatabase()
 })
 
