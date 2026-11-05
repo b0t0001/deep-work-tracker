@@ -177,6 +177,37 @@ byte-identical with and without the fix. A correct conclusion reached through a
 broken argument leaves the broken argument in place for next time, which is
 how the first three of these happened.
 
+## They are all one bug: the artifact is real, and it is of something else
+
+Six incidents on 2026-11-05, and they look like six unrelated faults until
+they are put side by side:
+
+| What was trusted | What it was actually of |
+| --- | --- |
+| the installed app | a build from before the change |
+| a `shoot` capture | `out/`, which nobody had rebuilt |
+| a screenshot of the ring | a frame captured before the transition ran |
+| a probe reading `isRing: 0` | bar mode, because the toggle was never clicked |
+| a `:hover` reading of 8 | a synthetic pointer left by an earlier click |
+| "the tree is clean" | a moment that had passed before the message was read |
+
+**None of these is caught by looking harder at the artifact, because the
+artifact is not lying.** The screenshot is a real screenshot, the probe really
+read what it says, the tree really was clean. Each is a true reading of
+something other than the thing being reasoned about.
+
+So the check is never "look again" - it is **assert the artifact is of what
+you think it is**, which is something that can be written down rather than
+remembered: read back the class before measuring it, compare the bundle hash
+before trusting a screenshot, put the clean-tree test inside the build command.
+`scripts/shoot.ts` now refuses to run against a stale bundle for exactly this
+reason; a warning would scroll past, and the failure mode is a result that
+looks right.
+
+The full account, including the git-worktree escape hatch for building while
+another session holds the tree, is in
+`notes/implementer-never-package-a-dirty-tree.md`.
+
 ## `npm run shoot` renders `out/`, not your source
 
 The harness loads `out/renderer/index.html`, which `electron-vite build`
