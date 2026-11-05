@@ -791,8 +791,10 @@ export default function App(): React.JSX.Element {
               they are typed, so it confirms rather than dismisses." Same
               reasoning, same strip, zero extra width.
 
-              The class keeps its name so the artist's existing rule still
-              applies; it wants renaming when the CSS for this lands. */}
+              It is the secondary path, not the primary one: the user
+              finishes on a reason button, and this is for when none of
+              them fits. So it should read quieter than the reasons beside
+              it, which is the opposite of what I first told the artist. */}
           <button
             className="stop-prompt__confirm"
             onClick={() => void confirmOutput()}

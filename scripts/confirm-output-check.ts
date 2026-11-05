@@ -45,6 +45,7 @@ function check(label: string, got: unknown, want: unknown): void {
 /** Flipped mid-run so one window sees a healthy channel and then a broken one. */
 let quantityThrows = false
 const written: Array<{ quantity: number | null; unit: string | null }> = []
+const reasonsSeen: Array<string | null> = []
 
 /**
  * Nothing here may hang.
@@ -88,7 +89,9 @@ app.whenReady().then(async () => {
     ipcMain.handle(channel, () => null)
   }
   ipcMain.handle('timer:stop', () => null)
-  ipcMain.handle('sessions:setStopReason', () => null)
+  ipcMain.handle('sessions:setStopReason', (_event, reason: string | null) => {
+    reasonsSeen.push(reason)
+  })
   ipcMain.handle('sessions:setQuantity', (_event, quantity: number | null, unit: string | null) => {
     if (quantityThrows) throw new Error('deliberate: the quantity write was refused')
     written.push({ quantity, unit })
@@ -113,8 +116,8 @@ app.whenReady().then(async () => {
   // the note is up. A true reading of the wrong element, caught by the test
   // disagreeing with a change I had just watched work.
   const strip = `!!document.querySelector('.stop-output__qty')`
-  const confirmBtn = `!!document.querySelector('.stop-prompt__skip')`
-  const note = `document.querySelector('.stop-output--saved')?.textContent ?? null`
+  const confirmBtn = `!!document.querySelector('.stop-prompt__confirm')`
+  const note = `document.querySelector('.stop-prompt--saved')?.textContent?.trim() ?? null`
   const errorShown = `!!document.querySelector('.card__error')`
 
   /** Drives the real controls rather than calling the handlers directly. */
@@ -153,7 +156,7 @@ app.whenReady().then(async () => {
   await ask(type('.stop-output__unit', 'seconds edited'))
   await new Promise((done) => setTimeout(done, 400))
   check('the write reached main', written.at(-1), { quantity: 8, unit: 'seconds edited' })
-  await ask(`document.querySelector('.stop-prompt__skip').click(), 'x'`)
+  await ask(`document.querySelector('.stop-prompt__confirm').click(), 'x'`)
   await new Promise((done) => setTimeout(done, 500))
   check('it names the value, not just "Saved"', await ask(note), 'Saved · 8 seconds edited')
   check('the fields are gone while it shows', await ask(strip), false)
@@ -171,7 +174,50 @@ app.whenReady().then(async () => {
   )
 
   console.log('')
-  console.log('3. a refused write keeps the strip open and says so')
+  console.log('3. picking a reason is also a confirm - the common path')
+  // The user ends on a reason button, not on the checkmark. That path used
+  // to close silently AND fire `setStopReason` without awaiting it, so there
+  // was nothing to show and nothing verified to show it about.
+  const reasons: Array<{ quantity: number | null; unit: string | null }> = []
+  reasonsSeen.length = 0
+  await ask(openStrip)
+  await new Promise((done) => setTimeout(done, 700))
+  await ask(type('.stop-output__qty', '12'))
+  await new Promise((done) => setTimeout(done, 300))
+  await ask(type('.stop-output__unit', 'questions'))
+  await new Promise((done) => setTimeout(done, 400))
+  check(
+    'clicking "tired" is accepted',
+    await ask(
+      `(() => { const b=[...document.querySelectorAll('.stop-prompt button')].find(x=>x.textContent.trim()==='tired'); if(!b) return 'no button'; b.click(); return 'clicked' })()`
+    ),
+    'clicked'
+  )
+  await new Promise((done) => setTimeout(done, 600))
+  check('the reason reached main', reasonsSeen.at(-1), 'tired')
+  check('it names the value too', await ask(note), 'Saved · 12 questions')
+  check(
+    'the note sits where the buttons were',
+    await ask(`!!document.querySelector('.stop-prompt--saved')`),
+    true
+  )
+  check(
+    'the buttons are covered',
+    await ask(`!!document.querySelector('.stop-prompt__confirm')`),
+    false
+  )
+  await new Promise((done) => setTimeout(done, 1800))
+  check(
+    'then the rows collapse',
+    await ask(
+      `!!document.querySelector('.stop-output__qty') || !!document.querySelector('.stop-prompt--saved')`
+    ),
+    false
+  )
+  void reasons
+
+  console.log('')
+  console.log('4. a refused write keeps the strip open and says so')
   quantityThrows = true
   await ask(openStrip)
   await new Promise((done) => setTimeout(done, 700))
