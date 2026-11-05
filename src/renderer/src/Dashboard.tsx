@@ -562,7 +562,7 @@ function Slot({
       {editing && (
         <div className="an-slot__tools">
           <span className="an-slot__grip" aria-hidden="true">
-            ⠿
+            <Icon name="grip" />
           </span>
           <button
             type="button"
@@ -615,8 +615,20 @@ function LayoutBar({
 
   return (
     <div className={`an-bar${editing ? ' is-arranging' : ''}`}>
+      {/* Named for the verbs, not the noun. "Customise" is a settings word,
+          and the user asked for "customizable, moveable panels" and then said
+          they never got them - while the control was on screen the whole time.
+          A noun they have to open to understand is a noun they skip; the grip
+          says it before the words do. */}
       <button type="button" className="an-bar__toggle" onClick={() => onEditing(!editing)}>
-        {editing ? 'Done' : 'Customise'}
+        {editing ? (
+          'Done'
+        ) : (
+          <>
+            <Icon name="grip" />
+            Rearrange or hide panels
+          </>
+        )}
       </button>
 
       {editing && (
@@ -670,6 +682,16 @@ function LayoutBar({
               Not saved &mdash; this session only
             </span>
           )}
+
+          {/* Entering the mode is the only moment the feature can explain
+              itself, because every affordance it adds is hidden until then.
+              Hiding gets named first: seven panels exist and none has ever
+              been hidden, so that is the capability least likely to be
+              guessed. */}
+          <span className="an-bar__hint">
+            Drag a panel to move it &middot; &times; hides one, and hidden panels come back from
+            here
+          </span>
         </>
       )}
     </div>

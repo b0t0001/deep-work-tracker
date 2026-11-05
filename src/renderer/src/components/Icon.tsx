@@ -19,6 +19,7 @@ export type IconName =
   | 'close'
   | 'edit'
   | 'trash'
+  | 'grip'
 
 const PATHS: Record<IconName, React.JSX.Element> = {
   play: <path d="M5 3.5v9l8-4.5z" />,
@@ -127,6 +128,20 @@ const PATHS: Record<IconName, React.JSX.Element> = {
       <path d="M2.6 4.2h10.8M6.3 4.2V2.9a.9.9 0 01.9-.9h1.6a.9.9 0 01.9.9v1.3" />
       <path d="M4 4.2l.7 8.5a1 1 0 001 .9h4.6a1 1 0 001-.9l.7-8.5" strokeLinejoin="round" />
       <path d="M6.7 6.9v4M9.3 6.9v4" />
+    </g>
+  ),
+  /* Six dots, the universal "this moves" mark. A glyph rather than the
+     braille character it replaces: symbol characters render inconsistently
+     across fonts and some become colour emoji, which is the whole reason this
+     file exists. */
+  grip: (
+    <g>
+      <circle cx="6" cy="4" r="1.15" />
+      <circle cx="10" cy="4" r="1.15" />
+      <circle cx="6" cy="8" r="1.15" />
+      <circle cx="10" cy="8" r="1.15" />
+      <circle cx="6" cy="12" r="1.15" />
+      <circle cx="10" cy="12" r="1.15" />
     </g>
   ),
   minimize: <rect x="3" y="7.4" width="10" height="1.4" rx="0.7" />,

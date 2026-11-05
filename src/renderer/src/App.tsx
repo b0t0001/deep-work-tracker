@@ -228,6 +228,8 @@ export default function App(): React.JSX.Element {
   const quantityWrite = useRef<Promise<void> | null>(null)
   /** What was stored, shown back on confirm. Null while nothing is saved. */
   const [savedNote, setSavedNote] = useState<string | null>(null)
+  /** Second beat of the three: held, then faded, then the rows collapse. */
+  const [fadingNote, setFadingNote] = useState(false)
   const [confirming, setConfirming] = useState(false)
 
   // Closing the pace window means "remove this", so the fields clear with it.
@@ -486,21 +488,37 @@ export default function App(): React.JSX.Element {
     }
     setConfirming(false)
 
+    finishWithNote()
+  }
+
+  /**
+   * Ends the strip, saying what was stored if anything was.
+   *
+   * Three beats, which is how the user described it: hold the message, fade
+   * it, then let the rows collapse. A strip that vanished the instant they
+   * clicked would answer a different question from the one they asked.
+   *
+   * Every exit that writes goes through here, so picking a reason and
+   * pressing the checkmark cannot drift apart - the reason click is the
+   * common path and was the silent one.
+   */
+  function finishWithNote(): void {
     const summary = storedSummary()
     if (summary === null) {
       closeStopPrompt()
       return
     }
-    // Shown briefly in place of the fields, then the whole strip goes. The
-    // pause is the point: the user asked to be told it landed, and a strip
-    // that vanished the instant they clicked would answer a different
-    // question.
     setSavedNote(summary)
+    setFadingNote(false)
     if (dismissRef.current !== null) window.clearTimeout(dismissRef.current)
     dismissRef.current = window.setTimeout(() => {
-      setSavedNote(null)
-      closeStopPrompt()
-    }, 2000)
+      setFadingNote(true)
+      dismissRef.current = window.setTimeout(() => {
+        setSavedNote(null)
+        setFadingNote(false)
+        closeStopPrompt()
+      }, 260)
+    }, 1000)
   }
 
   /**
@@ -513,16 +531,17 @@ export default function App(): React.JSX.Element {
   async function answerStop(reason: string | null): Promise<void> {
     try {
       await quantityWrite.current
+      // Awaited, not fired and forgotten. This was a `.catch()` with no
+      // `await`, so the strip closed before the reason had been stored and
+      // a note shown after it would have been claiming something unverified
+      // - the exact fault this whole change exists to fix, in the one write
+      // nobody thought to check.
+      if (reason) await window.api.timer.setStopReason(reason, null)
     } catch (error) {
       setRecordError(String(error))
       return
     }
-    if (reason) {
-      window.api.timer
-        .setStopReason(reason, null)
-        .catch((error: unknown) => setRecordError(String(error)))
-    }
-    closeStopPrompt()
+    finishWithNote()
   }
 
   function undoStop(): void {
@@ -730,8 +749,21 @@ export default function App(): React.JSX.Element {
         </div>
       )}
 
+      {/* Rendered where the reason buttons were, not where the fields were.
+          The user asked for it to "cover those labels", and the strip is
+          absolutely positioned from the bottom - putting the note in the
+          fields' row left the whole thing reflowing under the cursor between
+          the click and the collapse.
+
+          The inline transition is a placeholder so the fade exists today;
+          it belongs in `main.css` with the rest of the strip, and the class
+          is here for it. */}
       {savedNote !== null && (
-        <div className="stop-output stop-output--saved" role="status">
+        <div
+          className="stop-prompt stop-prompt--saved"
+          role="status"
+          style={{ opacity: fadingNote ? 0 : 1, transition: 'opacity 240ms ease' }}
+        >
           {savedNote}
         </div>
       )}
@@ -762,7 +794,7 @@ export default function App(): React.JSX.Element {
               The class keeps its name so the artist's existing rule still
               applies; it wants renaming when the CSS for this lands. */}
           <button
-            className="stop-prompt__skip"
+            className="stop-prompt__confirm"
             onClick={() => void confirmOutput()}
             disabled={confirming}
             title="Save and close"

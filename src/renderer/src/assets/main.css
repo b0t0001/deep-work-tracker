@@ -1679,8 +1679,24 @@ input {
   font-weight: 600;
 }
 
-.stop-prompt__skip {
-  opacity: 0.6;
+/* The affirmative end of the strip, and the thing the user asked to be told.
+   It inherited `opacity: 0.6` from when it was a dismiss you were meant to
+   ignore - so the control that confirms the save was the faintest pixel in the
+   window. The glyph was right and the treatment still said "skip".
+
+   Accent and a size up, which puts it level with Undo at the other end. Those
+   two are the only controls here that end the interaction; the reasons in
+   between are optional and read as optional. */
+.stop-prompt__confirm {
+  margin-left: 2px;
+  color: var(--accent) !important;
+  font-size: clamp(11px, 6vmin, 18px);
+  line-height: 1;
+}
+
+.stop-prompt__confirm:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .field {
@@ -2219,11 +2235,19 @@ code {
 }
 
 .an-slot__grip {
-  padding: 0 4px;
+  display: inline-flex;
+  padding: 0 3px;
   color: var(--text-dim);
-  font-size: 13px;
   line-height: 1;
   cursor: grab;
+}
+
+/* An inline SVG with no size collapses or defaults to 300x150 depending on the
+   container - it has to be told, the same as the row actions are. */
+.an-slot__grip svg {
+  display: block;
+  width: 13px;
+  height: 13px;
 }
 
 .an-slot__hide {
@@ -2272,6 +2296,31 @@ code {
 .an-bar__reset:hover {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   color: var(--text);
+}
+
+/* The entry point to a feature the user asked for by name and then could not
+   find. It was a small grey outline sitting under four large figures, which
+   teaches the eye to skip it. Now it carries the grip glyph and says the
+   verbs, and the border is the accent at rest rather than on hover - present
+   enough to be read as an affordance, quiet enough that the tab still opens
+   on figures rather than on controls. */
+.an-bar__toggle {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--text);
+}
+
+.an-bar__toggle svg {
+  width: 13px;
+  height: 13px;
+  color: var(--accent);
+}
+
+.an-bar__hint {
+  color: var(--text-dim);
+  font-size: 11px;
 }
 
 .an-bar.is-arranging .an-bar__toggle {
