@@ -17,6 +17,8 @@ import {
   sittings,
   streaks,
   weekOverWeek,
+  isDayWorked,
+  previousDay,
   type DayTotal,
   type Sitting
 } from '../src/shared/analytics'
@@ -311,7 +313,12 @@ section('weekOverWeek()')
 eq('empty input', weekOverWeek([], '2026-03-10'), {
   thisWeek: 0,
   lastWeek: 0,
-  changePercent: null
+  thisWeekDays: 0,
+  lastWeekDays: 0,
+  thisWeekPerDay: 0,
+  lastWeekPerDay: 0,
+  changePercent: null,
+  perDayChangePercent: null
 })
 
 {
@@ -363,7 +370,16 @@ eq('empty input', weekOverWeek([], '2026-03-10'), {
 eq(
   'tomorrow is excluded (the off-by-one at the top of the window)',
   weekOverWeek([day('2026-03-11', 99)], '2026-03-10'),
-  { thisWeek: 0, lastWeek: 0, changePercent: null }
+  {
+    thisWeek: 0,
+    lastWeek: 0,
+    thisWeekDays: 0,
+    lastWeekDays: 0,
+    thisWeekPerDay: 0,
+    lastWeekPerDay: 0,
+    changePercent: null,
+    perDayChangePercent: null
+  }
 )
 
 {
@@ -379,19 +395,46 @@ eq(
 eq(
   'an empty THIS week against a real last week is -100%',
   weekOverWeek([day('2026-03-01', 8)], '2026-03-10'),
-  { thisWeek: 0, lastWeek: 8, changePercent: -100 }
+  {
+    thisWeek: 0,
+    lastWeek: 8,
+    thisWeekDays: 0,
+    lastWeekDays: 1,
+    thisWeekPerDay: 0,
+    lastWeekPerDay: 8,
+    changePercent: -100,
+    perDayChangePercent: -100
+  }
 )
 
 eq(
   'a doubled week is +100%',
   weekOverWeek([day('2026-03-09', 4), day('2026-03-02', 2)], '2026-03-10'),
-  { thisWeek: 4, lastWeek: 2, changePercent: 100 }
+  {
+    thisWeek: 4,
+    lastWeek: 2,
+    thisWeekDays: 1,
+    lastWeekDays: 1,
+    thisWeekPerDay: 4,
+    lastWeekPerDay: 2,
+    changePercent: 100,
+    perDayChangePercent: 100
+  }
 )
 
 eq(
   'a halved week is -50%',
   weekOverWeek([day('2026-03-09', 2), day('2026-03-02', 4)], '2026-03-10'),
-  { thisWeek: 2, lastWeek: 4, changePercent: -50 }
+  {
+    thisWeek: 2,
+    lastWeek: 4,
+    thisWeekDays: 1,
+    lastWeekDays: 1,
+    thisWeekPerDay: 2,
+    lastWeekPerDay: 4,
+    changePercent: -50,
+    perDayChangePercent: -50
+  }
 )
 
 {
@@ -432,8 +475,83 @@ eq(
 eq(
   'zero-hour days do not disturb the comparison',
   weekOverWeek([day('2026-03-09', 0), day('2026-03-02', 0)], '2026-03-10'),
-  { thisWeek: 0, lastWeek: 0, changePercent: null }
+  {
+    thisWeek: 0,
+    lastWeek: 0,
+    thisWeekDays: 0,
+    lastWeekDays: 0,
+    thisWeekPerDay: 0,
+    lastWeekPerDay: 0,
+    changePercent: null,
+    perDayChangePercent: null
+  }
 )
+
+// ------------------------------------------- hours per worked day (12b) ----
+
+section('weekOverWeek() per worked day')
+
+{
+  // The case the change exists for. Five working days against seven, the same
+  // hours on each: the totals say a collapse, the per-day figure says nothing
+  // changed. Comparing totals punishes the shape of a week rather than the
+  // work in it.
+  const daily = [
+    day('2026-03-10', 4),
+    day('2026-03-09', 4),
+    day('2026-03-08', 4),
+    day('2026-03-07', 4),
+    day('2026-03-06', 4),
+    day('2026-03-03', 4),
+    day('2026-03-02', 4),
+    day('2026-03-01', 4),
+    day('2026-02-28', 4),
+    day('2026-02-27', 4),
+    day('2026-02-26', 4),
+    day('2026-02-25', 4)
+  ]
+  const got = weekOverWeek(daily, '2026-03-10')
+  eq('five working days this week', got.thisWeekDays, 5)
+  eq('seven working days last week', got.lastWeekDays, 7)
+  eq('totals read as a collapse', Math.round(got.changePercent ?? 0), -29)
+  eq('per worked day is flat', got.perDayChangePercent, 0)
+}
+
+{
+  // A zero-hour day must not land in the denominator, or a misclick quietly
+  // halves the average. Same definition as streaks(), via isDayWorked.
+  const got = weekOverWeek([day('2026-03-10', 6), day('2026-03-09', 0)], '2026-03-10')
+  eq('a zero-hour day is not a worked day', got.thisWeekDays, 1)
+  eq('so the average is the one real day', got.thisWeekPerDay, 6)
+  check(
+    'and isDayWorked agrees with it',
+    isDayWorked(day('2026-03-09', 0)) === false && isDayWorked(day('2026-03-10', 6)) === true,
+    'isDayWorked disagrees with the denominator it feeds'
+  )
+}
+
+{
+  // Fewer days but longer ones is the case a total comparison hides.
+  const got = weekOverWeek(
+    [day('2026-03-10', 9), day('2026-03-03', 3), day('2026-03-02', 3), day('2026-03-01', 3)],
+    '2026-03-10'
+  )
+  eq('totals are identical', got.changePercent, 0)
+  eq('but the day was three times as long', got.perDayChangePercent, 200)
+}
+
+eq(
+  'no worked day last week leaves the per-day change null',
+  weekOverWeek([day('2026-03-10', 5)], '2026-03-10').perDayChangePercent,
+  null
+)
+
+section('previousDay()')
+
+eq('an ordinary day', previousDay('2026-03-10'), '2026-03-09')
+eq('the first of a month', previousDay('2026-03-01'), '2026-02-28')
+eq('the first of January', previousDay('2026-01-01'), '2025-12-31')
+eq('the first of March in a leap year', previousDay('2024-03-01'), '2024-02-29')
 
 // -------------------------------------------------------------- sittings ---
 

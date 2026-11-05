@@ -140,7 +140,7 @@ export interface Streaks {
  * what every habit tracker does and what the user will expect at 9am.
  */
 export function streaks(daily: DayTotal[], today: string): Streaks {
-  const worked = new Set(daily.filter((d) => d.hours > 0).map((d) => d.date))
+  const worked = new Set(daily.filter(isDayWorked).map((d) => d.date))
   if (worked.size === 0) return { current: 0, best: 0, currentSince: null }
 
   const step = (date: string, days: number): string => {
@@ -172,10 +172,57 @@ export function streaks(daily: DayTotal[], today: string): Streaks {
 }
 
 export interface WeekComparison {
+  /** Total running hours in each window. */
   thisWeek: number
   lastWeek: number
-  /** Positive when this week is ahead. Null when last week was empty. */
+  /**
+   * Days in each window that were actually worked.
+   *
+   * `isDayWorked` rather than a second inline `hours > 0`, so this and
+   * `streaks()` cannot drift apart about what a worked day is.
+   */
+  thisWeekDays: number
+  lastWeekDays: number
+  /**
+   * Hours per worked day - the fair comparison, and the one to show.
+   *
+   * Comparing totals punishes the *shape* of a week rather than the work in
+   * it: five working days against seven reads as a collapse even when each
+   * day was as long. Measured on the real history at 2026-11-05, totals said
+   * -51% and this said -37%. Zero when no day in the window was worked.
+   */
+  thisWeekPerDay: number
+  lastWeekPerDay: number
+  /** Change in total hours. Null when last week was empty. */
   changePercent: number | null
+  /** Change in hours per worked day. Null when no day was worked last week. */
+  perDayChangePercent: number | null
+}
+
+/**
+ * Whether a day counts as worked.
+ *
+ * One definition, used by everything that asks. A run stopped at zero seconds
+ * is a misclick rather than a day's work, and `recordSession` already declines
+ * to write anything under a second for the same reason.
+ */
+export function isDayWorked(day: DayTotal): boolean {
+  return day.hours > 0
+}
+
+/**
+ * The day before `date`, as local `YYYY-MM-DD`.
+ *
+ * Exported because the caller usually wants it: a week ending *today* is
+ * comparing a day still in progress against seven finished ones, which makes
+ * the current window look worse than it is - and worse, excludes today from a
+ * per-worked-day denominator, so the figure is flattered instead. Ending the
+ * window on the last complete day fixes both. That is a product decision and
+ * so lives with the caller, but the date arithmetic belongs here.
+ */
+export function previousDay(date: string): string {
+  const [y, m, d] = date.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)
 }
 
 /**
@@ -195,17 +242,33 @@ export function weekOverWeek(daily: DayTotal[], today: string): WeekComparison {
 
   let thisWeek = 0
   let lastWeek = 0
+  let thisWeekDays = 0
+  let lastWeekDays = 0
   for (const day of daily) {
     const n = dayNumber(day.date)
     if (n > end) continue
-    if (n > end - 7) thisWeek += day.hours
-    else if (n > end - 14) lastWeek += day.hours
+    if (n > end - 7) {
+      thisWeek += day.hours
+      if (isDayWorked(day)) thisWeekDays += 1
+    } else if (n > end - 14) {
+      lastWeek += day.hours
+      if (isDayWorked(day)) lastWeekDays += 1
+    }
   }
+
+  const thisWeekPerDay = thisWeekDays === 0 ? 0 : thisWeek / thisWeekDays
+  const lastWeekPerDay = lastWeekDays === 0 ? 0 : lastWeek / lastWeekDays
 
   return {
     thisWeek,
     lastWeek,
-    changePercent: lastWeek === 0 ? null : ((thisWeek - lastWeek) / lastWeek) * 100
+    thisWeekDays,
+    lastWeekDays,
+    thisWeekPerDay,
+    lastWeekPerDay,
+    changePercent: lastWeek === 0 ? null : ((thisWeek - lastWeek) / lastWeek) * 100,
+    perDayChangePercent:
+      lastWeekPerDay === 0 ? null : ((thisWeekPerDay - lastWeekPerDay) / lastWeekPerDay) * 100
   }
 }
 
