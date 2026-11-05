@@ -1133,7 +1133,14 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
                 className={editing !== 'new' && editing?.id === row.id ? 'is-editing-row' : ''}
               >
                 <td>{row.session_date ?? '—'}</td>
-                <td>{row.project_name ?? <span className="muted">—</span>}</td>
+                {/* Named, not dashed. A session with no project is a specific
+                    thing the user can act on - the project filter has an
+                    Unlabelled option and the whole point of it is that a week
+                    of missed labels is one filter and a few edits rather than
+                    archaeology. A bare em dash reads as "nothing here" and
+                    does not connect the row to the filter that finds it.
+                    Muted, because it is an absence rather than a value. */}
+                <td>{row.project_name ?? <span className="muted">Unlabelled</span>}</td>
                 <td>{row.task ?? <span className="muted">unlabelled</span>}</td>
                 <td className="num">{hours(row.planned_duration_s)}</td>
                 <td className="num">{hours(row.running_duration_s)}</td>

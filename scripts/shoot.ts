@@ -174,7 +174,7 @@ const SHOTS: Shot[] = [
     width: 940,
     height: 660,
     route: '/dashboard',
-    drive: `click('.tabs .tab:nth-child(2)'); await wait(400);`,
+    drive: `click('.tabs .tab:nth-child(2)'); await wait(2500);`,
     note: 'Data, against the full 2,363-session history.'
   },
   {
@@ -198,8 +198,33 @@ const SHOTS: Shot[] = [
     width: 1280,
     height: 900,
     route: '/dashboard',
-    drive: `click('.tabs .tab:nth-child(2)'); await wait(400);`,
+    drive: `click('.tabs .tab:nth-child(2)'); await wait(2500);`,
     note: 'Data at a size the user is more likely to work at.'
+  },
+  {
+    id: 'dash-data-unlabelled',
+    width: 1280,
+    height: 620,
+    route: '/dashboard',
+    // A session with no project must read as "Unlabelled" rather than as a
+    // blank cell, and `projectId: -1` - the sentinel, since a real id cannot
+    // be negative - must find it. There are exactly two such rows: the app
+    // session from 2026-10-02 and the 2023-09-27 import whose Block was N/A,
+    // which the importer used to discard before `deeb0a4`.
+    //
+    // React tracks a controlled <select>'s value on the DOM node, so assigning
+    // `value` directly is reverted on the next render. Going through the
+    // prototype setter is what makes React see the change.
+    drive: `
+      click('.tabs .tab:nth-child(2)'); await wait(2500);
+      const sel = [...document.querySelectorAll('select')]
+        .find((s) => [...s.options].some((o) => o.textContent.includes('Unlabelled')));
+      const opt = [...sel.options].find((o) => o.textContent.includes('Unlabelled'));
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, opt.value);
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      await wait(1500);
+    `,
+    note: 'Data filtered to Unlabelled: the two rows with no project, named rather than blank.'
   },
   {
     id: 'dash-analytics-tall',
