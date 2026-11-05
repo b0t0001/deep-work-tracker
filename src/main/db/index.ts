@@ -115,7 +115,41 @@ export function healthCheck(): string | null {
   }
 }
 
+let pendingCheckpoint: NodeJS.Timeout | null = null
+
+/**
+ * A checkpoint for writes that arrive in bursts, coalesced into one.
+ *
+ * `checkpoint()` takes an exclusive lock, so calling it on every write is the
+ * wrong shape for the writes that are not one-shot: work quantity is written
+ * as the user types it, and an edit in the Data tab is a field at a time. A
+ * TRUNCATE per keystroke would thrash the lock for no benefit, since what
+ * matters is that the rows are in the `.db` shortly after the user stops, not
+ * within a millisecond of each one.
+ *
+ * The window this leaves open is the delay below - a kill inside it can still
+ * strand those frames. That is a far smaller window than the one it closes,
+ * which was unbounded: before this, work quantity, stop reasons, manual
+ * sessions, every edit, undo, and the backup directory could sit in the `-wal`
+ * indefinitely, and the session row they belonged to had already been
+ * checkpointed without them.
+ */
+export function checkpointSoon(delayMs = 1500): void {
+  if (pendingCheckpoint) clearTimeout(pendingCheckpoint)
+  pendingCheckpoint = setTimeout(() => {
+    pendingCheckpoint = null
+    checkpoint()
+  }, delayMs)
+  // Never a reason to hold the process open; a clean close checkpoints anyway.
+  pendingCheckpoint.unref?.()
+}
+
 export function closeDatabase(): void {
+  if (pendingCheckpoint) {
+    clearTimeout(pendingCheckpoint)
+    pendingCheckpoint = null
+    checkpoint()
+  }
   db?.close()
   db = null
 }

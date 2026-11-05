@@ -1,4 +1,4 @@
-import { checkpoint, openDatabase } from './index'
+import { checkpoint, checkpointSoon, openDatabase } from './index'
 import { runningMs, type TimerSnapshot } from '../../shared/timer'
 import { canonicalProjectName } from '../../shared/projects'
 
@@ -342,6 +342,7 @@ export function insertSession(patch: SessionPatch, id?: number): number {
       `INSERT INTO sessions (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`
     )
     .run(...(values as Array<string | number | null>))
+  checkpointSoon()
   return id ?? Number(result.lastInsertRowid)
 }
 
@@ -351,6 +352,7 @@ export function patchSession(id: number, patch: SessionPatch): void {
   openDatabase()
     .prepare(`UPDATE sessions SET ${columns.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
     .run(...(columns.map((c) => patch[c]) as Array<string | number | null>), id)
+  checkpointSoon()
 }
 
 export function insertPauses(rows: PauseRow[]): void {
@@ -359,6 +361,7 @@ export function insertPauses(rows: PauseRow[]): void {
     'INSERT INTO pauses (session_id, paused_at, resumed_at) VALUES (?, ?, ?)'
   )
   for (const row of rows) statement.run(row.session_id, row.paused_at, row.resumed_at)
+  checkpointSoon()
 }
 
 /**
@@ -379,6 +382,7 @@ export function setStopReason(id: number, reason: string | null, note: string | 
   openDatabase()
     .prepare('UPDATE sessions SET stop_reason = ?, stop_reason_note = ? WHERE id = ?')
     .run(reason, note, id)
+  checkpointSoon()
 }
 
 /**
@@ -391,6 +395,8 @@ export function setWorkQuantity(id: number, quantity: number | null, unit: strin
   openDatabase()
     .prepare('UPDATE sessions SET work_quantity = ?, work_unit = ? WHERE id = ?')
     .run(quantity, unit, id)
+  // Written as the user types, so coalesced rather than one TRUNCATE per key.
+  checkpointSoon()
 }
 
 /**
@@ -426,4 +432,5 @@ export function lastUnitFor(task: string | null): string | null {
 /** Used only by undo, which must leave no trace of the stop it reverses. */
 export function deleteSession(id: number): void {
   openDatabase().prepare('DELETE FROM sessions WHERE id = ?').run(id)
+  checkpointSoon()
 }

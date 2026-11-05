@@ -707,11 +707,41 @@ grown past an empty schema. The rows had only ever been in a `-wal` that was
 later lost. **The cause was never established**, which is the point: the window
 should not exist to be exploited by causes nobody has identified.
 
-So **anything that writes rows worth keeping calls `checkpoint()` immediately
-after committing** — `recordSession` and `importRows` today. It costs
-milliseconds. `TRUNCATE` rather than `PASSIVE` because the aim is to leave
-nothing behind, and it is allowed to fail quietly since a concurrent reader can
-refuse it and the next write will try again.
+So **anything that writes rows worth keeping checkpoints**. `TRUNCATE` rather
+than `PASSIVE` because the aim is to leave nothing behind, and it is allowed to
+fail quietly since a concurrent reader can refuse it and the next write will
+try again.
+
+For a long time that rule was stated here and honoured by two functions.
+`recordSession` and `importRows` called `checkpoint()`; **nine other write
+paths did not** — work quantity, stop reasons, manually entered sessions, every
+edit and delete from the Data tab, the pauses restored by undo, and the backup
+directory in `app_settings`. Audited and closed 2026-11-05.
+
+That gap was worse than it sounds, because each of those writes *modifies a
+session row that had already been checkpointed*. Losing the `-wal` would not
+have lost the session; it would have reverted the row to the version without
+its output, leaving a session that looks complete and quietly has no
+`work_quantity`. Nothing on screen would say so. Work quantity is on 97% of the
+history and is a first-class feature, a manually entered session cannot be
+reconstructed from a timer at all, and the backup directory is acted on
+unattended — which is the case `app_settings` exists for.
+
+Two mechanisms, because the writes have two shapes:
+
+- **`checkpoint()`** for a finished run and a completed import: one-shot,
+  decisive, worth an exclusive lock immediately.
+- **`checkpointSoon()`** for everything else, which arrives in bursts. Work
+  quantity is written as the user types it and an edit is a field at a time, so
+  a `TRUNCATE` per keystroke would thrash the lock to no purpose. It coalesces
+  onto a 1.5-second trailing timer, unref'd so it never holds the process open,
+  and `closeDatabase()` flushes a pending one.
+
+The residual window is that 1.5 seconds. That is not nothing, but the window it
+replaced was unbounded. `scripts/checkpoint-check.ts` proves both halves by
+copying the `.db` **without** its `-wal` — which is exactly what the 2026-09-23
+loss looked like — and reading it: before the checkpoint the quantity is not
+there, after it is.
 
 ### Two builds, one database — and why they are now separated
 
