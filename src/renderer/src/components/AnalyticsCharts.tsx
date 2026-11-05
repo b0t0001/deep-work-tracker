@@ -709,6 +709,17 @@ function ratioBars(data: PlannedVsActualPoint[]): RatioBar[] {
 function rateCeiling(rates: number[]): number {
   if (rates.length === 0) return 1
   const sorted = [...rates].sort((a, b) => a - b)
+  // Nearest-rank on a zero-indexed array, so the span is `length - 1`. The
+  // obvious `length * 0.98` reaches the last element for every n up to 50 -
+  // the "98th percentile" silently WAS the maximum, i.e. no clipping at all,
+  // in exactly the small series where one outlier distorts most. Six of the
+  // twelve real units were in that range.
+  //
+  // This leans on `MIN_SESSIONS_FOR_A_UNIT` in `main/db/analytics.ts`, which
+  // is 10: a unit only reaches this chart with ten sessions or more, so the
+  // rank drops at most one point in ten. Below about six it would start
+  // clipping a quarter of the series and the axis would stop meaning what the
+  // caption says it means, so that floor is load-bearing here, not just there.
   const at = sorted[Math.floor((sorted.length - 1) * 0.98)]
   const top = Math.max(at, sorted[0])
   return top > 0 ? top * 1.08 : 1

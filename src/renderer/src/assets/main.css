@@ -8,6 +8,10 @@
   --border: #ffffff14;
   --text: #f2f4f7;
   --text-dim: #8b919c;
+  /* Between the page and a raised control: the Analytics panels sit above
+     `--surface` without reading as something you can press, which is what
+     `--surface-raised` implies and is too light for. */
+  --surface-panel: #1a1d23;
 
   /* Everything scales off the viewport, so one layout serves the compact
      window, a hand-resized window, and a projector in full screen. */
@@ -2122,7 +2126,7 @@ code {
   padding: 16px 18px 14px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: #1a1d23;
+  background: var(--surface-panel);
   min-width: 0;
 }
 
@@ -2130,7 +2134,11 @@ code {
    page. It leads now, and a wash of the accent marks it as the one panel that
    is not simply another chart. */
 .an-panel--hero {
-  background: linear-gradient(170deg, color-mix(in srgb, var(--accent) 7%, #1a1d23), #1a1d23 60%);
+  background: linear-gradient(
+    170deg,
+    color-mix(in srgb, var(--accent) 7%, var(--surface-panel)),
+    var(--surface-panel) 60%
+  );
 }
 
 .an-panel__head {
@@ -2192,12 +2200,16 @@ code {
   padding: 15px 17px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: #1a1d23;
+  background: var(--surface-panel);
 }
 
 .an-stat--lead {
   border-color: color-mix(in srgb, var(--accent) 28%, transparent);
-  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 16%, #1a1d23), #1a1d23);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 16%, var(--surface-panel)),
+    var(--surface-panel)
+  );
 }
 
 .an-stat strong {
