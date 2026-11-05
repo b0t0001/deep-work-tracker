@@ -211,6 +211,24 @@ export default function App(): React.JSX.Element {
   const qtyUnitRef = useRef<HTMLInputElement>(null)
   const dismissRef = useRef<number | null>(null)
   const clockRef = useRef<HTMLInputElement>(null)
+  /**
+   * The most recent `setQuantity`, so confirming can wait for the write
+   * rather than for the keystroke that started it.
+   *
+   * The quantity is already stored by the time the user reaches for the
+   * checkmark - it writes as they type. That is exactly why the confirmation
+   * has to await this: a control that only closed the strip would be
+   * reporting that a key was pressed, which is not the thing being claimed.
+   *
+   * It carries its own `catch` so a failure while typing still surfaces, and
+   * that also marks the promise handled - `confirmOutput` awaits the same
+   * promise again and handles the rejection a second time, which is fine and
+   * is what lets it keep the strip open.
+   */
+  const quantityWrite = useRef<Promise<void> | null>(null)
+  /** What was stored, shown back on confirm. Null while nothing is saved. */
+  const [savedNote, setSavedNote] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
 
   // Closing the pace window means "remove this", so the fields clear with it.
   useEffect(() => {
@@ -424,15 +442,81 @@ export default function App(): React.JSX.Element {
    */
   function saveQuantity(nextQty: string, nextUnit: string): void {
     const amount = nextQty.trim() === '' ? null : Number(nextQty)
-    window.api.timer
-      .setQuantity(
-        amount !== null && Number.isFinite(amount) ? amount : null,
-        nextUnit.trim() === '' ? null : nextUnit.trim()
-      )
-      .catch((error: unknown) => setRecordError(String(error)))
+    const write = window.api.timer.setQuantity(
+      amount !== null && Number.isFinite(amount) ? amount : null,
+      nextUnit.trim() === '' ? null : nextUnit.trim()
+    )
+    quantityWrite.current = write
+    write.catch((error: unknown) => setRecordError(String(error)))
   }
 
-  function answerStop(reason: string | null): void {
+  /**
+   * How the strip describes what it stored.
+   *
+   * Names the value rather than saying "Saved", because the user is
+   * confirming a number they typed and the useful acknowledgement is that
+   * *that* number is the one in the database. Null when there is nothing to
+   * claim - confirming an empty quantity closes the strip without pretending
+   * anything was recorded.
+   */
+  function storedSummary(): string | null {
+    const amount = qty.trim()
+    if (amount === '') return null
+    const unit = qtyUnit.trim()
+    return `Saved · ${amount}${unit === '' ? '' : ` ${unit}`}`
+  }
+
+  /**
+   * Confirms the output and closes the strip.
+   *
+   * Waits for the outstanding write before claiming anything. On a rejection
+   * it reports the failure and **leaves the strip open**, because at that
+   * moment what the user typed exists nowhere else - closing would discard
+   * the only copy while telling them it was saved.
+   */
+  async function confirmOutput(): Promise<void> {
+    if (confirming) return
+    setConfirming(true)
+    try {
+      await quantityWrite.current
+    } catch (error) {
+      setConfirming(false)
+      setRecordError(String(error))
+      return
+    }
+    setConfirming(false)
+
+    const summary = storedSummary()
+    if (summary === null) {
+      closeStopPrompt()
+      return
+    }
+    // Shown briefly in place of the fields, then the whole strip goes. The
+    // pause is the point: the user asked to be told it landed, and a strip
+    // that vanished the instant they clicked would answer a different
+    // question.
+    setSavedNote(summary)
+    if (dismissRef.current !== null) window.clearTimeout(dismissRef.current)
+    dismissRef.current = window.setTimeout(() => {
+      setSavedNote(null)
+      closeStopPrompt()
+    }, 2000)
+  }
+
+  /**
+   * Picking a reason also exits the strip, so it carries the same guarantee
+   * as the checkmark: wait for the outstanding quantity write, and if it
+   * failed, report it and stay open rather than closing over a lost number.
+   * The promise is the same one `confirmOutput` awaits - there is one write
+   * in flight, not one per exit path.
+   */
+  async function answerStop(reason: string | null): Promise<void> {
+    try {
+      await quantityWrite.current
+    } catch (error) {
+      setRecordError(String(error))
+      return
+    }
     if (reason) {
       window.api.timer
         .setStopReason(reason, null)
@@ -600,7 +684,7 @@ export default function App(): React.JSX.Element {
           that throws it away. The error replaces the prompt rather than
           sitting beside it - at 250px there is no room for both, and only one
           of them is true. */}
-      {stopPrompt && recordError === null && (
+      {stopPrompt && recordError === null && savedNote === null && (
         <div className="stop-output">
           <input
             ref={qtyRef}
@@ -637,13 +721,40 @@ export default function App(): React.JSX.Element {
               saveQuantity(qty, next)
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') event.currentTarget.blur()
+              // Enter walks quantity -> unit -> confirm, so a session can be
+              // stopped and its output recorded without the mouse, the same
+              // sequence the pace panel uses.
+              if (event.key === 'Enter') void confirmOutput()
             }}
           />
+
+          {/* Last sibling, and a button, so it is `no-drag` automatically and
+              sits after the surface it overlays - the rule that has broken
+              this window three times.
+
+              A checkmark rather than an X, matching the pace panel: the
+              values are already applied as they are typed, so this confirms
+              rather than dismisses. Styling reuses the strip's own classes;
+              the treatment is the artist's. */}
+          <button
+            className="stop-output__confirm"
+            onClick={() => void confirmOutput()}
+            disabled={confirming}
+            title="Save and close"
+            aria-label="Save and close"
+          >
+            &#10003;
+          </button>
         </div>
       )}
 
-      {stopPrompt && recordError === null && (
+      {savedNote !== null && (
+        <div className="stop-output stop-output--saved" role="status">
+          {savedNote}
+        </div>
+      )}
+
+      {stopPrompt && recordError === null && savedNote === null && (
         <div className="stop-prompt">
           <button className="stop-prompt__undo" onClick={undoStop} title="Resume the session">
             Undo
