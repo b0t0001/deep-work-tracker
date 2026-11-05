@@ -11,16 +11,30 @@
  * is not doing the work.
  *
  * **The hazard.** A backslash escape can collapse somewhere between being
- * written and landing in the file, so `\b` in a regex arrives as a literal
- * U+0008 BACKSPACE. The pattern then compiles, runs, matches nothing, and
- * looks like a logic bug. Nothing in the toolchain objects: it is a valid
- * character in a valid string.
+ * written and landing in the file, so a backslash-b escape arrives as a literal U+0008
+ * BACKSPACE. The code then compiles, runs, matches nothing, and reads as a
+ * logic bug. Nothing objects: it is a valid character in a valid string.
  *
- * **What this does NOT need to catch**, because something already does:
- * a literal newline inside a `'...'` or `"..."` is a syntax error, and
- * eslint reports it as `Parsing error: Unterminated string literal`. That
- * happened here too and was caught in seconds. The dangerous siblings are
- * the ones that parse perfectly.
+ * **What this covers, and what already had cover.** Measured before writing
+ * it - each case injected and run past the existing tools - rather than
+ * assumed:
+ *
+ * | case | already caught by |
+ * | --- | --- |
+ * | literal newline in a quoted string | eslint, `Parsing error: Unterminated string literal` |
+ * | control character inside a **regex** | eslint, `no-control-regex` |
+ * | control character inside a plain **string** | nothing |
+ *
+ * **So this closes one case of three.** Verified by putting a U+0008 inside
+ * a plain string literal in `src/shared/timer.ts`: eslint reported zero
+ * findings for that file, typecheck passed, prettier passed, and only this
+ * reported it. The other two rows are eslint's and should stay eslint's.
+ *
+ * Worth knowing rather than trusting this blindly: the three cases have two
+ * owners, and nothing here is watching whether the other owner still exists.
+ * This scan would in fact catch a control character in a regex as well, but
+ * that is incidental - it is not why the rule was written and it is not what
+ * the message says.
  *
  * So the rule is narrow and mechanical: **no C0 control characters in source,
  * other than tab, newline and carriage return.** Those three are ordinary
