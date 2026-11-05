@@ -76,6 +76,13 @@ export function useLayout(): LayoutState {
     setLayout(next)
     void channel()
       ?.set(next)
+      .then((stored) => {
+        // Adopt what was actually stored rather than keeping our own idea of
+        // it. `writeLayout` resolves before writing, so this is where a panel
+        // the renderer has never heard of gets appended and shown instead of
+        // being quietly dropped on the next write.
+        setLayout(resolveLayout(stored))
+      })
       .catch(() => {
         /* Saving a preference is not worth interrupting anyone over. */
       })
