@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react'
 import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
+import { streaks, weekOverWeek, type Analytics } from '@shared/analytics'
+import { useAccentSync } from './lib/accent'
+import { ByProject, HoursOverTime, PlannedVsActual, RateTrend } from './components/AnalyticsCharts'
+import { CalendarHeatmap, TimeOfDayHeatmap } from './components/Heatmaps'
 
 type Tab = 'settings' | 'data' | 'analytics' | 'import'
 
@@ -425,26 +429,146 @@ function Backups(): React.JSX.Element {
   )
 }
 
+/** One local `YYYY-MM-DD`, for the streak and week windows. */
+function localToday(): string {
+  const now = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
+
+function hoursLabel(value: number): string {
+  if (value >= 100) return `${Math.round(value).toLocaleString()} h`
+  return `${value.toFixed(1)} h`
+}
+
 function AnalyticsTab(): React.JSX.Element {
+  const accent = useAccentSync()
+  const [data, setData] = useState<Analytics | null>(null)
+  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading')
+
+  useEffect(() => {
+    let alive = true
+    window.api.analytics
+      .get()
+      .then((payload) => {
+        if (!alive) return
+        // Null is the main process telling us the read failed - see the
+        // `analytics:get` handler. It is deliberately not an empty payload,
+        // because zeroes would render as "you have never worked", which is the
+        // most alarming possible way to report a query error.
+        if (payload === null) {
+          setState('failed')
+          return
+        }
+        setData(payload as Analytics)
+        setState('ready')
+      })
+      .catch(() => {
+        // A rejected invoke is the same situation as a null payload. Without
+        // this the promise would reject unhandled and the tab would sit on
+        // "Reading" forever with the reason only in the console.
+        if (alive) setState('failed')
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  if (state === 'loading') {
+    return (
+      <section className="panel panel--wide">
+        <h2>Analytics</h2>
+        <p className="muted">Reading the history&hellip;</p>
+      </section>
+    )
+  }
+
+  if (state === 'failed' || data === null) {
+    return (
+      <section className="panel panel--wide">
+        <h2>Analytics</h2>
+        <p className="muted">
+          The history could not be read, so nothing here would be trustworthy. Your sessions are not
+          affected &mdash; this is a failure to query them, not a failure to store them. The Data
+          tab reads the same rows and is worth trying; if that is empty too, Settings has Restore
+          from backup.
+        </p>
+      </section>
+    )
+  }
+
+  if (data.totalSessions === 0) {
+    return (
+      <section className="panel panel--wide">
+        <h2>Analytics</h2>
+        <p className="muted">
+          Nothing recorded yet. Run a timer and stop it, add a session by hand, or bring in the
+          spreadsheet from the Import tab.
+        </p>
+      </section>
+    )
+  }
+
+  const today = localToday()
+  const streak = streaks(data.daily, today)
+  const week = weekOverWeek(data.daily, today)
+
+  // Over calendar days in the range, not over active days only. CLAUDE.md
+  // settled this: dividing by active days answers "how long is a working day",
+  // which flatters a fortnight off into nothing.
+  const perDay = data.calendarDays > 0 ? data.totalHours / data.calendarDays : 0
+
+  const change =
+    week.changePercent === null
+      ? 'nothing the week before to compare against'
+      : `${week.changePercent >= 0 ? '+' : ''}${Math.round(week.changePercent)}% on the week before`
+
   return (
-    <section className="panel">
-      <h2>Analytics</h2>
-      <p className="muted">Not built yet. Planned, in roughly this order:</p>
-      <ul className="plan">
-        <li>Total hours over time, this week against last</li>
-        <li>Breakdown by project, and by task within a project</li>
-        <li>Calendar heatmap, one cell per day</li>
-        <li>Consistency and streaks</li>
-        <li>
-          Time-of-day heatmap &mdash; <strong>app-recorded sessions only</strong>, since imported
-          rows have no clock times
-        </li>
-        <li>
-          Rate trends, scoped to one unit at a time &mdash; words per minute and questions per
-          minute are not comparable
-        </li>
-        <li>Planned against actual duration, and pace target against what happened</li>
-      </ul>
+    <section className="panel panel--wide">
+      <header className="data-head">
+        <h2>Analytics</h2>
+        <p className="data-head__count">
+          {data.totalSessions.toLocaleString()} sessions &middot; {hoursLabel(data.totalHours)}{' '}
+          &middot; {data.activeDays.toLocaleString()} active of {data.calendarDays.toLocaleString()}{' '}
+          days
+        </p>
+        {data.firstDate && data.lastDate && (
+          <p className="data-head__span">
+            recorded {data.firstDate} to {data.lastDate}
+          </p>
+        )}
+      </header>
+
+      <div className="stats">
+        <div>
+          <strong>{hoursLabel(week.thisWeek)}</strong>
+          <span>last 7 days &middot; {change}</span>
+        </div>
+        <div>
+          <strong>{streak.current.toLocaleString()}</strong>
+          <span>
+            day streak
+            {streak.currentSince === null
+              ? ' · not today or yesterday'
+              : ` · since ${streak.currentSince}`}
+          </span>
+        </div>
+        <div>
+          <strong>{streak.best.toLocaleString()}</strong>
+          <span>best streak</span>
+        </div>
+        <div>
+          <strong>{perDay.toFixed(1)} h</strong>
+          <span>a day across the whole range</span>
+        </div>
+      </div>
+
+      <HoursOverTime daily={data.daily} accent={accent} />
+      <CalendarHeatmap daily={data.daily} accent={accent} />
+      <ByProject byProject={data.byProject} accent={accent} />
+      <PlannedVsActual data={data.plannedVsActual} accent={accent} />
+      <RateTrend ratesByUnit={data.ratesByUnit} units={data.units} accent={accent} />
+      <TimeOfDayHeatmap byHour={data.byHour} timedSessions={data.timedSessions} accent={accent} />
     </section>
   )
 }

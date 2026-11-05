@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 
 /**
@@ -8,13 +8,20 @@ import { ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
  * reaches the others as a storage event. The dashboard dispatches a synthetic
  * one for itself, since localStorage does not notify the window that wrote it.
  */
-export function useAccentSync(): void {
+export function useAccentSync(): string {
+  // Returned as well as applied to `--accent`, because an SVG chart needs the
+  // value itself: Recharts computes fills and gradient stops in JS, where a
+  // `var(--accent)` string is just an unresolvable colour. Returning it from
+  // the one hook that already owns the value keeps CLAUDE.md's rule intact -
+  // every window reads the same stored accent through here, and no window
+  // gets its own copy of the storage logic to drift out of step.
+  const [accent, setAccent] = useState<string>(DEFAULT_ACCENT)
+
   useEffect(() => {
     const apply = (value: string | null): void => {
-      document.documentElement.style.setProperty(
-        '--accent',
-        isKnownAccent(value) ? value : DEFAULT_ACCENT
-      )
+      const next = isKnownAccent(value) ? value : DEFAULT_ACCENT
+      document.documentElement.style.setProperty('--accent', next)
+      setAccent(next)
     }
 
     try {
@@ -30,4 +37,6 @@ export function useAccentSync(): void {
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
   }, [])
+
+  return accent
 }
