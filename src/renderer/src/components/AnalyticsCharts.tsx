@@ -706,6 +706,9 @@ function ratioBars(data: PlannedVsActualPoint[]): RatioBar[] {
  * counted and named in the caption rather than dropped. A busy top edge is
  * recoverable; a chart whose data sits in the bottom eighth says nothing.
  */
+/** The share of a series a percentile ceiling may push above the axis. */
+const MAX_CLIP_SHARE = 0.1
+
 function rateCeiling(rates: number[]): number {
   if (rates.length === 0) return 1
   const sorted = [...rates].sort((a, b) => a - b)
@@ -715,12 +718,23 @@ function rateCeiling(rates: number[]): number {
   // in exactly the small series where one outlier distorts most. Six of the
   // twelve real units were in that range.
   //
-  // This leans on `MIN_SESSIONS_FOR_A_UNIT` in `main/db/analytics.ts`, which
-  // is 10: a unit only reaches this chart with ten sessions or more, so the
-  // rank drops at most one point in ten. Below about six it would start
-  // clipping a quarter of the series and the axis would stop meaning what the
-  // caption says it means, so that floor is load-bearing here, not just there.
-  const at = sorted[Math.floor((sorted.length - 1) * 0.98)]
+  // The rank lands one place short of the top however long the series is, so
+  // a percentile ceiling always costs exactly one point: 1.7% of `word`, and
+  // 50% of a series of two. Past MAX_CLIP_SHARE the axis stops being what the
+  // caption says it is, so a short series takes the plain maximum and clips
+  // nothing.
+  //
+  // `MIN_SESSIONS_FOR_A_UNIT` in `main/db/analytics.ts` is 10, so nothing
+  // below that reaches this chart today and the branch is unreachable. It is
+  // here anyway because that constant answers a different question - whether a
+  // unit is worth charting at all - and the two agreeing is a coincidence.
+  // Relying on it would make lowering it silently degrade this axis rather
+  // than break anything, which is the kind of change someone makes
+  // confidently.
+  const tooShortToClip = sorted.length * MAX_CLIP_SHARE < 1
+  const at = tooShortToClip
+    ? sorted[sorted.length - 1]
+    : sorted[Math.floor((sorted.length - 1) * 0.98)]
   const top = Math.max(at, sorted[0])
   return top > 0 ? top * 1.08 : 1
 }
