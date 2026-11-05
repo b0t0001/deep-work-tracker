@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
-import { streaks, weekOverWeek, type Analytics } from '@shared/analytics'
+import { weekOverWeek, type Analytics } from '@shared/analytics'
 import { useAccentSync } from './lib/accent'
 import {
   ByProject,
@@ -516,7 +516,6 @@ function AnalyticsTab(): React.JSX.Element {
   }
 
   const today = localToday()
-  const streak = streaks(data.daily, today)
   const week = weekOverWeek(data.daily, today)
 
   // Over calendar days in the range, not over active days only. CLAUDE.md
@@ -524,20 +523,21 @@ function AnalyticsTab(): React.JSX.Element {
   // which flatters a fortnight off into nothing.
   const perDay = data.calendarDays > 0 ? data.totalHours / data.calendarDays : 0
 
+  // Per worked day, not totals. Comparing a five-day week's total against a
+  // seven-day week's punishes the shape of the week rather than the work in
+  // it. It is still negative here - no honest ratio turns a lighter week into
+  // a heavier one - which is why the fix for "this reads as discouraging" was
+  // to move the comparison out of the hero slot rather than to find a kinder
+  // number.
   const change =
-    week.changePercent === null
+    week.perDayChangePercent === null
       ? 'nothing the week before to compare against'
-      : `${week.changePercent >= 0 ? '+' : ''}${Math.round(week.changePercent)}% on the week before`
+      : `${week.perDayChangePercent >= 0 ? '+' : ''}${Math.round(week.perDayChangePercent)}% a day on the week before`
 
   return (
     <section className="panel panel--wide">
       <header className="data-head">
         <h2>Analytics</h2>
-        <p className="data-head__count">
-          {data.totalSessions.toLocaleString()} sessions &middot; {hoursLabel(data.totalHours)}{' '}
-          &middot; {data.activeDays.toLocaleString()} active of {data.calendarDays.toLocaleString()}{' '}
-          days
-        </p>
         {data.firstDate && data.lastDate && (
           <p className="data-head__span">
             recorded {data.firstDate} to {data.lastDate}
@@ -545,37 +545,53 @@ function AnalyticsTab(): React.JSX.Element {
         )}
       </header>
 
-      {/* The week just gone leads and takes the accent: it is the figure the
-          tab gets opened for, and four identical boxes gave it no more weight
-          than the lifetime average beside it. The streak moved out of second
-          place for the same reason - a bold `0` was the most prominent thing
-          on the page, and it reads as a verdict rather than a measurement. */}
+      {/*
+       * The tab is meant to be motivating as much as analytical, so which
+       * figure occupies the hero slot is a design decision rather than a
+       * ranking of which number is most recent.
+       *
+       * A week-on-week comparison can always go down, and this one does:
+       * 18.6h against 37.9h is -51%. Per *active* day it is 3.7h against
+       * 5.4h, which is fairer - comparing a five-day week's total against a
+       * seven-day week's punishes the shape of the week rather than the work
+       * in it - but it is still -31%. No honest ratio turns a lighter week
+       * into a heavier one, and one that did would be lying about data the
+       * user makes real decisions on. So the fix is which figure leads, not
+       * which ratio is printed: the comparison stays, told fairly, demoted.
+       *
+       * The hero and the two beside it are totals that only ever grow. Honest
+       * and encouraging at the same time, which is the combination to reach
+       * for when a panel could be truthful in either direction.
+       *
+       * The streak tile is gone. `60 · best streak · current 0` says your
+       * best was months ago and today you have nothing - a verdict rather
+       * than a measurement. `streaks()` stays in `shared/analytics.ts`
+       * because it is pure and covered by the harness; nothing renders it.
+       */}
       <div className="an-stats">
         <div className="an-stat an-stat--lead">
-          <strong>{hoursLabel(week.thisWeek)}</strong>
-          <span>
-            last 7 days &middot;{' '}
-            {week.changePercent === null ? (
-              change
-            ) : (
-              <span className={week.changePercent >= 0 ? 'is-up' : 'is-down'}>{change}</span>
-            )}
-          </span>
+          <strong>{hoursLabel(data.totalHours)}</strong>
+          <span>of deep work recorded &middot; {data.totalSessions.toLocaleString()} sessions</span>
+        </div>
+        <div className="an-stat">
+          <strong>{data.activeDays.toLocaleString()}</strong>
+          <span>days worked, of {data.calendarDays.toLocaleString()} since you started</span>
         </div>
         <div className="an-stat">
           <strong>{perDay.toFixed(1)} h</strong>
           <span>a day, across every day in range</span>
         </div>
         <div className="an-stat">
-          <strong>{streak.best.toLocaleString()}</strong>
+          <strong>{hoursLabel(week.thisWeekPerDay)}</strong>
           <span>
-            best streak &middot; current {streak.current.toLocaleString()}
-            {streak.currentSince === null ? '' : `, since ${streak.currentSince}`}
+            a day over {week.thisWeekDays} {week.thisWeekDays === 1 ? 'day' : 'days'} worked this
+            week &middot;{' '}
+            {week.perDayChangePercent === null ? (
+              change
+            ) : (
+              <span className={week.perDayChangePercent >= 0 ? 'is-up' : 'is-down'}>{change}</span>
+            )}
           </span>
-        </div>
-        <div className="an-stat">
-          <strong>{data.activeDays.toLocaleString()}</strong>
-          <span>days worked of {data.calendarDays.toLocaleString()}</span>
         </div>
       </div>
 

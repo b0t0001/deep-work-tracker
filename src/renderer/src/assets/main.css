@@ -2234,13 +2234,17 @@ code {
 }
 
 /* Direction is worth a colour because it is the one thing in the row that is
-   good or bad rather than merely a quantity. */
+   good or bad rather than merely a quantity - but muted, not alarm red.
+   Demoting the week comparison out of the hero slot is pointless if it is
+   still the loudest thing on the row, and a lighter week is a fact about a
+   week rather than an error state. Dim enough to read as a note on the figure
+   above it, saturated enough to tell the two directions apart at a glance. */
 .an-stat .is-down {
-  color: #ff6b6b;
+  color: #c98b8b;
 }
 
 .an-stat .is-up {
-  color: #3ddc84;
+  color: #7fc4a0;
 }
 
 /* ---------- Analytics: panels that have no data ---------- */
