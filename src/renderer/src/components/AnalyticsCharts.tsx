@@ -29,6 +29,7 @@ import {
 } from 'recharts'
 import { formatDate } from '@shared/dates'
 import { WINDOWS, windowDef, type WindowId } from '@shared/windows'
+import { plannedFit } from '@shared/analytics'
 import type {
   DayTotal,
   PacePoint,
@@ -780,17 +781,19 @@ export function PlannedVsActual({
   const plannedTotal = all.reduce((sum, b) => sum + b.planned * b.sessions, 0)
   const actualTotal = all.reduce((sum, b) => sum + b.actual * b.sessions, 0)
   const share = plannedTotal > 0 ? Math.round((actualTotal / plannedTotal) * 100) : null
+  // The same threshold the bars are filtered by, so the sentence can never
+  // name a duration the chart below it has left out.
+  const fit = plannedFit(data, MIN_RUNS)
 
   return (
     <Frame
-      title="How much of the timer you run"
-      sub="by what it was set to"
+      title="Are your timers the right length?"
+      sub="share of each setting actually run"
       note={
         share === null ? undefined : (
           <>
-            Each bar is the share of the set duration actually run, averaged over the sessions set
-            to it; the count is under the label, and fainter bars rest on fewer sessions. Across all{' '}
-            {count(sessions, 'run')} it is <b>{share}%</b>.
+            The count is under each label, and fainter bars rest on fewer sessions. Across all{' '}
+            {count(sessions, 'run')} you run <b>{share}%</b> of what you set.
             {dropped > 0
               ? ` ${dropped} ${dropped === 1 ? 'duration' : 'durations'} with fewer than ${MIN_RUNS} runs ${dropped === 1 ? 'is' : 'are'} left out.`
               : ''}
@@ -798,6 +801,38 @@ export function PlannedVsActual({
         )
       }
     >
+      {/*
+       * What the chart is for, said in one sentence from the data.
+       *
+       * The panel was liked and unused - "I LOVE how it looks, but I need you
+       * to figure out how it could be USEFUL" - and a chart nobody acts on is
+       * furniture. The bars show the shortfall; this names the one length it
+       * is worth changing, which is the length set most often.
+       *
+       * It compares distances and stops there. `plannedFit` has the mean and
+       * nothing else, so it can say that 45 is nearer a 45-minute average than
+       * 60 is; it cannot say a 45 would usually run to the end, and on the real
+       * history it would not - 52% of 60-minute runs reach 45. A panel that
+       * overstates once is a panel that gets checked and then ignored.
+       */}
+      {fit !== null && (
+        <p className="an-panel__lead">
+          You set <b>{fit.plannedMinutes} minutes</b> more often than any other length, and those{' '}
+          {count(fit.sessions, 'run')} average{' '}
+          {/* A decimal, because the suggestion is this figure rounded to the
+              nearest five: printed whole they collide and the sentence reads
+              "average 45, so a 45 fits better", which says nothing. */}
+          <b>{fit.actualMinutes.toFixed(1)} minutes</b>
+          {fit.suggestedMinutes === fit.plannedMinutes ? (
+            ' — about right.'
+          ) : (
+            <>
+              {' — so a '}
+              <b>{fit.suggestedMinutes}</b> fits them better than a {fit.plannedMinutes}.
+            </>
+          )}
+        </p>
+      )}
       {bars.length === 0 ? (
         <Empty height={220}>No completed runs to compare yet.</Empty>
       ) : (

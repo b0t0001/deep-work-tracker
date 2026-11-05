@@ -2495,6 +2495,24 @@ code {
   font-weight: 600;
 }
 
+/* The finding a panel exists to deliver, above the plot rather than under it.
+   The note below the chart explains how to read the bars, which is worth
+   having and is not the point; this is the point, so it is read first, at the
+   size of body text rather than a caption, and the figures in it are the
+   brightest thing in the panel after the title. */
+.an-panel__lead {
+  margin: 0 0 10px;
+  max-width: 62ch;
+  font-size: calc(12.5px * var(--an-fs, 1));
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.an-panel__lead b {
+  color: var(--text);
+  font-weight: 600;
+}
+
 /* ---------- Analytics: the figure row ---------- */
 
 /* Four identical grey boxes said four equally important things. The week just

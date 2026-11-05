@@ -14,12 +14,14 @@
 
 import {
   fillDays,
+  plannedFit,
   sittings,
   streaks,
   weekOverWeek,
   isDayWorked,
   previousDay,
   type DayTotal,
+  type PlannedVsActual,
   type Sitting
 } from '../src/shared/analytics'
 
@@ -943,6 +945,97 @@ check(
     return s.current === 2 && s.best === 2 && s.currentSince === '2026-03-08'
   })(),
   'a filled range fed to streaks did not read as a two-day streak'
+)
+
+// --------------------------------------------------------- plannedFit ------
+
+section('--- plannedFit ---')
+
+/** A planned-duration bucket, as `analytics()` hands them over. */
+function bucket(plannedMinutes: number, sessions: number, actualMinutes: number): PlannedVsActual {
+  return { plannedMinutes, sessions, actualMinutes }
+}
+
+eq('nothing to go on', plannedFit([], 8), null)
+
+eq(
+  'every bucket under the threshold is no answer, not a weak one',
+  plannedFit([bucket(60, 7, 44), bucket(30, 3, 20)], 8),
+  null
+)
+
+eq('a zero-length bucket is not a duration anyone set', plannedFit([bucket(0, 90, 0)], 8), null)
+
+eq(
+  'the busiest bucket answers, not the longest',
+  plannedFit([bucket(180, 20, 130), bucket(60, 531, 45.1)], 8),
+  { plannedMinutes: 60, sessions: 531, actualMinutes: 45.1, suggestedMinutes: 45 }
+)
+
+eq(
+  'nor the first one listed',
+  plannedFit([bucket(15, 9, 13.5), bucket(90, 462, 66.9)], 8)?.plannedMinutes,
+  90
+)
+
+check(
+  'the suggestion is the nearest five minutes, rounding up',
+  plannedFit([bucket(60, 40, 43.1)], 8)?.suggestedMinutes === 45,
+  'a 43.1 minute average should suggest 45'
+)
+
+check(
+  'and rounding down',
+  plannedFit([bucket(60, 40, 41.9)], 8)?.suggestedMinutes === 40,
+  'a 41.9 minute average should suggest 40'
+)
+
+check(
+  'a suggestion is never shorter than the shortest timer anyone sets',
+  plannedFit([bucket(5, 24, 1.2)], 8)?.suggestedMinutes === 5,
+  'rounding 1.2 to the nearest five is zero, which is not a timer'
+)
+
+check(
+  'a length that matches what is run suggests itself',
+  plannedFit([bucket(30, 50, 29.8)], 8)?.suggestedMinutes === 30,
+  'a 30 that runs 29.8 should not be talked down'
+)
+
+eq(
+  'a tie goes to the shorter length, whichever order it arrives in',
+  [
+    plannedFit([bucket(90, 20, 70), bucket(45, 20, 33)], 8)?.plannedMinutes,
+    plannedFit([bucket(45, 20, 33), bucket(90, 20, 70)], 8)?.plannedMinutes
+  ],
+  [45, 45]
+)
+
+check(
+  "the threshold is the caller's, so the panel and the sentence agree",
+  plannedFit([bucket(60, 4, 45)], 8) === null && plannedFit([bucket(60, 4, 45)], 4) !== null,
+  'the same data answered differently under the same minRuns'
+)
+
+// The real history, as it stood on 2026-11-05: 60 minutes is set 531 times,
+// more than any other length, and those runs average 45.1 minutes. This is the
+// sentence the panel prints, so it is worth pinning to the numbers it was
+// written from.
+eq(
+  'the real history suggests 45 against a 60 set 531 times',
+  plannedFit(
+    [
+      bucket(15, 239, 13.5),
+      bucket(30, 324, 21.5),
+      bucket(45, 265, 32.1),
+      bucket(60, 531, 45.1),
+      bucket(90, 462, 66.9),
+      bucket(120, 252, 95.5),
+      bucket(180, 165, 131.9)
+    ],
+    8
+  ),
+  { plannedMinutes: 60, sessions: 531, actualMinutes: 45.1, suggestedMinutes: 45 }
 )
 
 // ---------------------------------------------------------------- report ---

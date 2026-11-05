@@ -372,3 +372,62 @@ export function fillDays(daily: DayTotal[], from: string, to: string): DayTotal[
   }
   return out
 }
+
+/**
+ * The question the planned-versus-actual chart exists to answer: are the
+ * durations being set realistic, or should they be shorter?
+ *
+ * One length, not a trend across them. The chart draws every bucket; what a
+ * reader can act on is the length they reach for most often, because that is
+ * the setting a change would alter most sessions. A statement about the shape
+ * of the whole series would be more impressive and less useful - nobody sets
+ * "the average of all my durations".
+ *
+ * The mean, because the mean is what `PlannedVsActual` carries - and that is a
+ * real limit on what may be claimed from this. A mean says where the weight
+ * sits, not what share of runs reach any particular length, so a sentence
+ * built on it may compare distances and must not promise that a shorter timer
+ * would usually run to the end. On the real history it would not: 52% of
+ * 60-minute runs reach 45 minutes, against 20% reaching the full 60. Saying
+ * otherwise is the kind of claim that gets a number checked once and the panel
+ * never trusted again.
+ */
+export interface PlannedFit {
+  /** The duration set more often than any other, in minutes. */
+  plannedMinutes: number
+  /** Runs set to that duration. */
+  sessions: number
+  /** Their mean running time, in minutes. */
+  actualMinutes: number
+  /** The nearest five minutes to that mean - a length someone would type. */
+  suggestedMinutes: number
+}
+
+/** Timer lengths are set in round numbers, so a suggested one has to be. */
+const SUGGEST_STEP_MINUTES = 5
+
+export function plannedFit(data: PlannedVsActual[], minRuns: number): PlannedFit | null {
+  // Only the buckets the chart itself draws. A suggestion resting on three
+  // runs is worse than no suggestion, and it would also disagree with the bars
+  // underneath it, which is how a panel loses its reader.
+  const eligible = data.filter((row) => row.sessions >= minRuns && row.plannedMinutes > 0)
+  if (eligible.length === 0) return null
+  // Ties go to the shorter length. The evidence either side is equal, so the
+  // tie-break may as well be the advice that asks less; what matters is that
+  // it is decided here rather than by input order.
+  const busiest = eligible.reduce((best, row) =>
+    row.sessions > best.sessions ||
+    (row.sessions === best.sessions && row.plannedMinutes < best.plannedMinutes)
+      ? row
+      : best
+  )
+  return {
+    plannedMinutes: busiest.plannedMinutes,
+    sessions: busiest.sessions,
+    actualMinutes: busiest.actualMinutes,
+    suggestedMinutes: Math.max(
+      SUGGEST_STEP_MINUTES,
+      Math.round(busiest.actualMinutes / SUGGEST_STEP_MINUTES) * SUGGEST_STEP_MINUTES
+    )
+  }
+}
