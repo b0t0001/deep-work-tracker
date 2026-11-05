@@ -302,7 +302,7 @@ export function summarize(text: string): ImportPreview {
     seconds += row.actualS
     // Named here rather than left out, so the preview's project list accounts
     // for every importable row and its hours add up to the stated total.
-    const name = row.project ?? 'Unlabelled'
+    const name = row.project ?? 'Unlabeled'
     const project = byProject.get(name) ?? { sessions: 0, seconds: 0 }
     project.sessions += 1
     project.seconds += row.actualS

@@ -90,11 +90,11 @@ export function analytics(): Analytics {
   const byProject = (
     db
       .prepare(
-        `SELECT COALESCE(p.name, 'Unlabelled') AS name,
+        `SELECT COALESCE(p.name, 'Unlabeled') AS name,
                 SUM(s.running_duration_s) / 3600.0 AS hours,
                 COUNT(*) AS sessions
            FROM sessions s LEFT JOIN projects p ON p.id = s.project_id
-          GROUP BY COALESCE(p.name, 'Unlabelled')
+          GROUP BY COALESCE(p.name, 'Unlabeled')
           ORDER BY hours DESC`
       )
       .all() as Array<{ name: string; hours: number; sessions: number }>
