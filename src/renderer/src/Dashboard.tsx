@@ -245,7 +245,7 @@ function SettingsTab(): React.JSX.Element {
         </p>
       )}
 
-      <h2 className="spaced">Accent colour</h2>
+      <h2 className="spaced">Accent color</h2>
       <p className="muted">
         Used for the ring, the progress fill and every control. Applies to the timer immediately.
       </p>

@@ -215,6 +215,12 @@ app.whenReady().then(async () => {
     width: number
   }> {
     const WRAP = `document.querySelectorAll('.recharts-wrapper')[${at}]`
+    // Panels are rearrangeable and new ones arrive above this one (the stats
+    // table pushed it below the fold on 2026-11-05, and every hover then
+    // landed on nothing). Bring it into view instead of assuming where it is;
+    // the viewport assertion below still guards the result.
+    await ask(`(() => { ${WRAP}.scrollIntoView({ block: 'center' }); return true })()`)
+    await new Promise((resolve) => setTimeout(resolve, 300))
     const box = (await ask(`(() => {
       const r = ${WRAP}.getBoundingClientRect();
       return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]

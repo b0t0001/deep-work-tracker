@@ -27,6 +27,9 @@ import {
  */
 const COUNTED = `(SELECT * FROM sessions WHERE source <> 'test')`
 
+/** Above this, an imported run that went exactly to term is an event, not a timer. */
+const EVENT_THRESHOLD_S = 3 * 60 * 60
+
 /** Rates are per-unit, and a unit with a handful of rows is noise not a trend. */
 const MIN_SESSIONS_FOR_A_UNIT = 10
 /** Enough to cover questions, words, slides, pages and the rest of the real tail. */
@@ -152,11 +155,34 @@ export function analytics(): Analytics {
   const timedSessions = Number(timedSpan.n)
   const timedFirst = timedSpan.first ?? null
   const timedLast = timedSpan.last ?? null
+  /*
+   * Timer runs only - not events typed in afterwards.
+   *
+   * Above three hours the history stops behaving like a timer: 115 of 123
+   * imported rows planned over 3 h "ran" exactly to zero, against 16-26% at
+   * every ordinary length. They are Scioly competitions, hackathons and
+   * internship days, entered as an event's length with a 0:00:00 end typed by
+   * hand. Kept, they put 17 near-100% bars on the chart and lift the headline
+   * by about five points, answering "how long was the event" in a panel that
+   * asks "are my timers the right length". Measured 2026-11-05: 80.2% over
+   * 2,475 runs becomes 75.5% over 2,360.
+   *
+   * Manual rows go for the same reason: Add session sets planned equal to
+   * actual when no plan is given, so every after-the-fact entry would land at
+   * exactly 100%.
+   *
+   * This chart only. Those rows are 653 h of real work and stay in every
+   * total, average and the calendar.
+   */
   const plannedRows = db
     .prepare(
       `SELECT planned_duration_s AS planned, running_duration_s AS actual
          FROM ${COUNTED} AS sessions
-        WHERE planned_duration_s > 0 AND running_duration_s > 0`
+        WHERE planned_duration_s > 0 AND running_duration_s > 0
+          AND source <> 'manual'
+          AND NOT (source = 'import'
+                   AND planned_duration_s > ${EVENT_THRESHOLD_S}
+                   AND running_duration_s = planned_duration_s)`
     )
     .all() as Array<{ planned: number; actual: number }>
   const buckets = new Map<number, { sessions: number; actualSeconds: number }>()

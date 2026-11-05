@@ -1046,6 +1046,14 @@ instructions.
   rather than `\b` — and when one is unavoidable, read the line back and
   confirm what actually landed.
 
+- **Python on Windows writes CRLF.** `open(p, 'w')` in text mode turns every
+  `
+` into `
+`, so a scripted edit leaves the whole file with Windows line
+  endings: 1,873 prettier warnings in one file on 2026-11-05, and nothing
+  wrong in git, which normalises on commit. Open with `newline=''` for both
+  read and write, or run prettier on the file afterwards.
+
 **Sticky table headers need three things, not one.** `position: sticky` alone
 looks like it should work and does not: table cells paint in document order, so
 rows are drawn over the header without a `z-index`, and `border-collapse:
