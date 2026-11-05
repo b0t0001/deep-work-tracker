@@ -232,7 +232,9 @@ export function analytics(): Analytics {
     .filter((point) => point.target > 0)
   const dayMs = 86_400_000
   const calendarDays =
-    Math.round((Date.parse(span.last + 'T00:00:00Z') - Date.parse(span.first + 'T00:00:00Z')) / dayMs) + 1
+    Math.round(
+      (Date.parse(span.last + 'T00:00:00Z') - Date.parse(span.first + 'T00:00:00Z')) / dayMs
+    ) + 1
   return {
     firstDate: span.first,
     lastDate: span.last,

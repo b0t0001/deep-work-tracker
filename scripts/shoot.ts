@@ -11,14 +11,15 @@
  * user's actual history lives.
  *
  *   npm run build
- *   npx electron out/shoot/index.js --csv <backup.csv> --out <dir> [--only <id,id>]
+ *   npx electron out/shoot/index.js --db <copy-of-deepwork.db> --out <dir> [--only <id,id>]
+ *   npx electron out/shoot/index.js --csv <backup.csv>  --out <dir> [--only <id,id>]
  *
  * Bundled by `npm run shoot`. Each shot is one entry in SHOTS below: a window
  * size, a route, and an optional script that drives the renderer into the
  * state worth seeing (open a tab, switch to the ring, start the clock).
  */
 import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { restoreFromCsv } from '../src/main/restore'
 import {
@@ -53,6 +54,8 @@ function arg(name: string): string | null {
 }
 
 const csvPath = arg('csv')
+const dbPath = arg('db')
+const failAnalytics = process.argv.includes('--fail-analytics')
 const outDir = resolve(arg('out') ?? join(process.cwd(), 'shots'))
 const only = arg('only')
   ?.split(',')
@@ -201,18 +204,16 @@ const SHOTS: Shot[] = [
   {
     id: 'dash-analytics-tall',
     width: 1280,
-    height: 1500,
+    // Tall enough that the whole tab fits with nothing scrolled away. The
+    // scroller is `.dashboard__body`, not the window, and a shot that scrolls
+    // it is a shot that can lie: an earlier attempt called `window.scrollTo`,
+    // which succeeded, moved nothing, and produced a picture of the top of the
+    // tab filed as the bottom of it. A window taller than the content cannot
+    // fail that way, and the window is never shown, so the size costs nothing.
+    height: 1900,
     route: '/dashboard',
     drive: `click('.tabs .tab:nth-child(3)'); await wait(2500);`,
-    note: 'Analytics full height. The tab is six charts tall, so the 660px shot shows only the first two and the faults that matter most - an empty series, a wrapped label, a thinned axis - are all below that fold.'
-  },
-  {
-    id: 'dash-analytics-foot',
-    width: 1280,
-    height: 900,
-    route: '/dashboard',
-    drive: `click('.tabs .tab:nth-child(3)'); await wait(2500); document.querySelector('.panel').scrollIntoView(false); window.scrollTo(0, document.body.scrollHeight); await wait(300);`,
-    note: 'The end of Analytics: rate trend and the time-of-day heatmap, which must say it covers app-recorded sessions only.'
+    note: 'The whole Analytics tab in one frame. It is six visualisations tall, so the 660px shot shows the first two and every fault that matters - an empty series, a wrapped label, a thinned axis, the time-of-day caveat - is below that fold.'
   }
 ]
 
@@ -237,7 +238,13 @@ function registerHandlers(): void {
     'sessions:query': (query) => querySessions((query ?? {}) as never),
     'sessions:lastUnit': (task) => lastUnitFor((task ?? null) as string | null),
     'history:state': () => historyState(),
-    'analytics:get': () => analytics(),
+    // `--fail-analytics` makes the read return null, which is how the main
+    // process reports that the query failed. It is worth being able to shoot,
+    // because the tab must say so rather than render zeroes: a zeroed payload
+    // reads as "you have never worked", which is both false and alarming, and
+    // it is the one state that cannot be reached by pointing the harness at a
+    // database.
+    'analytics:get': () => (failAnalytics ? null : analytics()),
     'backup:status': () => backupStatus(),
     'import:existingCount': () => 2363,
     'shortcuts:get': () => ({
@@ -371,13 +378,41 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark'
   mkdirSync(outDir, { recursive: true })
 
-  if (csvPath) {
+  // `--db` seeds the throwaway profile from a copy of a real database;
+  // `--csv` rebuilds one from a backup. Prefer `--db` for anything being
+  // judged against what the user will see, for two reasons. A backup CSV is
+  // only as new as the last backup - the newest real one is 2026-09-23 and
+  // holds 2,363 rows against the live 2,476. And `restoreFromCsv` writes the
+  // project column verbatim without `PROJECT_ALIASES`, so restoring a backup
+  // taken before the 2026-09-23 consolidation resurrects 66 projects where
+  // the import yields 36: the By project chart would then be shot against a
+  // category list the app does not produce.
+  //
+  // Copying the file is also what keeps this read-only in the sense that
+  // matters. The copy is what gets migrated and queried; the original is
+  // opened by nothing, so a screenshot run cannot write into real history
+  // even by accident.
+  if (dbPath) {
+    const source = resolve(dbPath)
+    if (!existsSync(source)) throw new Error(`--db ${source} does not exist`)
+    mkdirSync(profile, { recursive: true })
+    copyFileSync(source, join(profile, 'deepwork.db'))
+    // A `-wal` beside it holds rows that have not been checkpointed into the
+    // `.db` yet. Copying the `.db` alone can report an empty schema while the
+    // app shows thousands of rows, which is exactly the asymmetry that made
+    // the September loss look like corruption.
+    for (const suffix of ['-wal', '-shm']) {
+      if (existsSync(source + suffix))
+        copyFileSync(source + suffix, join(profile, `deepwork.db${suffix}`))
+    }
+    console.log(`copied ${source} into ${profile}`)
+  } else if (csvPath) {
     const result = restoreFromCsv(readFileSync(resolve(csvPath), 'utf8'))
     console.log(
       `loaded ${result.sessions.toLocaleString()} sessions, ${result.projects} projects into ${profile}`
     )
   } else {
-    console.log(`no --csv given; shooting against an empty database at ${profile}`)
+    console.log(`no --db or --csv given; shooting against an empty database at ${profile}`)
   }
 
   registerHandlers()

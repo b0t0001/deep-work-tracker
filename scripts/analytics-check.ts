@@ -80,7 +80,11 @@ function day(date: string, hours = 2, sessions = 1): DayTotal {
   return { date, hours, sessions }
 }
 
-function run(startedAt: string, endedAt: string, seconds: number) {
+function run(
+  startedAt: string,
+  endedAt: string,
+  seconds: number
+): { startedAt: string; endedAt: string; seconds: number } {
   return { startedAt, endedAt, seconds }
 }
 
@@ -94,26 +98,26 @@ eq('empty input gives zeroes and a null since', streaks([], '2026-03-10'), {
   currentSince: null
 })
 
-eq(
-  'a single worked day, which is today',
-  streaks([day('2026-03-10')], '2026-03-10'),
-  { current: 1, best: 1, currentSince: '2026-03-10' }
-)
+eq('a single worked day, which is today', streaks([day('2026-03-10')], '2026-03-10'), {
+  current: 1,
+  best: 1,
+  currentSince: '2026-03-10'
+})
 
-eq(
-  'a single worked day, which is yesterday',
-  streaks([day('2026-03-09')], '2026-03-10'),
-  { current: 1, best: 1, currentSince: '2026-03-09' }
-)
+eq('a single worked day, which is yesterday', streaks([day('2026-03-09')], '2026-03-10'), {
+  current: 1,
+  best: 1,
+  currentSince: '2026-03-09'
+})
 
 // The 9am case: the streak is not over until the day is.
 {
   const history = [day('2026-03-07'), day('2026-03-08'), day('2026-03-09')]
-  eq(
-    'today not worked yet does not break the streak',
-    streaks(history, '2026-03-10'),
-    { current: 3, best: 3, currentSince: '2026-03-07' }
-  )
+  eq('today not worked yet does not break the streak', streaks(history, '2026-03-10'), {
+    current: 3,
+    best: 3,
+    currentSince: '2026-03-07'
+  })
   eq(
     'working today extends that same streak to four',
     streaks([...history, day('2026-03-10')], '2026-03-10'),
@@ -213,7 +217,10 @@ eq(
 
 eq(
   '29 Feb is NOT a day in a non-leap year, so 28 Feb and 1 Mar stay joined',
-  streaks([day('2026-02-27'), day('2026-02-28'), day('2026-03-01'), day('2026-03-02')], '2026-03-02'),
+  streaks(
+    [day('2026-02-27'), day('2026-02-28'), day('2026-03-01'), day('2026-03-02')],
+    '2026-03-02'
+  ),
   { current: 4, best: 4, currentSince: '2026-02-27' }
 )
 
@@ -225,11 +232,11 @@ eq(
 
 // hours === 0 is a day present in the array but not worked - fillDays puts
 // these in, so streaks sees them constantly.
-eq(
-  'a zero-hour day does not count as worked',
-  streaks([day('2026-03-10', 0)], '2026-03-10'),
-  { current: 0, best: 0, currentSince: null }
-)
+eq('a zero-hour day does not count as worked', streaks([day('2026-03-10', 0)], '2026-03-10'), {
+  current: 0,
+  best: 0,
+  currentSince: null
+})
 
 eq(
   'a zero-hour day in the middle breaks the streak',
@@ -470,11 +477,7 @@ eq(
   ]
   eq('in order: two sittings', sittings(rows), expected)
   eq('reversed: the same two sittings', sittings([...rows].reverse()), expected)
-  eq(
-    'shuffled: the same two sittings',
-    sittings([rows[2], rows[0], rows[1]]),
-    expected
-  )
+  eq('shuffled: the same two sittings', sittings([rows[2], rows[0], rows[1]]), expected)
   check(
     'the input array is not mutated',
     rows[0].startedAt === '2026-03-10T09:00:00Z' && rows[2].startedAt === '2026-03-10T14:00:00Z',
@@ -610,11 +613,7 @@ eq(
     run('2026-03-10T09:30:00Z', '2026-03-10T09:45:00Z', 900), // nested
     run('2026-03-10T12:05:00Z', '2026-03-10T12:35:00Z', 1800) // 5 min after TRUE end
   ])
-  eq(
-    'a row within the threshold of the TRUE end joins, despite a nested row',
-    got.length,
-    1
-  )
+  eq('a row within the threshold of the TRUE end joins, despite a nested row', got.length, 1)
   eq('the sitting runs to the last real end', got[0]?.endedAt, '2026-03-10T12:35:00Z')
   eq('all three runs are counted', got[0]?.sessions, 3)
 }
@@ -654,8 +653,16 @@ eq(
   // may lose the later end.
   const long = run('2026-03-10T09:00:00Z', '2026-03-10T11:00:00Z', 7200)
   const short = run('2026-03-10T09:00:00Z', '2026-03-10T09:20:00Z', 1200)
-  eq('identical starts, long first: end is the later one', sittings([long, short])[0]?.endedAt, '2026-03-10T11:00:00Z')
-  eq('identical starts, short first: end is still the later one', sittings([short, long])[0]?.endedAt, '2026-03-10T11:00:00Z')
+  eq(
+    'identical starts, long first: end is the later one',
+    sittings([long, short])[0]?.endedAt,
+    '2026-03-10T11:00:00Z'
+  )
+  eq(
+    'identical starts, short first: end is still the later one',
+    sittings([short, long])[0]?.endedAt,
+    '2026-03-10T11:00:00Z'
+  )
 }
 
 {
@@ -703,9 +710,11 @@ eq('from === to with no data gives one zero day', fillDays([], '2026-03-10', '20
   { date: '2026-03-10', hours: 0, sessions: 0 }
 ])
 
-eq('from === to with data gives that one day', fillDays([day('2026-03-10', 2, 3)], '2026-03-10', '2026-03-10'), [
-  { date: '2026-03-10', hours: 2, sessions: 3 }
-])
+eq(
+  'from === to with data gives that one day',
+  fillDays([day('2026-03-10', 2, 3)], '2026-03-10', '2026-03-10'),
+  [{ date: '2026-03-10', hours: 2, sessions: 3 }]
+)
 
 eq(
   'a gap in the middle becomes real zeroes',
@@ -720,7 +729,11 @@ eq(
 
 eq(
   'days outside the range are dropped rather than appended',
-  fillDays([day('2026-03-01', 9), day('2026-03-09', 1), day('2026-03-20', 9)], '2026-03-09', '2026-03-10'),
+  fillDays(
+    [day('2026-03-01', 9), day('2026-03-09', 1), day('2026-03-20', 9)],
+    '2026-03-09',
+    '2026-03-10'
+  ),
   [
     { date: '2026-03-09', hours: 1, sessions: 1 },
     { date: '2026-03-10', hours: 0, sessions: 0 }
@@ -803,7 +816,11 @@ eq('to before from gives an empty range', fillDays([], '2026-03-10', '2026-03-09
 check(
   'fillDays and streaks agree on the same filled range',
   (() => {
-    const filled = fillDays([day('2026-03-08', 1), day('2026-03-09', 1)], '2026-03-01', '2026-03-10')
+    const filled = fillDays(
+      [day('2026-03-08', 1), day('2026-03-09', 1)],
+      '2026-03-01',
+      '2026-03-10'
+    )
     const s = streaks(filled, '2026-03-10')
     return s.current === 2 && s.best === 2 && s.currentSince === '2026-03-08'
   })(),
