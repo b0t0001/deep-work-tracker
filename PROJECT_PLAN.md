@@ -178,7 +178,12 @@ Confirmed wanted:
 - **Total hours over time** — running totals, this week against last
 - **Breakdown by category** — hours across HW, Startup, Job, and whether the
   balance is where they want it
-- **Consistency and streaks** — days worked, gaps, current and best streak
+- ~~**Consistency and streaks** — days worked, gaps, current and best streak~~
+  **Withdrawn by the user 2026-11-05.** The tile read `best streak 60 ·
+  current 0`, which says your best was months ago and today you have
+  nothing. The tab is meant to feel like progress; a counter that reports a
+  zero as its headline is the opposite. Days worked stays in the header.
+  Do not reinstate a streak from this line - see SPEC item 12.
 - **Calendar heatmap** — contribution-graph style, one cell per day. Explicitly
   requested and should be prominent, not buried.
 - **Time-of-day heatmap** — when focus actually happens. **App-recorded sessions
