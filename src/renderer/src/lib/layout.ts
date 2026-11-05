@@ -60,19 +60,33 @@ function channel(): LayoutChannel | null {
 
 export interface LayoutState {
   layout: Layout
-  /** False when the layout is session-only because the channel is missing. */
+  /**
+   * False when the layout is not actually being saved.
+   *
+   * This used to mean "the channel exists", and that is why it could not
+   * report the one failure it was built for: during the string/object
+   * mismatch the functions were present and every write threw in the main
+   * process, so the flag said "saving" while nothing was saved. The absence
+   * of a channel is the rare case; a channel that is there and does not work
+   * is the one that actually happened.
+   *
+   * So it now means "a write has succeeded, or none has been attempted yet
+   * and the channel is at least present". A rejected write turns it false and
+   * the tab says so; a later success turns it back.
+   */
   persists: boolean
-  update(next: Layout): void
+  update(next: Layout | ((prev: Layout) => Layout)): void
   reset(): void
 }
 
 export function useLayout(): LayoutState {
   const [layout, setLayout] = useState<Layout>(defaultLayout)
-  // Derived once rather than set from inside the effect: whether the channel
-  // exists is a fact about the preload bridge at module time, not something
-  // that changes, and setting it in an effect makes React re-render to learn
-  // what it could have known on the first pass.
-  const [persists] = useState(() => channel() !== null)
+  // Starts as "the channel is present", which is the best guess available
+  // before anything has been written, and is corrected by what the writes
+  // actually do. Not derived once any more: the question is no longer a fact
+  // about the preload bridge at module time, it is a fact about whether the
+  // round trip works, and that can only be learned by trying it.
+  const [persists, setPersists] = useState(() => channel() !== null)
 
   useEffect(() => {
     const api = channel()
@@ -87,28 +101,50 @@ export function useLayout(): LayoutState {
         // A failed read is the same situation as no stored layout: show the
         // default rather than an error. Nothing is lost that a drag cannot
         // redo, and a preference is not worth a failure state over a chart.
-        if (alive) setLayout(defaultLayout())
+        //
+        // It does tell us the round trip is broken, though. A read that
+        // rejects is a handler that threw, and the write side goes through
+        // the same bridge - so say the layout is not being saved rather than
+        // waiting for the user to drag something and find out.
+        if (alive) {
+          setLayout(defaultLayout())
+          setPersists(false)
+        }
       })
     return () => {
       alive = false
     }
   }, [])
 
-  const update = useCallback((next: Layout) => {
+  const update = useCallback((next: Layout | ((prev: Layout) => Layout)) => {
     // Optimistic: the layout is what the user just did, so it should move now
     // and reconcile later rather than wait on a round trip to the database.
-    setLayout(next)
+    // Resolved against the layout as it is now, not as it was when the
+    // handler closed over it. Two quick presses of the text-size button
+    // both computed from the same stale value, so the second did
+    // nothing and the step looked like half of what it is.
+    let resolved: Layout = defaultLayout()
+    setLayout((prev) => {
+      resolved = typeof next === 'function' ? next(prev) : next
+      return resolved
+    })
     void channel()
-      ?.set(next)
+      ?.set(resolved)
       .then((stored) => {
         // Adopt what was actually stored rather than keeping our own idea of
         // it. `writeLayout` resolves before writing, so this is where a panel
         // the renderer has never heard of gets appended and shown instead of
         // being quietly dropped on the next write.
         setLayout(resolveLayout(stored))
+        setPersists(true)
       })
       .catch(() => {
-        /* Saving a preference is not worth interrupting anyone over. */
+        // Still not worth interrupting anyone over - but it must not be
+        // silent either. The rejection is swallowed here and reported by the
+        // flag instead, which is the difference between "we chose not to
+        // shout" and "nobody knew". The bar reads "Not saved - this session
+        // only" from this.
+        setPersists(false)
       })
   }, [])
 

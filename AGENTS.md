@@ -177,6 +177,48 @@ byte-identical with and without the fix. A correct conclusion reached through a
 broken argument leaves the broken argument in place for next time, which is
 how the first three of these happened.
 
+## The stale reading moves to people once it stops being artifacts
+
+By the end of 2026-11-05 the commonest error was no longer a stale tree or a
+stale build. It was **one session reporting another session's state from a
+reading taken minutes earlier**. Two of us told the user their installed app
+was the 14:15 build while it had been 14:31 for some time, each of us having
+checked honestly and then relayed the answer as though it were still true.
+
+It is the same fault as every row in the table above, with the artifact being
+a *sentence someone else wrote*. And it is worse in one way: a stale tree can
+be re-read by anyone, while a stale sentence carries no timestamp and cannot
+be checked without redoing the work behind it.
+
+**The fix is cheap and it belongs to whoever did the thing**, because they are
+the only one who can state it without inference:
+
+- Report state as **a timestamp and a commit the reader can quote** -
+  "installed `app.asar` 14:31:38, built from `1365fcb`" - rather than
+  "installed and verified".
+- Before relaying someone else's state, re-read the artifact. If that is not
+  possible, attribute and date it: "as of their 14:15 message".
+- **Announce before acting** rather than sampling whether anyone is busy. A
+  "nothing running" reading is a one-second snapshot, not an idle machine.
+
+## Guard a user decision even against the record
+
+Twice today a session stopped a change because it reversed something the user
+had chosen - the typeface being dropped, and a font file being deleted. Both
+times the stop was correct and the conclusion was wrong: the user had changed
+their own mind in a conversation with a third session, and neither the spec
+nor the commit log knew.
+
+**Keep doing it anyway.** The cost of asking is one message. The cost of not
+asking is that a user decision gets reversed and nobody notices, which is the
+one failure in this project with no technical trace at all.
+
+The thing to change is not the checking, it is where the answer lives. A
+decision the user makes in conversation is invisible to every other session
+until someone writes it down. `SPEC-2026-11-06.md` is a record of what the
+manager wrote down, not of what the user wants - and the gap between those is
+where both of these came from.
+
 ## Never reach `window.api` through a cast
 
 `preload/index.ts` exports `DeepWorkApi = typeof api`, and
@@ -219,6 +261,7 @@ they are put side by side:
 | a probe reading `isRing: 0` | bar mode, because the toggle was never clicked |
 | a `:hover` reading of 8 | a synthetic pointer left by an earlier click |
 | "the tree is clean" | a moment that had passed before the message was read |
+| "the `--an-fs` fix landed" | a commit that was present while its effect was absent |
 
 **None of these is caught by looking harder at the artifact, because the
 artifact is not lying.** The screenshot is a real screenshot, the probe really
@@ -232,6 +275,54 @@ before trusting a screenshot, put the clean-tree test inside the build command.
 `scripts/shoot.ts` now refuses to run against a stale bundle for exactly this
 reason; a warning would scroll past, and the failure mode is a result that
 looks right.
+
+### The sharpest form: a commit is not an effect
+
+The last row is the one worth knowing on its own, because it does not look
+like the others and all three sessions walked into it within the hour.
+
+`0fb9149` was titled "Instrument Sans for words, JetBrains Mono for every
+number" and contained a fix for the font-scale control not resizing the
+headline figures. It typechecked, it was committed, it was installed. Each of
+us said some version of "the installed app carries the `--an-fs` fix" - and it
+did carry the commit. Measured on the running app:
+
+| | at scale 1 | forced to 1.6 |
+| --- | --- | --- |
+| `.an-panel__title` | 13.5px | **21.6px** |
+| `.an-stat strong` | 27px | **27px** |
+
+The rule was correct and read a variable that never reached it: `--an-fs` was
+set on `.an`, while `.an-stats` is a *sibling* of `.an`, not a descendant, so
+`getComputedStyle` returned it empty. Panel text scaled; the headline figures
+the control exists for did not.
+
+**A commit title is a statement of intent. A green typecheck is a statement
+about types.** Neither is evidence that the effect occurred, and reading
+either as though it were is the same move as reading a screenshot as evidence
+about current source.
+
+This also has a shape worth naming separately, because it is how a feature
+gets signed off while broken:
+
+> "The control is present" and "the control does its job" are different
+> claims.
+
+That split has now appeared four ways here - the bundle versus the window, the
+DOM versus the pixels, the typecheck versus the contract, and the control
+versus its effect. Item 13 was reported verified on the strength of the first
+of each pair: the control rendered, and nobody had pressed it.
+
+**And the measurement itself can be of the wrong thing.** Checking whether the
+chart ticks scaled, I measured `.recharts-text` and found it unchanged - but
+the tick text carries `recharts-cartesian-axis-tick-value`, and
+`.recharts-text` matched a chart *label*. A true reading of the wrong element,
+inside an investigation into true readings of the wrong thing. Verified
+correct afterwards by measuring the right selector: 11px to 17.6px.
+
+So when a fix is described as landed, the question is not whether the commit
+is in. It is: **what number would change if it worked, and has anyone watched
+it change?**
 
 The full account, including the git-worktree escape hatch for building while
 another session holds the tree, is in

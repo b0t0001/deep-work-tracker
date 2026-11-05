@@ -231,7 +231,6 @@ input {
    than 300 - a mono at its lightest goes thin against near-black, and a clock
    that dissolves on camera is the one thing this window cannot do. */
 .dial__clock {
-  font-family: var(--font-mono);
   font-size: var(--clock);
   font-weight: 350;
   line-height: 1.05;
@@ -1749,16 +1748,16 @@ code {
   height: 54%;
 }
 
-/* Down from 12vmin for the mono, which is wider than the proportional face
-   this was tuned against.
-   Measured at 250x220: at 12vmin the clock wanted 109px of advance inside a
-   104px box and the last digit was clipped. The box is 82% of the face on
-   purpose - a full-width input turned the middle of the window into a dead
-   band nothing could drag - and the face itself is fitted to the stroke, so
-   neither is the thing to widen. The type comes down to them instead. */
+/* Back to 12vmin now the clock is on a proportional face again. It came down
+   to 11vmin for the mono, which advances every character equally and so ran
+   `1:00:00` past the box; Archivo does not, and at 11vmin it measured 80px of
+   content inside a 104px box - smaller than the design intends rather than
+   safer. The box is 82% of the face on purpose (a full-width input once turned
+   the middle of the window into a dead band nothing could drag) and the face
+   is fitted to the stroke, so the type is sized to them, not the reverse. */
 .card.is-ring .dial__clock,
 .card.is-ring .dial__clock--input {
-  font-size: clamp(14px, 11vmin, 150px);
+  font-size: clamp(15px, 12vmin, 160px);
 }
 
 /* ---------- controls stay visible ---------- */
@@ -2437,7 +2436,6 @@ code {
 
 .an-stat strong {
   display: block;
-  font-family: var(--font-mono);
   font-size: calc(27px * var(--an-fs, 1));
   font-weight: 640;
   letter-spacing: -0.6px;
@@ -2667,8 +2665,8 @@ code {
 
    `.ac` reaches inside Recharts' own SVG, where a CSS rule lands reliably and
    a font-family attribute on a tick does not. */
-.ac .recharts-cartesian-axis-tick text,
+.ac .recharts-cartesian-axis-tick-value,
 .ac .recharts-label,
 .ac .recharts-text.recharts-label {
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }

@@ -17,49 +17,42 @@ body,
 /* ---------- type ---------- */
 
 /*
- * Instrument Sans for words, JetBrains Mono for every number.
+ * Archivo, throughout.
  *
  * The app was on Segoe UI, which is not a bad face - it is the one you get by
  * not choosing, and an unchosen typeface says no decision was made. This
  * window is filmed, so the decision is part of what the app is.
  *
- * The mono is the load-bearing half and it was chosen for the clock. A clock
- * is glanced at rather than read, and JetBrains Mono draws rounder digits with
- * more open apertures than the alternatives, so each number holds its shape at
- * a size and a distance where a narrower face blurs into its neighbours. Its
- * usual home is code, which is the point: on a clock it reads as deliberate
- * rather than as a template.
+ * Chosen from a rendered comparison of nine, on the clock itself, which is the
+ * only way to judge the thing that matters here: the clock is glanced at
+ * rather than read, and a face that survives a glance at a distance is not the
+ * same as one that reads well in a specification.
  *
- * Every number goes through it, not only the ones that line up in a column -
- * the clock, the headline figures, chart axes and table values all sit on one
- * fixed advance, so a running clock cannot jitter and an axis cannot shift as
- * its labels change width.
+ * One family rather than a sans paired with a mono. Digits stay fixed-width
+ * through `font-variant-numeric: tabular-nums` where numbers appear, so a
+ * running clock cannot jitter and a column of hours still lines up - a mono
+ * buys nothing further, and buys it at the cost of a second typeface. The
+ * mono stack survives for machine strings only, like the raw reason on a
+ * failed save, which should look like the machine output it is.
  *
- * Local files, no network. This app has none, and a webfont request from a
- * desktop binary is a dependency and a privacy leak for nothing. Two variable
- * files, about 70 KB. `font-display: block` because a frame of fallback type
- * in a timelapse is worse than a frame of nothing.
+ * Local file, no network: this app has none, and a webfont request from a
+ * desktop binary is a dependency and a privacy leak for nothing. One variable
+ * file, 35 KB. `font-display: block` because a frame of fallback type in a
+ * timelapse is worse than a frame of nothing.
  */
 @font-face {
-  font-family: 'Instrument Sans';
-  src: url('./fonts/InstrumentSans-wght.woff2') format('woff2-variations');
-  font-weight: 400 700;
-  font-style: normal;
-  font-display: block;
-}
-
-@font-face {
-  font-family: 'JetBrains Mono';
-  src: url('./fonts/JetBrainsMono-wght.woff2') format('woff2-variations');
-  font-weight: 100 800;
+  font-family: 'Archivo';
+  src: url('./fonts/Archivo-wght.woff2') format('woff2-variations');
+  font-weight: 100 900;
   font-style: normal;
   font-display: block;
 }
 
 :root {
-  --font-sans: 'Instrument Sans', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
-  /* Every number in the app. */
-  --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  --font-sans: 'Archivo', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  /* Machine strings only - not numbers, which stay in the sans with tabular
+     figures. */
+  --font-mono: 'Cascadia Mono', Consolas, ui-monospace, monospace;
 }
 
 body {
