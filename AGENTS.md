@@ -230,11 +230,32 @@ as having uncommitted work they had already committed.
    system for what someone has done. A file's state is shared and momentary;
    a commit is neither.
 
-One thing that worked and should keep working: `npm run dist` runs
-`npm run build`, which runs `npm run typecheck` first. A tree with a type error
-**cannot** produce an installer - the build aborts loudly instead. That gate is
-why the second near-miss was only a near-miss, so do not route around it by
-calling `electron-builder` directly.
+**Do not rely on the typecheck gate to stop a bad build.** `npm run dist` runs
+`npm run build`, which runs `npm run typecheck` first, so a tree with a *type
+error* cannot produce an installer. That is worth keeping and worth not routing
+around by calling `electron-builder` directly.
+
+But it is not the protection it looks like, and this document said it was for
+about an hour. The gate catches types; it does not catch **incompleteness**.
+In-flight work spends most of its life compiling perfectly well while being
+half-wired, and an IPC surface connected on one side and not the other
+typechecks fine - `preload` exposing a channel nothing sends, a renderer
+subscribing to an event never emitted, a handler that silently does nothing.
+Caught 2026-11-05 by the artist session: the same three modified files that
+failed typecheck at one moment passed it twenty minutes later, still
+unfinished. Had anyone built in that window it would have packaged and
+installed in silence.
+
+That is the worse case, not the better one. A build that breaks announces
+itself; a build that quietly ships someone's half-finished edit to the user's
+desktop icon shows up later as behaviour nobody can trace to a source, which is
+the "a day was lost to a stale build" entry in `CLAUDE.md` wearing a different
+hat - and `App.tsx` is the timer window, which is the one the user films.
+
+**The only real precondition for packaging is a clean tree.** Check
+`git status` immediately before, and if it is dirty, the session that owns
+those files commits or stashes them. Do not reach into another session's
+in-flight work to unblock your own build.
 
 ## Editing in a shared checkout
 
