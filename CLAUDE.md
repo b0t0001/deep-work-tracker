@@ -492,7 +492,14 @@ be recomputed, lost detail cannot.
   **session_date**, started_at, ended_at, planned_duration_s,
   **running_duration_s** (excludes paused time), stop_reason, stop_reason_note,
   work_quantity, work_unit, unquantifiable, notes, pace_target_qty,
-  pace_target_interval_s, source (`app` | `manual` | `import`)
+  pace_target_interval_s, source (`app` | `manual` | `import` | `test`)
+
+`test` is what any unpackaged build writes (`app.isPackaged === false`), so a
+row written by `npm run dev` or a harness is marked automatically rather than
+found later. It renders as an orange TEST badge in the Data tab, has its own
+Source filter option, and is excluded from every analytics query. Added
+2026-11-05 after five rows written by testing sessions had to be deleted from
+the real history.
 
 `session_date` is the local calendar date, separate from `started_at`.
 Imported rows know their date but not their time of day, so without it the date
@@ -971,7 +978,11 @@ start. If that happens, run `node node_modules/electron/install.js`.
 - Functional React components with hooks. No class components.
 - Database migrations are numbered entries in `main/db/migrations.ts`, applied
   in order at startup and recorded in `schema_migrations`. Never edit a
-  migration that has already run; add a new one.
+  migration that has already run; add a new one. Before any pending migration
+  runs on a database that has sessions, the runner writes a full copy to
+  `userData/pre-migration/` with `VACUUM INTO`, and refuses to migrate if it
+  cannot. A transaction undoes a migration that fails; only a copy undoes one
+  that succeeds and is wrong, which migration 4's first draft did.
 - Keep business logic (streaks, totals, trend math) in plain testable functions
   under `src/shared/`, not inside components.
 

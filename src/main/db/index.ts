@@ -1,7 +1,8 @@
 import { DatabaseSync } from 'node:sqlite'
 import { app } from 'electron'
 import { join } from 'node:path'
-import { MIGRATIONS } from './migrations'
+import { MIGRATIONS, type Migration } from './migrations'
+import { mkdirSync } from 'node:fs'
 
 let db: DatabaseSync | null = null
 
@@ -36,6 +37,44 @@ export function openDatabase(): DatabaseSync {
   return db
 }
 
+/**
+ * A whole copy of the database, taken before any schema change touches it.
+ *
+ * Each migration is one transaction, so a migration that *fails* leaves
+ * nothing behind. That does not cover one that succeeds and is wrong - and
+ * migration 4's first draft was exactly that: it rebuilt `sessions`, committed
+ * cleanly, passed `quick_check` and `foreign_key_check`, and had silently
+ * cascaded every pause away. Only a check written to look for it noticed.
+ * A test cannot cover the user's real file before it is run on it, so the
+ * real file is copied first.
+ *
+ * `VACUUM INTO` rather than a file copy: it reads through the connection, so
+ * it includes rows still in the `-wal`, and the result is one self-contained
+ * file. Skipped for a fresh database, where there is nothing to lose. If the
+ * copy cannot be made, the migration does not run - an app that refuses to
+ * open is recoverable, a history altered without a copy may not be.
+ */
+function snapshotBeforeMigrating(connection: DatabaseSync, pending: Migration[]): void {
+  const hasHistory = connection
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions'")
+    .get()
+  if (!hasHistory) return
+  const rows = connection.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }
+  if (Number(rows.n) === 0) return
+
+  const dir = join(app.getPath('userData'), 'pre-migration')
+  mkdirSync(dir, { recursive: true })
+  const stamp = new Date()
+    .toISOString()
+    .replace(/[^0-9]/g, '')
+    .slice(0, 14)
+  const ids = pending.map((m) => m.id).join('-')
+  const target = join(dir, `deepwork-before-migration-${ids}-${stamp}.db`)
+  // VACUUM INTO refuses an existing file, so a name collision fails loudly
+  // rather than overwriting an earlier snapshot.
+  connection.prepare('VACUUM INTO ?').run(target)
+}
+
 /** Applies what has not run yet, and says how many that was. */
 function migrate(connection: DatabaseSync): number {
   connection.exec(`
@@ -53,9 +92,11 @@ function migrate(connection: DatabaseSync): number {
       .map((row) => Number((row as { id: number }).id))
   )
 
+  const pending = MIGRATIONS.filter((m) => !applied.has(m.id))
+  if (pending.length > 0) snapshotBeforeMigrating(connection, pending)
+
   let count = 0
-  for (const migration of MIGRATIONS) {
-    if (applied.has(migration.id)) continue
+  for (const migration of pending) {
     // Each migration is one transaction: a failure leaves the schema untouched
     // rather than half-applied, which is unrecoverable without a backup.
     connection.exec('BEGIN')
