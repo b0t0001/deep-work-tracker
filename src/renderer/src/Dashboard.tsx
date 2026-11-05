@@ -539,42 +539,61 @@ function AnalyticsTab(): React.JSX.Element {
         )}
       </header>
 
-      <div className="stats">
-        <div>
+      {/* The week just gone leads and takes the accent: it is the figure the
+          tab gets opened for, and four identical boxes gave it no more weight
+          than the lifetime average beside it. The streak moved out of second
+          place for the same reason - a bold `0` was the most prominent thing
+          on the page, and it reads as a verdict rather than a measurement. */}
+      <div className="an-stats">
+        <div className="an-stat an-stat--lead">
           <strong>{hoursLabel(week.thisWeek)}</strong>
-          <span>last 7 days &middot; {change}</span>
-        </div>
-        <div>
-          <strong>{streak.current.toLocaleString()}</strong>
           <span>
-            day streak
-            {streak.currentSince === null
-              ? ' · not today or yesterday'
-              : ` · since ${streak.currentSince}`}
+            last 7 days &middot;{' '}
+            {week.changePercent === null ? (
+              change
+            ) : (
+              <span className={week.changePercent >= 0 ? 'is-up' : 'is-down'}>{change}</span>
+            )}
           </span>
         </div>
-        <div>
-          <strong>{streak.best.toLocaleString()}</strong>
-          <span>best streak</span>
-        </div>
-        <div>
+        <div className="an-stat">
           <strong>{perDay.toFixed(1)} h</strong>
-          <span>a day across the whole range</span>
+          <span>a day, across every day in range</span>
+        </div>
+        <div className="an-stat">
+          <strong>{streak.best.toLocaleString()}</strong>
+          <span>
+            best streak &middot; current {streak.current.toLocaleString()}
+            {streak.currentSince === null ? '' : `, since ${streak.currentSince}`}
+          </span>
+        </div>
+        <div className="an-stat">
+          <strong>{data.activeDays.toLocaleString()}</strong>
+          <span>days worked of {data.calendarDays.toLocaleString()}</span>
         </div>
       </div>
 
-      <HoursOverTime daily={data.daily} accent={accent} />
-      <CalendarHeatmap daily={data.daily} accent={accent} />
-      <ByProject byProject={data.byProject} accent={accent} />
-      <PlannedVsActual data={data.plannedVsActual} accent={accent} />
-      <RateTrend ratesByUnit={data.ratesByUnit} units={data.units} accent={accent} />
-      <TimeOfDayHeatmap
-        byHour={data.byHour}
-        timedSessions={data.timedSessions}
-        timedFirst={data.timedFirst}
-        timedLast={data.timedLast}
-        accent={accent}
-      />
+      {/* Rows rather than one column: a chart that reads fine at half the
+          width should not stretch a 220px plot across the whole panel. The
+          calendar leads because the user asked for it by name. */}
+      <div className="an">
+        <CalendarHeatmap daily={data.daily} accent={accent} />
+        <HoursOverTime daily={data.daily} accent={accent} />
+        <div className="an-row an-row--two">
+          <ByProject byProject={data.byProject} accent={accent} />
+          <PlannedVsActual data={data.plannedVsActual} accent={accent} />
+        </div>
+        <div className="an-row an-row--two">
+          <RateTrend ratesByUnit={data.ratesByUnit} units={data.units} accent={accent} />
+          <TimeOfDayHeatmap
+            byHour={data.byHour}
+            timedSessions={data.timedSessions}
+            timedFirst={data.timedFirst}
+            timedLast={data.timedLast}
+            accent={accent}
+          />
+        </div>
+      </div>
     </section>
   )
 }

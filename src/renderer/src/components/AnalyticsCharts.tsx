@@ -14,6 +14,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   ReferenceLine,
   ResponsiveContainer,
   Scatter,
@@ -163,26 +164,45 @@ const CHART_CSS = `
 }
 `
 
+/**
+ * One chart, one panel.
+ *
+ * The panel markup lives here rather than in `AnalyticsTab` so a chart stays a
+ * single thing to place: the tab composes rows, not headers. `sub` is the part
+ * of the old caption that says what you are looking at, which belongs beside
+ * the title rather than floating under the plot as a loose paragraph.
+ *
+ * Panel styling is in `main.css` under "Analytics tab", in `var(--accent)` and
+ * neutrals only. `CHART_CSS` keeps just the rules that have to reach inside
+ * Recharts' own SVG.
+ */
 function Frame({
   title,
+  sub,
   aside,
   children,
-  note
+  note,
+  hero
 }: {
   title: string
+  sub?: string
   aside?: React.ReactNode
   children: React.ReactNode
   note?: React.ReactNode
+  hero?: boolean
 }): React.JSX.Element {
   return (
-    <div className="ac">
+    <div className={`ac an-panel${hero ? ' an-panel--hero' : ''}`}>
       <style>{CHART_CSS}</style>
-      <div className="ac__head">
-        <h4 className="ac__title">{title}</h4>
+      <div className="an-panel__head">
+        <h4 className="an-panel__title">
+          {title}
+          {sub ? <span className="an-panel__sub">{sub}</span> : null}
+        </h4>
         {aside}
       </div>
       {children}
-      {note ? <p className="ac__note">{note}</p> : null}
+      {note ? <p className="an-panel__note">{note}</p> : null}
     </div>
   )
 }
@@ -193,15 +213,6 @@ function Empty({ height, children }: { height: number; children: string }): Reac
     <div className="ac__empty" style={{ height }}>
       {children}
     </div>
-  )
-}
-
-function Swatch({ color, label }: { color: string; label: string }): React.JSX.Element {
-  return (
-    <span>
-      <span className="ac__swatch" style={{ background: color }} />
-      {label}
-    </span>
   )
 }
 
@@ -411,27 +422,71 @@ function projectBars(byProject: ProjectTotal[]): ProjectBar[] {
   return bars
 }
 
-interface PlannedBar {
+/**
+ * The duration on one line and the number of runs behind it on the next.
+ *
+ * The count has to sit with the bar it qualifies, not in the caption: a mean
+ * over 523 runs and a mean over 8 are not the same claim, and the chart is
+ * read by glancing along the tops of the bars. Two lines also buys the room
+ * the single line did not have - at 15 buckets the plain labels collided into
+ * `210m240m270m`.
+ */
+function RunsTick({
+  x,
+  y,
+  payload,
+  runs
+}: {
+  x?: number
+  y?: number
+  payload?: { value?: string | number }
+  runs: Map<string, number>
+}): React.JSX.Element {
+  const label = String(payload?.value ?? '')
+  const n = runs.get(label)
+  return (
+    <g transform={`translate(${x ?? 0},${y ?? 0})`}>
+      <text textAnchor="middle" dy={12} style={{ fill: 'var(--text-dim)', fontSize: 10.5 }}>
+        {label}
+      </text>
+      {n === undefined ? null : (
+        <text textAnchor="middle" dy={24} style={{ fill: '#6b717c', fontSize: 9.5 }}>
+          {n}
+        </text>
+      )}
+    </g>
+  )
+}
+
+interface RatioBar {
   label: string
+  /** Mean running time as a percentage of what the timer was set to. */
+  ratio: number
   planned: number
-  /** Running time, clamped to the plan so the stack's total is the plan. */
   actual: number
-  short: number
-  over: number
   sessions: number
+  /** Opacity, so a bar resting on 2 sessions cannot shout as loud as one on 523. */
+  weight: number
 }
 
 /**
- * What runs set to each duration actually lasted.
+ * How much of the timer actually gets run, by what it was set to.
  *
- * The whole bar is the planned duration and the filled part is the mean
- * running time, so the dashed remainder *is* the shortfall - the gap is read
- * off the picture without comparing two bar heights, which is what a grouped
- * pair would ask for. About three runs in four end early, so the gap is the
- * normal case and the thing worth seeing first. Overrun gets its own segment
- * past the plan rather than being folded in, because a mean above the plan
- * means something different and must not look like a full bar.
+ * This plots the ratio, never the absolute target against the absolute actual.
+ * Plotting the magnitudes made bar height *be* the planned duration, so the
+ * chart was a staircase that rose left to right by construction and could not
+ * have shown anything else; the only real information - the shortfall - was a
+ * sliver at the top of each bar, smallest exactly where the plan was shortest.
+ * As a share of the plan the question is answered directly, and every bar is
+ * on one comparable axis.
+ *
+ * Durations with very few runs are dropped rather than drawn faintly to zero,
+ * and the count is printed under each label, because a mean over two sessions
+ * and a mean over five hundred are not the same kind of claim. The ones that
+ * survive are weighted by opacity for the same reason.
  */
+const MIN_RUNS = 8
+
 export function PlannedVsActual({
   data,
   accent
@@ -439,70 +494,70 @@ export function PlannedVsActual({
   data: PlannedVsActualPoint[]
   accent: string
 }): React.JSX.Element {
-  const bars = plannedBars(data)
-  const sessions = bars.reduce((sum, b) => sum + b.sessions, 0)
-  const plannedTotal = bars.reduce((sum, b) => sum + b.planned * b.sessions, 0)
-  const actualTotal = bars.reduce((sum, b) => sum + (b.actual + b.over) * b.sessions, 0)
+  const all = ratioBars(data)
+  const bars = all.filter((b) => b.sessions >= MIN_RUNS)
+  const dropped = all.length - bars.length
+
+  const runsByLabel = new Map(bars.map((b) => [b.label, b.sessions]))
+  const sessions = all.reduce((sum, b) => sum + b.sessions, 0)
+  const plannedTotal = all.reduce((sum, b) => sum + b.planned * b.sessions, 0)
+  const actualTotal = all.reduce((sum, b) => sum + b.actual * b.sessions, 0)
   const share = plannedTotal > 0 ? Math.round((actualTotal / plannedTotal) * 100) : null
 
   return (
     <Frame
-      title="Planned against actual"
-      aside={
-        bars.length > 0 ? (
-          <span className="ac__legend">
-            <Swatch color={accent} label="Mean running time" />
-            <Swatch color={tint(accent, '2e')} label="Ended early" />
-            <Swatch color="#ffffff59" label="Ran over" />
-          </span>
-        ) : undefined
-      }
+      title="How much of the timer you run"
+      sub="by what it was set to"
       note={
-        share === null
-          ? undefined
-          : `Bar length is the duration the timer was set to; the filled part is the mean running time. Across ${count(sessions, 'run')} that is ${share}% of what was planned.`
+        share === null ? undefined : (
+          <>
+            Each bar is the share of the set duration actually run, averaged over the sessions set
+            to it; the count is under the label, and fainter bars rest on fewer sessions. Across all{' '}
+            {count(sessions, 'run')} it is <b>{share}%</b>.
+            {dropped > 0
+              ? ` ${dropped} ${dropped === 1 ? 'duration' : 'durations'} with fewer than ${MIN_RUNS} runs ${dropped === 1 ? 'is' : 'are'} left out.`
+              : ''}
+          </>
+        )
       }
     >
       {bars.length === 0 ? (
         <Empty height={220}>No completed runs to compare yet.</Empty>
       ) : (
         <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={bars} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+          <BarChart data={bars} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
             <CartesianGrid stroke={GRID} vertical={false} />
-            <XAxis dataKey="label" tickLine={false} />
-            {/* 48, not 40: at 40 a three-digit tick with its unit renders as
-                `00m`, which reads as a value rather than a clipped one. */}
-            <YAxis width={48} unit="m" tickLine={false} />
-            <Tooltip {...TOOLTIP} cursor={{ fill: '#ffffff0a' }} />
-            <Bar
-              dataKey="actual"
-              stackId="run"
-              name="Ran"
-              unit=" min"
-              fill={accent}
-              radius={[0, 0, 2, 2]}
-              isAnimationActive={false}
+            <XAxis
+              dataKey="label"
+              interval={0}
+              tickLine={false}
+              height={34}
+              tick={<RunsTick runs={runsByLabel} />}
             />
+            <YAxis width={44} unit="%" tickLine={false} domain={[0, 100]} allowDataOverflow />
+            <Tooltip
+              {...TOOLTIP}
+              cursor={{ fill: '#ffffff0a' }}
+              labelFormatter={(label: React.ReactNode, payload): string => {
+                const row = payload?.[0]?.payload as RatioBar | undefined
+                return row ? `${label} — ${count(row.sessions, 'run')}` : String(label ?? '')
+              }}
+            />
+            {/* The whole point of the chart is distance from this line, so it
+                is drawn rather than left to the axis. Neutral, because it is a
+                reference and not a second series. */}
+            <ReferenceLine y={100} stroke="#ffffff59" strokeDasharray="4 3" />
             <Bar
-              dataKey="short"
-              stackId="run"
-              name="Left unused"
-              unit=" min"
-              fill={tint(accent, '1f')}
-              stroke={tint(accent, '66')}
-              strokeDasharray="3 3"
+              dataKey="ratio"
+              name="Share of the plan run"
+              unit="%"
               radius={[2, 2, 0, 0]}
               isAnimationActive={false}
-            />
-            <Bar
-              dataKey="over"
-              stackId="run"
-              name="Ran over"
-              unit=" min"
-              fill="#ffffff59"
-              radius={[2, 2, 0, 0]}
-              isAnimationActive={false}
-            />
+            >
+              {bars.map((bar) => (
+                <Cell key={bar.label} fill={accent} fillOpacity={bar.weight} />
+              ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -510,17 +565,34 @@ export function PlannedVsActual({
   )
 }
 
-function plannedBars(data: PlannedVsActualPoint[]): PlannedBar[] {
+function ratioBars(data: PlannedVsActualPoint[]): RatioBar[] {
+  // The busiest duration anchors the opacity scale, so weight means "how much
+  // of the evidence sits here" rather than an arbitrary cutoff.
+  const busiest = data.reduce((max, row) => Math.max(max, row.sessions), 0)
   return [...data]
     .sort((a, b) => a.plannedMinutes - b.plannedMinutes)
     .map((row) => ({
       label: `${round(row.plannedMinutes)}m`,
+      ratio: row.plannedMinutes > 0 ? round((row.actualMinutes / row.plannedMinutes) * 100, 1) : 0,
       planned: round(row.plannedMinutes),
-      actual: round(Math.min(row.actualMinutes, row.plannedMinutes)),
-      short: round(Math.max(row.plannedMinutes - row.actualMinutes, 0)),
-      over: round(Math.max(row.actualMinutes - row.plannedMinutes, 0)),
-      sessions: row.sessions
+      actual: round(row.actualMinutes),
+      sessions: row.sessions,
+      weight: busiest > 0 ? round(0.35 + 0.65 * (row.sessions / busiest) ** 0.45, 2) : 1
     }))
+}
+
+/**
+ * A y-axis ceiling that the bulk of the data fills, rather than one the single
+ * fastest session dictates. The 98th percentile keeps essentially everything
+ * on the plot while taking the axis off a lone extreme; the small headroom
+ * stops the topmost dot sitting exactly on the frame.
+ */
+function rateCeiling(rates: number[]): number {
+  if (rates.length === 0) return 1
+  const sorted = [...rates].sort((a, b) => a - b)
+  const at = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.98))]
+  const top = Math.max(at, sorted[0])
+  return top > 0 ? top * 1.08 : 1
 }
 
 interface RateDot {
@@ -580,9 +652,23 @@ export function RateTrend({
   // domain and nothing to plot against.
   const pad = Math.max(3, (high - low) * 0.02)
 
+  // The y axis is set by a high percentile, not by the maximum. One session at
+  // 16 question/min against a median near 0.5 made the axis run to 16 and
+  // squashed 773 of 774 points into the bottom eighth of the panel, so the
+  // chart showed an outlier and hid the data. Clipped points are counted and
+  // said in the caption rather than dropped - they are real sessions, and a
+  // chart that silently discards rows is worse than one with a busy top edge.
+  const ceiling = rateCeiling(dots.map((d) => d.rate))
+  const clipped = dots.filter((d) => d.rate > ceiling)
+  const plotted = dots.filter((d) => d.rate <= ceiling)
+
   return (
     <Frame
-      title={unit === '' ? 'Work rate over time' : `${unit} per minute`}
+      title={
+        unit === ''
+          ? 'Work rate over time'
+          : `${unit.charAt(0).toUpperCase()}${unit.slice(1)}s per minute`
+      }
       aside={
         units.length > 0 ? (
           <label className="ac__note" style={{ margin: 0 }}>
@@ -605,7 +691,11 @@ export function RateTrend({
       note={
         unit === '' || mean === null
           ? undefined
-          : `${round(mean, 2)} ${unit} per minute overall, across ${count(points.length, 'session')}. Rates are never compared across units — switch the picker to see another.`
+          : `${round(mean, 2)} ${unit} per minute overall, across ${count(points.length, 'session')}.${
+              clipped.length > 0
+                ? ` ${count(clipped.length, 'session')} above ${round(ceiling, 2)}/min ${clipped.length === 1 ? 'sits' : 'sit'} off the top of the axis, which is scaled to the bulk of the data rather than to its fastest point.`
+                : ''
+            } Rates are never compared across units — switch the picker to see another.`
       }
     >
       {units.length === 0 ? (
@@ -631,6 +721,8 @@ export function RateTrend({
               dataKey="rate"
               width={48}
               tickLine={false}
+              domain={[0, round(ceiling, 2)]}
+              allowDataOverflow
               label={{ value: `${unit}/min`, angle: -90, position: 'insideLeft' }}
             />
             <ZAxis type="number" dataKey="minutes" range={[18, 150]} name="Minutes" />
@@ -654,7 +746,7 @@ export function RateTrend({
             />
             <Scatter
               name={`${unit} per minute`}
-              data={dots}
+              data={plotted}
               fill={tint(accent, 'cc')}
               stroke={accent}
               isAnimationActive={false}

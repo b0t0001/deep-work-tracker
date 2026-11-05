@@ -284,32 +284,40 @@ export function CalendarHeatmap({
   )
 
   return (
-    <div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          marginBottom: 8,
-          color: 'var(--text-dim)',
-          fontSize: 12
-        }}
-      >
-        {pagerButton('Earlier', '‹', 1, safePage >= maxPage)}
-        {pagerButton('Later', '›', -1, safePage <= 0)}
-        <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-          {monthYear(dateString(windowStart))} – {monthYear(dateString(windowEnd))}
-        </span>
+    <div className="an-panel an-panel--hero">
+      <div className="an-panel__head">
+        <h4 className="an-panel__title">
+          Every day
+          <span className="an-panel__sub">
+            {monthYear(dateString(windowStart))} – {monthYear(dateString(windowEnd))}
+          </span>
+        </h4>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            color: 'var(--text-dim)',
+            fontSize: 12
+          }}
+        >
+          <Legend accent={accent} />
+          {pagerButton('Earlier', '‹', 1, safePage >= maxPage)}
+          {pagerButton('Later', '›', -1, safePage <= 0)}
+        </div>
       </div>
 
       <svg
         width={width}
         height={height}
         viewBox={`0 0 ${width} ${height}`}
-        // Fixed geometry, but allowed to scale down: the full 53 weeks is about
-        // 840px, which fits the 900px reading-width panel as well as the wide
-        // one, and a narrower window shrinks it rather than clipping it.
-        style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
+        /* Scales to the panel rather than sitting at its drawn 840px. The user
+           asked for this chart specifically and it was the faintest thing on
+           the tab, leaving a third of the row empty beside it; letting the
+           viewBox fill the width roughly doubles the cell area and makes it
+           the one chart you see first. `height: auto` keeps the squares
+           square at any width. */
+        style={{ display: 'block', width: '100%', height: 'auto' }}
         role="img"
         aria-label="Hours worked per day"
       >
@@ -336,9 +344,10 @@ export function CalendarHeatmap({
         {cells}
       </svg>
 
-      <div style={{ marginTop: 8 }}>
-        <Legend accent={accent} />
-      </div>
+      <p className="an-panel__note">
+        Darker is more hours. Hover a square for the day it stands for; the arrows page back a year
+        at a time.
+      </p>
     </div>
   )
 }
@@ -394,17 +403,6 @@ export function TimeOfDayHeatmap({
    * nothing to chart the chart is replaced by the explanation rather than drawn
    * blank.
    */
-  if (timedSessions === 0) {
-    return (
-      <p style={noteStyle}>
-        Nothing to show yet - this is the one chart the imported history cannot feed. The
-        spreadsheet recorded how long each run lasted but not when it ran, because Hourglass&apos;s
-        Start and End are readings off a countdown rather than clock times. It fills in from
-        sessions this app times itself.
-      </p>
-    )
-  }
-
   // The maximum, where the calendar used a percentile: 24 buckets over the
   // whole history each aggregate many sessions, so there is no single outlier
   // day to flatten the scale.
@@ -430,8 +428,83 @@ export function TimeOfDayHeatmap({
         ? `, all on ${timedFirst}`
         : `, ${timedFirst} to ${timedLast}`
 
+  /*
+   * Below the threshold the grid is not drawn at all.
+   *
+   * Three sessions in one evening rendered as a real heatmap is 23 empty cells
+   * and one lit one, which reads as a broken widget rather than as a chart
+   * waiting for data - and the lit cell invites exactly the reading the data
+   * cannot support. So the slot keeps its shape as a dashed outline, the hours
+   * that do have something are marked, and the sentence becomes the content
+   * instead of a footnote under a misleading picture.
+   *
+   * The track is still drawn rather than hidden: a panel that disappears until
+   * it has data cannot teach anyone that the feature exists.
+   */
+  if (timedSessions < FEW_SESSIONS) {
+    return (
+      <div className="an-panel">
+        <div className="an-panel__head">
+          <h4 className="an-panel__title">
+            Time of day
+            <span className="an-panel__sub">not enough data yet</span>
+          </h4>
+        </div>
+
+        <div className="an-track">
+          {hours.map((hour) => (
+            <span
+              key={hour.hour}
+              className={hour.sessions > 0 ? 'is-on' : undefined}
+              title={
+                hour.sessions > 0
+                  ? `${hourLabel(hour.hour)}–${hourLabel((hour.hour + 1) % 24)} — ${plural(hour.sessions, 'session')}`
+                  : `${hourLabel(hour.hour)}–${hourLabel((hour.hour + 1) % 24)} — nothing yet`
+              }
+            />
+          ))}
+        </div>
+        <div className="an-track__axis">
+          <span>12a</span>
+          <span>6a</span>
+          <span>12p</span>
+          <span>6p</span>
+          <span>11p</span>
+        </div>
+
+        <div className="an-empty">
+          <b className="an-empty__title">
+            {timedSessions === 0
+              ? 'Nothing timed by this app yet'
+              : `${plural(timedSessions, 'session')} timed by this app${span}`}
+          </b>
+          <p className="an-empty__body">
+            {timedSessions > 0 && timedFirst !== null && timedFirst === timedLast
+              ? 'One afternoon is not a pattern. '
+              : ''}
+            This fills in as the app records sessions itself. The imported history never can:
+            Hourglass stored a countdown reading rather than a clock time, so those rows carry a
+            date and no hour.
+          </p>
+          <div className="an-empty__meter">
+            <i style={{ width: `${Math.min(100, (timedSessions / FEW_SESSIONS) * 100)}%` }} />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div>
+    <div className="an-panel">
+      <div className="an-panel__head">
+        <h4 className="an-panel__title">
+          Time of day
+          <span className="an-panel__sub">
+            {plural(timedSessions, 'session')} this app timed itself
+          </span>
+        </h4>
+        <Legend accent={accent} />
+      </div>
       <svg
         width={width}
         height={height}
@@ -473,14 +546,8 @@ export function TimeOfDayHeatmap({
           ))}
       </svg>
 
-      <div style={{ marginTop: 8 }}>
-        <Legend accent={accent} />
-      </div>
-
-      <p style={noteStyle}>
-        {timedSessions < FEW_SESSIONS
-          ? `Based on ${plural(timedSessions, 'session')} this app timed itself${span} - too few to read as a pattern yet. `
-          : `Covers the ${plural(timedSessions, 'session')} this app timed itself${span}. `}
+      <p className="an-panel__note">
+        {`Covers the ${plural(timedSessions, 'session')} this app timed itself${span}. `}
         Imported rows are excluded: they carry a date but no clock time, so they cannot say anything
         about when the work happened.
       </p>

@@ -2082,3 +2082,228 @@ code {
 .is-editing-row td {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
+
+/* ---------- Analytics tab ---------- */
+
+/* The tab was one undifferentiated column of six full-width charts in a single
+   accent, so nothing led and everything weighed the same. Panels give it
+   rhythm, and let a chart that only needs half the width take half the width
+   rather than stretching a 300px plot across 1,500px.
+
+   Every colour here is `var(--accent)` or a neutral. Nothing hardcodes a hue,
+   so changing the accent in Settings recolours the whole tab - the charts take
+   the resolved string as a prop instead, because Recharts computes fills in
+   JavaScript where `var(...)` is not a colour. */
+
+.an {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.an-row {
+  display: grid;
+  gap: 14px;
+}
+
+.an-row--two {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Below this the two-column rows stop being two readable charts and become two
+   cramped ones. */
+@media (max-width: 1040px) {
+  .an-row--two {
+    grid-template-columns: 1fr;
+  }
+}
+
+.an-panel {
+  padding: 16px 18px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #1a1d23;
+  min-width: 0;
+}
+
+/* The calendar was explicitly asked for and was the faintest thing on the
+   page. It leads now, and a wash of the accent marks it as the one panel that
+   is not simply another chart. */
+.an-panel--hero {
+  background: linear-gradient(170deg, color-mix(in srgb, var(--accent) 7%, #1a1d23), #1a1d23 60%);
+}
+
+.an-panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.an-panel__title {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 620;
+  letter-spacing: 0.01em;
+  color: var(--text);
+}
+
+/* The caption used to float under the chart as a loose paragraph. The part
+   that says what you are looking at belongs beside the title. */
+.an-panel__sub {
+  margin-left: 9px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.an-panel__note {
+  margin: 9px 0 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.an-panel__note b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ---------- Analytics: the figure row ---------- */
+
+/* Four identical grey boxes said four equally important things. The week just
+   gone is the one a reader opens the tab for, so it leads and takes the
+   accent; the rest support it. */
+.an-stats {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 1040px) {
+  .an-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.an-stat {
+  padding: 15px 17px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #1a1d23;
+}
+
+.an-stat--lead {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 16%, #1a1d23), #1a1d23);
+}
+
+.an-stat strong {
+  display: block;
+  font-size: 29px;
+  font-weight: 640;
+  letter-spacing: -0.6px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.an-stat--lead strong {
+  color: var(--accent);
+}
+
+.an-stat span {
+  display: block;
+  margin-top: 5px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+/* Direction is worth a colour because it is the one thing in the row that is
+   good or bad rather than merely a quantity. */
+.an-stat .is-down {
+  color: #ff6b6b;
+}
+
+.an-stat .is-up {
+  color: #3ddc84;
+}
+
+/* ---------- Analytics: panels that have no data ---------- */
+
+/* Two panels lack data for different reasons, and both must read as
+   deliberately unfilled rather than broken. Time of day can never be filled
+   from imported history, because a countdown reading is not a clock time; the
+   pace chart fills as soon as the app is in daily use. Same treatment, so they
+   look like one kind of thing, with different sentences.
+
+   The track stays drawn as a dashed outline rather than being hidden: a panel
+   that disappears until it has data cannot teach anyone the feature exists. */
+.an-empty {
+  margin-top: 13px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #ffffff06;
+}
+
+.an-empty__title {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.an-empty__body {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.an-empty__meter {
+  margin-top: 10px;
+  height: 4px;
+  border-radius: 3px;
+  background: #ffffff0d;
+  overflow: hidden;
+}
+
+.an-empty__meter i {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+/* The placeholder track: the shape the chart will take, drawn as an outline so
+   it reads as a slot waiting to be filled rather than as empty cells. */
+.an-track {
+  display: flex;
+  gap: 3px;
+}
+
+.an-track span {
+  flex: 1 1 0;
+  height: 30px;
+  border: 1px dashed #ffffff1a;
+  border-radius: 5px;
+}
+
+.an-track span.is-on {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.an-track__axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: 10px;
+  color: #6b717c;
+}
