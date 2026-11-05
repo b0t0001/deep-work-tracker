@@ -410,12 +410,20 @@ export function HoursOverTime({
                 deduplicates its domain, and `tick` is deliberately blank on
                 every bucket that does not carry a label, so 56 days collapsed
                 into the three bands that had text. Recharts then resolved
-                almost every pointer position to the same collapsed band:
-                measured over 24 hover positions, 12 reported one identical day
-                while the pointer moved 800px, and 10 showed no tooltip at all.
-                The chart looked right, because the area and the labels are
-                drawn from the data rather than the scale. Only hovering it
-                showed anything was wrong. */}
+                almost every pointer position to the same collapsed band.
+
+                Measured over 60 hover positions by
+                `scripts/hours-tooltip-check.ts`, which is the control for
+                this change. Keyed on `tick`, every position answered and 9 of
+                them named the bucket under the pointer, across 8 distinct
+                bands; keyed on `from` it is 60 of 60 across 56. It hit both
+                bucketings - by week it was 9 of 60 across 7 bands - because
+                both thin their labels the same way.
+
+                The chart looked right throughout, because the area, the value
+                labels and the axis text are all placed by index while only
+                the tooltip resolves by value. Nothing but hovering it could
+                have shown this. */}
             <XAxis
               dataKey="from"
               interval={0}

@@ -1,5 +1,5 @@
 /**
- * Checks that the hours chart's tooltip reports the day under the pointer.
+ * Checks that the hours chart's tooltip reports the bucket under the pointer.
  *
  * Run:
  *   npm run build
@@ -10,8 +10,9 @@
  *
  * `--db` is copied into a throwaway profile, never opened in place, so this
  * can be pointed at the real history without writing to it. Without it the
- * profile is empty and the check skips: the fault needs more distinct days
- * than a test database has.
+ * profile is empty and the check skips: the fault needs more distinct buckets
+ * than a test database has. `--samples N` sets how many pointer positions are
+ * tried per span, default 24; each one costs about two seconds.
  *
  * ## What it is testing
  *
@@ -23,8 +24,16 @@
  *
  * It was invisible because **a band scale draws by index and resolves
  * tooltips by value**. The area, the value labels and the axis text are all
- * placed by index, so the chart was correct in every screenshot. Only
+ * placed by index, so the chart was correct in every screenshot; only
  * hovering it went through the scale by value.
+ *
+ * ## Both bucketings are swept, because they are different code
+ *
+ * Under eight weeks the chart buckets by day and past that by week
+ * (`DAILY_LIMIT_DAYS`), which is a different branch of `seriesFor`, a
+ * different label set and a different `labelFormatter`. The first version of
+ * this check only ever exercised the default daily span, which is half the
+ * feature. The weekly span is reached by driving the chart's own span control.
  *
  * ## Why it drives the window rather than dispatching events
  *
@@ -54,8 +63,12 @@ const profile = join(app.getPath('temp'), `dwt-hours-${process.pid}`)
 mkdirSync(profile, { recursive: true })
 app.setPath('userData', profile)
 
-const flag = process.argv.indexOf('--db')
-const source = flag === -1 ? null : process.argv[flag + 1]
+function argument(name: string): string | null {
+  const at = process.argv.indexOf(name)
+  return at === -1 ? null : (process.argv[at + 1] ?? null)
+}
+
+const source = argument('--db')
 if (source) {
   // The -wal matters: rows committed since the last checkpoint live only
   // there, so copying the .db alone can yield a database missing recent days.
@@ -65,6 +78,8 @@ if (source) {
     }
   }
 }
+
+const SAMPLES = Math.max(4, Number(argument('--samples') ?? 24) || 24)
 
 import { analytics } from '../src/main/db/analytics'
 
@@ -78,11 +93,14 @@ function check(label: string, got: unknown, want: unknown): void {
   if (!ok) console.log(`       got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`)
 }
 
-const watchdog = setTimeout(() => {
-  console.log('')
-  console.log('TIMED OUT after 180s - the run never reached its own exit')
-  app.exit(1)
-}, 180_000)
+const watchdog = setTimeout(
+  () => {
+    console.log('')
+    console.log('TIMED OUT - the run never reached its own exit')
+    app.exit(1)
+  },
+  120_000 + SAMPLES * 2 * 4_000
+)
 watchdog.unref?.()
 
 app.whenReady().then(async () => {
@@ -131,23 +149,23 @@ app.whenReady().then(async () => {
   )
   await new Promise((done) => setTimeout(done, 2200))
 
-  console.log('')
-  console.log('1. the chart under test is the one we think it is')
   /**
-   * Found by its own heading, never by position.
+   * Finds the hours chart by its own heading, never by position.
    *
-   * The panels are user-rearrangeable, so `.recharts-wrapper[0]` is not the
-   * hours chart for long - and an index that quietly lands on another chart
-   * would make this check read a neighbour and report on that instead. The
-   * heading has to come from the chart's *own* container: searching upwards
-   * for any ancestor with a heading finds the whole Analytics panel, which is
-   * titled "Analytics", and every chart then looks identically named.
-   *
-   * Note `tick-label` further down: `tick-value` does not exist in Recharts
-   * 3.x, and the label groups are not under `.recharts-xAxis`. Three readings
-   * earlier in this work were of the wrong element for want of that.
+   * The panels are rearrangeable, so `.recharts-wrapper[0]` is not the hours
+   * chart for long, and an index that quietly lands on a neighbour would make
+   * this check report on that instead. The heading has to come from the
+   * chart's *own* container: searching upwards for any ancestor with a
+   * heading finds the whole Analytics panel, which is titled "Analytics", and
+   * every chart then looks identically named.
    */
-  const found = (await ask(`(() => {
+  const locate = (): Promise<{
+    charts: number
+    titles: (string | null)[]
+    at: number
+    title: string | null
+  }> =>
+    ask(`(() => {
     const titleOf = (wrap) => {
       let node = wrap.parentElement, own = null;
       for (let i = 0; i < 6 && node; i++) {
@@ -161,11 +179,14 @@ app.whenReady().then(async () => {
     const titles = all.map(titleOf);
     const at = titles.findIndex((t) => t !== null && /Hours per/.test(t));
     return { charts: all.length, titles, at, title: at === -1 ? null : titles[at] }
-  })()`)) as { charts: number; titles: (string | null)[]; at: number; title: string | null }
+  })()`) as Promise<{ charts: number; titles: (string | null)[]; at: number; title: string | null }>
 
+  console.log('')
+  console.log('1. the chart under test is the one we think it is')
+  const found = await locate()
   if (found.charts === 0) {
     // No charts at all means no history to chart. That is the one case worth
-    // skipping, and it is distinguished from "the chart moved" below - a skip
+    // skipping, and it is kept distinct from "the chart moved" below: a skip
     // that exits 0 on a missing chart would be a silent pass.
     console.log('  SKIP - the Analytics tab drew no charts, so there is no history.')
     console.log('  Pass --db pointing at a database with sessions in it.')
@@ -184,69 +205,122 @@ app.whenReady().then(async () => {
     return
   }
   console.log(`       "${found.title}", chart ${found.at + 1} of ${found.charts}`)
-  const WRAP = `document.querySelectorAll('.recharts-wrapper')[${found.at}]`
 
-  const box = (await ask(`(() => {
-    const r = ${WRAP}.getBoundingClientRect();
-    return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]
-  })()`)) as [number, number, number, number]
-  const [left, top, width, height] = box
-  check(
-    'it is inside the viewport',
-    await ask(`${top} >= 0 && ${top + height} <= innerHeight`),
-    true
-  )
+  /** Sweeps the pointer across the chart and reports what the tooltip said. */
+  async function sweep(at: number): Promise<{
+    answered: number
+    accurate: number
+    distinct: number
+    shape: string
+    width: number
+  }> {
+    const WRAP = `document.querySelectorAll('.recharts-wrapper')[${at}]`
+    const box = (await ask(`(() => {
+      const r = ${WRAP}.getBoundingClientRect();
+      return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]
+    })()`)) as [number, number, number, number]
+    const [left, top, width, height] = box
+    check(
+      'the chart is inside the viewport',
+      await ask(`${top} >= 0 && ${top + height} <= innerHeight`),
+      true
+    )
+
+    const read = `(() => {
+      const wrap = ${WRAP};
+      const tip = wrap.querySelector('.recharts-tooltip-wrapper');
+      const vis = tip ? (tip.textContent || '').trim().length > 0 && getComputedStyle(tip).visibility !== 'hidden' : false;
+      const dot = wrap.querySelector('.recharts-active-dot');
+      let dotX = null;
+      if (dot) { const r = dot.getBoundingClientRect(); dotX = Math.round(r.x + r.width / 2) }
+      return { vis, dotX, text: vis ? (tip.textContent || '').trim().replace(/[ ]+/g, ' ').slice(0, 30) : null }
+    })()`
+
+    // Entering from outside the plot, so the first sample is a move onto the
+    // chart rather than a move within it.
+    await move(left + Math.round(width / 2), top - 30)
+    let answered = 0
+    let accurate = 0
+    const seenText = new Set<string>()
+    let shape = ''
+    for (let i = 0; i < SAMPLES; i++) {
+      const x = Math.round(left + 36 + ((width - 50) * i) / (SAMPLES - 1))
+      await move(x, Math.round(top + height * 0.55))
+      const seen = (await ask(read)) as { vis: boolean; dotX: number | null; text: string | null }
+      if (!seen.vis) {
+        shape += '.'
+        continue
+      }
+      answered++
+      if (seen.text !== null) seenText.add(seen.text)
+      // 35px rather than exact: the dot sits at the centre of its band, and a
+      // band is about 21px wide at 56 buckets over this width.
+      const near = seen.dotX !== null && Math.abs(seen.dotX - x) <= 35
+      if (near) accurate++
+      shape += near ? '#' : 'x'
+    }
+    return { answered, accurate, distinct: seenText.size, shape, width }
+  }
 
   console.log('')
   console.log('2. the axis still reads the way it did')
-  const ticks = (await ask(`(() => [...${WRAP}.querySelectorAll('text')]
+  const WRAP0 = `document.querySelectorAll('.recharts-wrapper')[${found.at}]`
+  const ticks = (await ask(`(() => [...${WRAP0}.querySelectorAll('text')]
     .filter((t) => ((t.parentElement && t.parentElement.className && t.parentElement.className.baseVal) || '').includes('tick-label'))
     .map((t) => t.textContent).filter(Boolean).slice(0, 3))()`)) as string[]
   check('dates are still printed along the axis', ticks.length > 0, true)
   console.log(`       axis reads ${JSON.stringify(ticks)}`)
 
   console.log('')
-  console.log('3. every hover names the day under the pointer')
-  const read = `(() => {
-    const wrap = ${WRAP};
-    const tip = wrap.querySelector('.recharts-tooltip-wrapper');
-    const vis = tip ? (tip.textContent || '').trim().length > 0 && getComputedStyle(tip).visibility !== 'hidden' : false;
-    const dot = wrap.querySelector('.recharts-active-dot');
-    let dotX = null;
-    if (dot) { const r = dot.getBoundingClientRect(); dotX = Math.round(r.x + r.width / 2) }
-    return { vis, dotX, text: vis ? (tip.textContent || '').trim().replace(/[ ]+/g, ' ').slice(0, 30) : null }
-  })()`
+  console.log(`3. by day: every hover names the bucket under the pointer (${SAMPLES} positions)`)
+  const daily = await sweep(found.at)
+  console.log(`       ${daily.shape}`)
+  console.log(`       (# accurate, x wrong bucket, . no tooltip)`)
+  check('every sample answered', daily.answered, SAMPLES)
+  // The assertion that fails on the old axis: it answered every sample too,
+  // and only three or four named the day being pointed at.
+  check('every answer was the bucket under the pointer', daily.accurate, SAMPLES)
+  // Not `=== SAMPLES`: more samples than buckets means two pointer positions
+  // legitimately land in one band. Four distinct readings was the symptom, so
+  // the floor is what discriminates, not an exact count.
+  check(
+    `more than ${Math.floor(SAMPLES / 2)} distinct buckets, not 4 bands`,
+    daily.distinct > Math.floor(SAMPLES / 2),
+    true
+  )
+  console.log(`       ${daily.distinct} distinct buckets over ${SAMPLES} positions`)
 
-  // Entering from outside the plot, so the first sample is a move onto the
-  // chart rather than a move within it.
-  await move(left + Math.round(width / 2), top - 30)
-  const SAMPLES = 24
-  let answered = 0
-  let accurate = 0
-  const days = new Set<string>()
-  let shape = ''
-  for (let i = 0; i < SAMPLES; i++) {
-    const x = Math.round(left + 36 + ((width - 50) * i) / (SAMPLES - 1))
-    await move(x, Math.round(top + height * 0.55))
-    const seen = (await ask(read)) as { vis: boolean; dotX: number | null; text: string | null }
-    if (!seen.vis) {
-      shape += '.'
-      continue
-    }
-    answered++
-    if (seen.text !== null) days.add(seen.text)
-    // 35px rather than exact: the dot sits at the centre of its band, and a
-    // band is about 21px wide at 56 days over this width.
-    const near = seen.dotX !== null && Math.abs(seen.dotX - x) <= 35
-    if (near) accurate++
-    shape += near ? '#' : 'x'
+  console.log('')
+  console.log(`4. by week: the same, on the other bucketing (${SAMPLES} positions)`)
+  // Driven through the chart's own span control, scoped to its panel - there
+  // are unit selects on other charts, and a global `select` would hit one.
+  const switched = await ask(`(() => {
+    const wrap = ${WRAP0};
+    const panel = wrap.closest('.ac');
+    const select = panel ? panel.querySelector('select') : null;
+    if (!select) return 'no span control';
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+    setter.call(select, '1y');
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return select.value
+  })()`)
+  check('the span control accepted a year', switched, '1y')
+  await new Promise((done) => setTimeout(done, 1800))
+  const weekly = await locate()
+  check('the chart is now bucketed by week', /Hours per week/.test(weekly.title ?? ''), true)
+  if (weekly.at !== -1 && /Hours per week/.test(weekly.title ?? '')) {
+    console.log(`       "${weekly.title}"`)
+    const byWeek = await sweep(weekly.at)
+    console.log(`       ${byWeek.shape}`)
+    check('every sample answered', byWeek.answered, SAMPLES)
+    check('every answer was the bucket under the pointer', byWeek.accurate, SAMPLES)
+    check(
+      `more than ${Math.floor(SAMPLES / 2)} distinct buckets, not 4 bands`,
+      byWeek.distinct > Math.floor(SAMPLES / 2),
+      true
+    )
+    console.log(`       ${byWeek.distinct} distinct buckets over ${SAMPLES} positions`)
   }
-  console.log(`       ${shape}   (# accurate, x wrong day, . no tooltip)`)
-  check('every sample answered', answered, SAMPLES)
-  // The assertion that fails on the old axis: it answered all 24 as well, and
-  // only 4 of them were the day being pointed at.
-  check('every answer was the day under the pointer', accurate, SAMPLES)
-  check('and they were 24 different days, not 4 bands', days.size, SAMPLES)
 
   console.log('')
   console.log(`${pass} passed, ${fail} failed`)
