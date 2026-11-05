@@ -59,6 +59,8 @@ export function analytics(): Analytics {
     byProject: [],
     byHour: [],
     timedSessions: 0,
+    timedFirst: null,
+    timedLast: null,
     plannedVsActual: [],
     units: [],
     ratesByUnit: {},
@@ -121,15 +123,20 @@ export function analytics(): Analytics {
       sessions: found ? Number(found.sessions) : 0
     }
   })
-  const timedSessions = Number(
-    (
-      db
-        .prepare(
-          "SELECT COUNT(*) AS n FROM sessions WHERE source = 'app' AND started_at IS NOT NULL"
-        )
-        .get() as { n: number }
-    ).n
-  )
+  // Count and span come from one statement so they cannot disagree about which
+  // rows the time-of-day chart is drawn from. `session_date` rather than
+  // `started_at` because it is the local calendar date, and a session at 11pm
+  // belongs to the day as lived.
+  const timedSpan = db
+    .prepare(
+      `SELECT COUNT(*) AS n, MIN(session_date) AS first, MAX(session_date) AS last
+         FROM sessions
+        WHERE source = 'app' AND started_at IS NOT NULL`
+    )
+    .get() as { n: number; first: string | null; last: string | null }
+  const timedSessions = Number(timedSpan.n)
+  const timedFirst = timedSpan.first ?? null
+  const timedLast = timedSpan.last ?? null
   const plannedRows = db
     .prepare(
       `SELECT planned_duration_s AS planned, running_duration_s AS actual
@@ -246,6 +253,8 @@ export function analytics(): Analytics {
     byProject,
     byHour,
     timedSessions,
+    timedFirst,
+    timedLast,
     plannedVsActual,
     units,
     ratesByUnit,

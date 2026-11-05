@@ -84,11 +84,40 @@ export interface Analytics {
   byHour: HourTotal[]
   /** How many rows the time-of-day chart is actually based on. */
   timedSessions: number
+  /**
+   * The span those rows actually cover, as local `YYYY-MM-DD`, or null when
+   * there are none.
+   *
+   * Separate from `firstDate`/`lastDate`, which span every row including
+   * imports - the wrong range for a chart that deliberately excludes them.
+   * A count on its own is misread: "3 sessions" over three and a half years
+   * sounds like a thin pattern, while "3 sessions, all on 2026-10-02" is
+   * plainly not a pattern at all. The second reading is the true one and the
+   * chart has no way to say so without these.
+   */
+  timedFirst: string | null
+  timedLast: string | null
   plannedVsActual: PlannedVsActual[]
   /** Units that appear often enough to trend, most-used first. */
   units: string[]
   /** Keyed by unit; only units in `units` are present. */
   ratesByUnit: Record<string, RatePoint[]>
+  /**
+   * Computed but **deliberately not rendered yet**, as of 2026-11-05.
+   *
+   * It is empty and will stay empty until the app is in daily use: only an
+   * app-recorded session can carry `pace_target_qty` and
+   * `pace_target_interval_s`, imported rows never can, and there are three
+   * app rows. A seventh chart drawing an empty box on the tab the user judges
+   * the app by is worse than no chart - the dashboard's whole brief is that
+   * someone opens it because they want to.
+   *
+   * Left computed rather than removed because the cost is one cheap query and
+   * the alternative is rediscovering the shape later. Not dead code, deferred
+   * code: build the chart when this is non-empty, and plot `ratio`, never
+   * `target` against `actual` - `250 words` and `19 questions` on one axis is
+   * the same category error as trending rates across units.
+   */
   pace: PacePoint[]
 }
 
