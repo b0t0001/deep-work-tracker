@@ -653,19 +653,27 @@ export default function App(): React.JSX.Element {
         />
 
         <div className="tools">
-          <button
-            className="icon"
-            onClick={() => setFullScreen(!full)}
-            title={full ? 'Exit full screen' : 'Full screen'}
-          >
-            <Icon name={full ? 'collapse' : 'expand'} />
-          </button>
+          {/* Minimise, then full screen, then close - the order every Windows
+              title bar uses. These three are siblings in one flex row and none
+              overlaps another, so swapping them is a plain markup move: the
+              drag-region rule is about a control overlapping a draggable
+              surface, and the whole `.tools` group already sits after the dial
+              in document order. No `order` needed, and no CSS depends on their
+              positions - nothing in main.css selects them by :first-child,
+              :last-child or :nth-. */}
           <button
             className="icon"
             onClick={() => void window.api.window.minimize()}
             title="Minimise"
           >
             <Icon name="minimize" />
+          </button>
+          <button
+            className="icon"
+            onClick={() => setFullScreen(!full)}
+            title={full ? 'Exit full screen' : 'Full screen'}
+          >
+            <Icon name={full ? 'collapse' : 'expand'} />
           </button>
           <button
             className="icon icon--danger"
