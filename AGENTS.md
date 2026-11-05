@@ -189,6 +189,53 @@ sibling** in its container, with visual order fixed by flexbox `order`. The
 full checklist and the symptom-to-cause table are in `CLAUDE.md`; read them
 before writing the JSX, not after the click fails to fire.
 
+## The working tree is shared, so nothing you observed about it is still true
+
+Two near-misses on 2026-11-05, in opposite directions, both from treating a
+reading of the tree as a durable fact.
+
+**`npm run dist` packages the working tree, not `HEAD`.** So a build started
+while another session has edits in flight ships *their* half-finished file to
+the user's desktop icon, where nobody sees it until something looks odd. This
+is the stale-build problem inverted: the usual failure is installing older code
+than you wrote, and this one installs code nobody has finished writing.
+
+Caught before it happened because the implementer checked `git status` rather
+than assuming, found another session's `Icon.tsx` modified, and refused to
+build. That refusal was worth more than the seven minutes it cost.
+
+**And the reverse: "the tree is clean" has a shelf life of seconds.** The
+manager checked, found it clean, and told the implementer to build. By the time
+that message was read, the implementer had started the next item and the tree
+had three modified files and a failing typecheck. Nobody was wrong; the fact
+had simply expired in transit.
+
+The same thing happened twice with the artist's state, who was twice reported
+as having uncommitted work they had already committed.
+
+**So:**
+
+1. **Never state another session's tree state as current.** Quote the commit
+   you saw it at - "clean at `1f70729`" - so the reader can tell whether it
+   still holds. An unqualified "the tree is clean" is a claim about a moment
+   that has already passed.
+2. **Re-check immediately before you act**, not when you decide to act. Any
+   instruction that depends on tree state is conditional on the state at
+   execution: treat "build now" as "build when `git status` is clean, and check
+   first".
+3. **Never build while anyone else has edits in flight.** Ask, or wait for
+   them to commit. Committing is cheap and a WIP commit on the branch can be
+   amended; a shipped installer cannot be recalled from the user's desktop.
+4. **`git pull` before auditing anyone**, and prefer `git log` over the file
+   system for what someone has done. A file's state is shared and momentary;
+   a commit is neither.
+
+One thing that worked and should keep working: `npm run dist` runs
+`npm run build`, which runs `npm run typecheck` first. A tree with a type error
+**cannot** produce an installer - the build aborts loudly instead. That gate is
+why the second near-miss was only a near-miss, so do not route around it by
+calling `electron-builder` directly.
+
 ## Editing in a shared checkout
 
 - **Prettier runs after every change, so exact-match patches go stale.**
