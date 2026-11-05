@@ -12,11 +12,20 @@
  * so rather than pretending.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { defaultLayout, parseLayout, serialiseLayout, type Layout } from '@shared/layout'
+import { defaultLayout, resolveLayout, type Layout } from '@shared/layout'
 
+/**
+ * Objects both ways rather than raw JSON.
+ *
+ * `main/db/layout.ts` already works in `Layout` and runs `resolveLayout` on
+ * the way in, so the renderer cannot store something invalid even by accident
+ * and there is nothing for a string interface to protect. What comes back is
+ * still resolved here, because an IPC payload is only as trustworthy as the
+ * process that sent it and this one crosses a bridge.
+ */
 interface LayoutChannel {
-  get(): Promise<string | null>
-  set(json: string): Promise<void>
+  get(): Promise<Layout>
+  set(layout: Layout): Promise<Layout>
 }
 
 function channel(): LayoutChannel | null {
@@ -47,8 +56,8 @@ export function useLayout(): LayoutState {
     let alive = true
     api
       .get()
-      .then((text) => {
-        if (alive) setLayout(parseLayout(text))
+      .then((stored) => {
+        if (alive) setLayout(resolveLayout(stored))
       })
       .catch(() => {
         // A failed read is the same situation as no stored layout: show the
@@ -66,7 +75,7 @@ export function useLayout(): LayoutState {
     // and reconcile later rather than wait on a round trip to the database.
     setLayout(next)
     void channel()
-      ?.set(serialiseLayout(next))
+      ?.set(next)
       .catch(() => {
         /* Saving a preference is not worth interrupting anyone over. */
       })
