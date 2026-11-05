@@ -113,7 +113,7 @@ app.whenReady().then(async () => {
   // the note is up. A true reading of the wrong element, caught by the test
   // disagreeing with a change I had just watched work.
   const strip = `!!document.querySelector('.stop-output__qty')`
-  const confirmBtn = `!!document.querySelector('.stop-output__confirm')`
+  const confirmBtn = `!!document.querySelector('.stop-prompt__skip')`
   const note = `document.querySelector('.stop-output--saved')?.textContent ?? null`
   const errorShown = `!!document.querySelector('.card__error')`
 
@@ -153,7 +153,7 @@ app.whenReady().then(async () => {
   await ask(type('.stop-output__unit', 'seconds edited'))
   await new Promise((done) => setTimeout(done, 400))
   check('the write reached main', written.at(-1), { quantity: 8, unit: 'seconds edited' })
-  await ask(`document.querySelector('.stop-output__confirm').click(), 'x'`)
+  await ask(`document.querySelector('.stop-prompt__skip').click(), 'x'`)
   await new Promise((done) => setTimeout(done, 500))
   check('it names the value, not just "Saved"', await ask(note), 'Saved · 8 seconds edited')
   check('the fields are gone while it shows', await ask(strip), false)

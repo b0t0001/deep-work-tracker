@@ -727,24 +727,6 @@ export default function App(): React.JSX.Element {
               if (event.key === 'Enter') void confirmOutput()
             }}
           />
-
-          {/* Last sibling, and a button, so it is `no-drag` automatically and
-              sits after the surface it overlays - the rule that has broken
-              this window three times.
-
-              A checkmark rather than an X, matching the pace panel: the
-              values are already applied as they are typed, so this confirms
-              rather than dismisses. Styling reuses the strip's own classes;
-              the treatment is the artist's. */}
-          <button
-            className="stop-output__confirm"
-            onClick={() => void confirmOutput()}
-            disabled={confirming}
-            title="Save and close"
-            aria-label="Save and close"
-          >
-            &#10003;
-          </button>
         </div>
       )}
 
@@ -762,8 +744,31 @@ export default function App(): React.JSX.Element {
           <button onClick={() => answerStop('finished_early')}>done</button>
           <button onClick={() => answerStop('tired')}>tired</button>
           <button onClick={() => answerStop('interrupted')}>cut off</button>
-          <button className="stop-prompt__skip" onClick={() => answerStop(null)} title="Skip">
-            &times;
+          {/* A checkmark, not an X, and the glyph is the whole change.
+
+              This control has always ended the strip without a reason, and
+              the quantity and unit have always written as they were typed -
+              so it has never dismissed unsaved work, because there is no
+              such thing here. Labelling it with an X said otherwise, which
+              is why the user asked to be told their output had been added:
+              the one control that finished the interaction looked like the
+              one that threw it away.
+
+              The pace panel settled this already and CLAUDE.md records it:
+              "The confirm button is a checkmark, not an X. Settings apply as
+              they are typed, so it confirms rather than dismisses." Same
+              reasoning, same strip, zero extra width.
+
+              The class keeps its name so the artist's existing rule still
+              applies; it wants renaming when the CSS for this lands. */}
+          <button
+            className="stop-prompt__skip"
+            onClick={() => void confirmOutput()}
+            disabled={confirming}
+            title="Save and close"
+            aria-label="Save and close"
+          >
+            &#10003;
           </button>
         </div>
       )}
