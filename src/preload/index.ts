@@ -100,6 +100,9 @@ const api = {
       ipcRenderer.invoke('sessions:update', id, patch),
     remove: (id: number): Promise<void> => ipcRenderer.invoke('sessions:remove', id)
   },
+  analytics: {
+    get: (): Promise<unknown> => ipcRenderer.invoke('analytics:get')
+  },
   ui: {
     confirm: (options: {
       title: string

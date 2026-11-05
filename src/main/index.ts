@@ -29,6 +29,7 @@ import {
   setWorkQuantity
 } from './db/sessions'
 import { importRows, importedSessionCount } from './db/import'
+import { analytics } from './db/analytics'
 import { createSession, historyState, redo, removeSession, undo, updateSession } from './db/history'
 import type { SessionPatch, SessionQuery } from './db/sessions'
 import { readImportRows, summarize } from './import/csv'
@@ -438,6 +439,11 @@ function registerIpc(): void {
   // it, so a failure degrades to "no suggestions" and says so once.
   ipcMain.handle('sessions:lastProject', () => safely(() => lastProjectName(), null))
   ipcMain.handle('sessions:projectNames', () => safely(() => allProjectNames(), []))
+
+  // Null rather than a half-empty payload on failure: the tab can say it could
+  // not read the history, where a zeroed one would read as "you have never
+  // worked" - the most alarming possible way to report a query error.
+  ipcMain.handle('analytics:get', () => safely(() => analytics(), null))
 
   ipcMain.handle('sessions:setStopReason', (event, reason: string | null, note: string | null) => {
     const completed = instanceFor(event)?.lastCompleted
