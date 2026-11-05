@@ -11,6 +11,8 @@
  */
 import { useState } from 'react'
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -284,15 +286,6 @@ function Empty({ height, children }: { height: number; children: string }): Reac
   )
 }
 
-interface WeekBar {
-  week: number
-  hours: number
-  sessions: number
-  /** Blank on most bars - see the comment in `HoursOverTime`. */
-  tick: string
-  from: string
-}
-
 /**
  * Hours per week over the whole history.
  *
@@ -307,22 +300,42 @@ interface WeekBar {
  * not be closed up into a continuous run of work that never happened.
  */
 /**
- * How far back the bars go.
+ * How far back the chart goes, and how finely it is cut.
  *
- * The whole history is 189 weeks, which across this panel is about 6px a bar
- * with no gap - a seismograph rather than a chart. Two years is the default
- * because it is the shortest span that still shows the thing the data has to
- * say, which is that the weekly load roughly doubled through 2024; one year is
- * there to read recent weeks individually, and the whole record is one click
- * away rather than the thing you have to start from.
+ * A doubling ladder rather than a few coarse ranges: the question "how has
+ * this fortnight gone" is asked far more often than "how have three years
+ * gone", and the old 1y/2y/all could not answer it at all.
+ *
+ * The bucket follows the span rather than being chosen separately. A week of
+ * weekly buckets is one point, which is not a chart - so anything up to eight
+ * weeks is cut daily and anything longer is cut weekly. That keeps the number
+ * of points between about seven and a hundred at every setting, which is the
+ * range an area reads well over, and it means the control has one axis rather
+ * than two for the user to reconcile.
  */
 const SPANS = [
-  { id: '1y', label: '1y', weeks: 53 },
-  { id: '2y', label: '2y', weeks: 105 },
-  { id: 'all', label: 'all', weeks: Infinity }
+  { id: '1w', label: '1w', days: 7 },
+  { id: '2w', label: '2w', days: 14 },
+  { id: '4w', label: '4w', days: 28 },
+  { id: '8w', label: '8w', days: 56 },
+  { id: '1y', label: '1y', days: 371 },
+  { id: 'all', label: 'all', days: Infinity }
 ] as const
 
 type SpanId = (typeof SPANS)[number]['id']
+
+/** Daily cuts stay legible to about eight weeks; past that the week is the unit. */
+const DAILY_LIMIT_DAYS = 56
+
+interface Point {
+  /** Epoch day of the bucket's first day, for ordering. */
+  day: number
+  hours: number
+  sessions: number
+  from: string
+  /** Pre-labelled; blank elsewhere so Recharts cannot thin the wrong ones. */
+  tick: string
+}
 
 export function HoursOverTime({
   daily,
@@ -331,19 +344,22 @@ export function HoursOverTime({
   daily: DayTotal[]
   accent: string
 }): React.JSX.Element {
-  const [span, setSpan] = useState<SpanId>('2y')
-  const all = weeklyBars(daily)
-  const weeks = SPANS.find((s) => s.id === span)?.weeks ?? Infinity
-  // Trimmed from the end, so a shorter span is the most recent weeks rather
-  // than the first ones recorded.
-  const bars = Number.isFinite(weeks) ? all.slice(-weeks) : all
+  const [span, setSpan] = useState<SpanId>('8w')
+  const chosen = SPANS.find((s) => s.id === span) ?? SPANS[SPANS.length - 1]
+  const byDay = Number.isFinite(chosen.days) && chosen.days <= DAILY_LIMIT_DAYS
+  const points = seriesFor(daily, chosen.days, byDay)
+  const unit = byDay ? 'day' : 'week'
 
   return (
     <Frame
-      title="Hours per week"
-      sub={bars.length > 0 ? `${bars.length} weeks, Monday to Sunday` : undefined}
+      title={byDay ? 'Hours per day' : 'Hours per week'}
+      sub={
+        points.length > 0
+          ? `${points.length} ${unit}${points.length === 1 ? '' : 's'}${byDay ? '' : ', Monday to Sunday'}`
+          : undefined
+      }
       aside={
-        all.length > SPANS[0].weeks ? (
+        daily.length > 0 ? (
           <div className="an-seg">
             {SPANS.map((option) => (
               <button
@@ -360,83 +376,152 @@ export function HoursOverTime({
         ) : undefined
       }
       note={
-        bars.length > 0
-          ? `Running time only; paused time is never counted.${
-              bars.length < all.length ? ` The whole record runs to ${all.length} weeks.` : ''
-            }`
+        points.length > 0
+          ? `Running time only; paused time is never counted. Empty ${unit}s are drawn as zero rather than closed up, so a gap reads as a gap.`
           : undefined
       }
     >
-      {bars.length === 0 ? (
+      {points.length === 0 ? (
         <Empty height={220}>No sessions recorded yet.</Empty>
       ) : (
         <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={bars} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+          <AreaChart data={points} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={GRID} vertical={false} />
-            {/* Ticks are pre-labelled quarterly and blank elsewhere: `interval={0}`
-                then guarantees the labels that exist land on the right bars,
-                rather than letting Recharts thin them and drop them. */}
             <XAxis dataKey="tick" interval={0} tickLine={false} />
             <YAxis width={36} tickLine={false} />
             <Tooltip
               {...TOOLTIP}
-              cursor={{ fill: '#ffffff0a' }}
+              cursor={{ stroke: '#ffffff20' }}
               labelFormatter={(_label: React.ReactNode, payload): string => {
-                const row = payload?.[0]?.payload as WeekBar | undefined
-                return row ? `Week of ${row.from}` : ''
+                const row = payload?.[0]?.payload as Point | undefined
+                if (!row) return ''
+                return byDay ? row.from : `Week of ${row.from}`
               }}
             />
-            <Bar
+            {/* A flat fill, not a gradient. The area is there to give the line
+                a body and to make a run of empty days read as a trough; a
+                vertical fade would be decoration and this app has none. */}
+            <Area
+              type="monotone"
               dataKey="hours"
               name="Hours"
               unit=" h"
+              stroke={accent}
+              strokeWidth={1.6}
               fill={accent}
-              radius={[2, 2, 0, 0]}
+              fillOpacity={0.16}
+              dot={false}
+              activeDot={{ r: 3, strokeWidth: 0 }}
               isAnimationActive={false}
             />
-          </BarChart>
+          </AreaChart>
         </ResponsiveContainer>
       )}
     </Frame>
   )
 }
 
-function weeklyBars(daily: DayTotal[]): WeekBar[] {
+/**
+ * The series for a span, cut daily or weekly.
+ *
+ * Empty buckets are filled rather than skipped: a fortnight off has to read as
+ * a trough, not be closed up into a continuous run of work that never
+ * happened. That matters more for an area than it did for bars, because an
+ * area connects its points and would draw a slope straight across the gap.
+ */
+function seriesFor(daily: DayTotal[], days: number, byDay: boolean): Point[] {
   if (daily.length === 0) return []
 
   const totals = new Map<number, { hours: number; sessions: number }>()
-  let first = Infinity
   let last = -Infinity
-  for (const day of daily) {
-    const week = weekStart(day.date)
-    if (week < first) first = week
-    if (week > last) last = week
-    const found = totals.get(week)
+  for (const row of daily) {
+    const key = byDay ? dayNumber(row.date) : weekStart(row.date)
+    if (key > last) last = key
+    const found = totals.get(key)
     if (found) {
-      found.hours += day.hours
-      found.sessions += day.sessions
+      found.hours += row.hours
+      found.sessions += row.sessions
     } else {
-      totals.set(week, { hours: day.hours, sessions: day.sessions })
+      totals.set(key, { hours: row.hours, sessions: row.sessions })
     }
   }
 
-  const out: WeekBar[] = []
-  for (let week = first; week <= last; week += 7) {
-    const found = totals.get(week) ?? { hours: 0, sessions: 0 }
-    const from = isoDate(week)
-    const month = Number(from.slice(5, 7))
-    // One label a quarter: a month label every ~4 bars overlaps its neighbour
-    // at any width this panel reaches.
-    const firstWeekOfMonth = Number(from.slice(8, 10)) <= 7
+  const step = byDay ? 1 : 7
+  const earliest = Math.min(...totals.keys())
+  const first = Number.isFinite(days) ? Math.max(earliest, last - (days - step)) : earliest
+
+  const out: Point[] = []
+  for (let key = first; key <= last; key += step) {
+    const found = totals.get(key) ?? { hours: 0, sessions: 0 }
     out.push({
-      week,
+      day: key,
       hours: round(found.hours, 2),
       sessions: found.sessions,
-      from,
-      tick: firstWeekOfMonth && month % 3 === 1 ? monthLabel(from) : ''
+      from: isoDate(key),
+      tick: ''
     })
   }
-  return out
+  return label(out, byDay)
+}
+
+/**
+ * Labels a handful of points and blanks the rest.
+ *
+ * Roughly six labels whatever the span, chosen by position rather than by
+ * calendar, so a 1-week view is labelled by date and a 3-year view by month
+ * without either needing its own rule. Recharts thins ticks on its own
+ * otherwise, and thins the wrong ones.
+ */
+function label(points: Point[], byDay: boolean): Point[] {
+  if (points.length === 0) return points
+  const every = Math.max(1, Math.round(points.length / 6))
+  // The weekday earns its place only when every label is a different day of
+  // the week you can orient by. Past a fortnight the labels land on arbitrary
+  // weekdays - Wed, then Fri, then Sun - which reads as noise rather than as
+  // structure, so the date carries it alone.
+  const withWeekday = byDay && every <= 2
+  return points.map((point, index) =>
+    index % every === 0
+      ? {
+          ...point,
+          tick: byDay
+            ? withWeekday
+              ? dayLabel(point.from)
+              : shortDate(point.from)
+            : monthLabel(point.from)
+        }
+      : point
+  )
+}
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+const SHORT_MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec'
+]
+
+/** `3 Sep` once the weekday stops meaning anything. */
+function shortDate(date: string): string {
+  const [, m, d] = date.split('-').map(Number)
+  return `${d} ${SHORT_MONTHS[m - 1]}`
+}
+
+/** `Mon 3` over a short span, where the weekday is the thing you orient by. */
+function dayLabel(date: string): string {
+  const [y, m, d] = date.split('-').map(Number)
+  const weekday = DAY_NAMES[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
+  return `${weekday} ${d}`
 }
 
 interface ProjectBar {
