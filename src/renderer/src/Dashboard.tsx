@@ -568,7 +568,13 @@ function AnalyticsTab(): React.JSX.Element {
       <ByProject byProject={data.byProject} accent={accent} />
       <PlannedVsActual data={data.plannedVsActual} accent={accent} />
       <RateTrend ratesByUnit={data.ratesByUnit} units={data.units} accent={accent} />
-      <TimeOfDayHeatmap byHour={data.byHour} timedSessions={data.timedSessions} accent={accent} />
+      <TimeOfDayHeatmap
+        byHour={data.byHour}
+        timedSessions={data.timedSessions}
+        timedFirst={data.timedFirst}
+        timedLast={data.timedLast}
+        accent={accent}
+      />
     </section>
   )
 }

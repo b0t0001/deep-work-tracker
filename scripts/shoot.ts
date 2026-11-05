@@ -389,6 +389,43 @@ async function shoot(shot: Shot): Promise<string> {
     console.log('    probe:', await window.webContents.executeJavaScript('document.title', true))
   }
 
+  /*
+   * Throw away three frames before keeping one.
+   *
+   * A window that is never shown gets no steady compositor heartbeat, and
+   * Chromium advances CSS transitions off the frame clock rather than off
+   * wall-clock time. `capturePage()` is one of the things that asks for a
+   * frame. So a 160ms opacity transition can still be sitting on its first
+   * frame when the capture happens no matter how long the drive script
+   * waited, because nothing during that wait drew anything.
+   *
+   * What is actually verified here, rather than reasoned:
+   *
+   * - Ring mode at rest, DOM reporting `.tools` at `opacity: 0` and the PNG
+   *   showing the icons anyway. One discarded capture plus 400ms did NOT fix
+   *   it - the icons were still there. Three captures 500ms apart did, and
+   *   the header came back correctly empty. So the effect is real and it
+   *   needs more than one frame to clear; a single discard is not enough,
+   *   which is worth stating because it looks like it ought to be.
+   * - The dashboard shots are byte-identical with zero, one and three
+   *   discarded frames - same md5 across all three. Nothing on those tabs
+   *   depends on a transition, so there is no stale frame to clear.
+   *
+   * That second point is why this is cheap insurance rather than a fix for
+   * the charts: a settled page captures the same either way, and only the
+   * pages with a transition in them change. JavaScript timers run normally
+   * in a hidden window, so React state, data loads and layout are already
+   * settled by the drive script's own wait - this is only about CSS
+   * transitions. Recharts' mount animation is the other case of the same
+   * problem and is turned off at the series instead, with
+   * `isAnimationActive={false}`, because a chart that paints its final
+   * values immediately needs no clock at all.
+   */
+  for (let i = 0; i < 3; i++) {
+    await window.webContents.capturePage()
+    await new Promise((done) => setTimeout(done, 500))
+  }
+
   const image = await window.webContents.capturePage()
   const file = join(outDir, `${shot.id}.png`)
   writeFileSync(file, image.toPNG())

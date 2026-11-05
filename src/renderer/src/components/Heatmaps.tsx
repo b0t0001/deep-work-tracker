@@ -367,10 +367,15 @@ const FEW_SESSIONS = 30
 export function TimeOfDayHeatmap({
   byHour,
   timedSessions,
+  timedFirst,
+  timedLast,
   accent
 }: {
   byHour: HourTotal[]
   timedSessions: number
+  /** First and last local dates the counted rows fall on; null when none. */
+  timedFirst: string | null
+  timedLast: string | null
   accent: string
 }): React.JSX.Element {
   const hours = useMemo(() => {
@@ -406,6 +411,24 @@ export function TimeOfDayHeatmap({
   const scale = Math.max(...hours.map((h) => h.hours), 0) || 1
   const width = 24 * HOUR_PITCH - HOUR_GAP
   const height = HOUR_CELL_H + HOUR_LABEL_H
+
+  /*
+   * The dates the counted rows actually fall on.
+   *
+   * A row count on its own invites the wrong reading: "3 sessions" sounds
+   * like three points spread over the history, when all three are one
+   * evening. The span is what tells you the chart is one evening's worth,
+   * and it keeps working unchanged once there are real dates to show.
+   *
+   * `all on` rather than a range when they share a day, because
+   * "2026-10-02 to 2026-10-02" reads like a bug.
+   */
+  const span =
+    timedFirst === null || timedLast === null
+      ? ''
+      : timedFirst === timedLast
+        ? `, all on ${timedFirst}`
+        : `, ${timedFirst} to ${timedLast}`
 
   return (
     <div>
@@ -456,8 +479,8 @@ export function TimeOfDayHeatmap({
 
       <p style={noteStyle}>
         {timedSessions < FEW_SESSIONS
-          ? `Based on ${plural(timedSessions, 'session')} this app timed itself - too few to read as a pattern yet. `
-          : `Covers the ${plural(timedSessions, 'session')} this app timed itself. `}
+          ? `Based on ${plural(timedSessions, 'session')} this app timed itself${span} - too few to read as a pattern yet. `
+          : `Covers the ${plural(timedSessions, 'session')} this app timed itself${span}. `}
         Imported rows are excluded: they carry a date but no clock time, so they cannot say anything
         about when the work happened.
       </p>
