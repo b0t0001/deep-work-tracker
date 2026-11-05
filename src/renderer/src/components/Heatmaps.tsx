@@ -16,6 +16,7 @@
 
 import { useMemo, useState } from 'react'
 import type { DayTotal, HourTotal } from '@shared/analytics'
+import { EmptyState } from './AnalyticsCharts'
 
 const DAY_MS = 86_400_000
 
@@ -472,24 +473,21 @@ export function TimeOfDayHeatmap({
           <span>11p</span>
         </div>
 
-        <div className="an-empty">
-          <b className="an-empty__title">
-            {timedSessions === 0
+        <EmptyState
+          title={
+            timedSessions === 0
               ? 'Nothing timed by this app yet'
-              : `${plural(timedSessions, 'session')} timed by this app${span}`}
-          </b>
-          <p className="an-empty__body">
-            {timedSessions > 0 && timedFirst !== null && timedFirst === timedLast
-              ? 'One afternoon is not a pattern. '
-              : ''}
-            This fills in as the app records sessions itself. The imported history never can:
-            Hourglass stored a countdown reading rather than a clock time, so those rows carry a
-            date and no hour.
-          </p>
-          <div className="an-empty__meter">
-            <i style={{ width: `${Math.min(100, (timedSessions / FEW_SESSIONS) * 100)}%` }} />
-          </div>
-        </div>
+              : `${plural(timedSessions, 'session')} timed by this app${span}`
+          }
+          progress={timedSessions / FEW_SESSIONS}
+        >
+          {timedSessions > 0 && timedFirst !== null && timedFirst === timedLast
+            ? 'One afternoon is not a pattern. '
+            : ''}
+          This fills in as the app records sessions itself. The imported history never can:
+          Hourglass stored a countdown reading rather than a clock time, so those rows carry a date
+          and no hour.
+        </EmptyState>
       </div>
     )
   }

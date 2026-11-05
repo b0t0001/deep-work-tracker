@@ -26,6 +26,7 @@ import {
 } from 'recharts'
 import type {
   DayTotal,
+  PacePoint,
   PlannedVsActual as PlannedVsActualPoint,
   ProjectTotal,
   RatePoint
@@ -204,6 +205,52 @@ function Frame({
       {children}
       {note ? <p className="an-panel__note">{note}</p> : null}
     </div>
+  )
+}
+
+/**
+ * A panel that has no data yet, and says why in its own words.
+ *
+ * Shared by the time-of-day heatmap and the pace chart so the two read as one
+ * kind of thing. They are empty for different reasons and the sentences must
+ * not blur them: time of day is *early* and thickens as the app is used, while
+ * pace is *structurally* empty, because no imported row can ever carry a pace
+ * target. One is a chart waiting for data; the other is a feature nobody has
+ * switched on.
+ *
+ * `track` is the shape the chart would occupy, drawn as an outline. It is kept
+ * rather than hidden because a panel that disappears until it has data cannot
+ * teach anyone the feature exists.
+ *
+ * `progress` fills a hairline meter toward whatever counts as enough. It turns
+ * "there is nothing here" into "here is how far along this is", which is the
+ * difference between a dead widget and one that is visibly waiting.
+ */
+export function EmptyState({
+  title,
+  children,
+  progress,
+  track
+}: {
+  title: string
+  children: React.ReactNode
+  /** 0-1; omitted when there is no threshold worth counting towards. */
+  progress?: number
+  track?: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <>
+      {track}
+      <div className="an-empty">
+        <b className="an-empty__title">{title}</b>
+        <p className="an-empty__body">{children}</p>
+        {progress === undefined ? null : (
+          <div className="an-empty__meter">
+            <i style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }} />
+          </div>
+        )}
+      </div>
+    </>
   )
 }
 
@@ -754,6 +801,183 @@ export function RateTrend({
           </ScatterChart>
         </ResponsiveContainer>
       )}
+    </Frame>
+  )
+}
+
+/**
+ * Below this, the plot is replaced by the outline and the sentence.
+ *
+ * Two points drawn as a chart is the same fault as three sessions drawn as a
+ * heatmap: it is a shape the data cannot support, and the reader takes a
+ * trend from it. This is the state the chart spends its first week in, so it
+ * is the state worth designing, not an edge case.
+ */
+const FEW_PACED = 3
+
+interface PaceDot {
+  day: number
+  ratio: number
+  date: string
+  target: number
+  actual: number
+  unit: string
+}
+
+/**
+ * Predicted output against what the session actually produced.
+ *
+ * **Plots `ratio`, never `target` against `actual`.** Those are absolute
+ * amounts in whatever the session was measured in, so `250 words` and
+ * `19 questions` on one axis is the same category error as trending rates
+ * across units. The ratio is dimensionless, so every paced session belongs in
+ * one series however it was counted. 1.0 is where the prediction landed.
+ *
+ * Nothing imported can ever appear here. A pace target is something the app
+ * records while a session runs; the spreadsheet stored a countdown reading
+ * and no target, so the 3.5 years of history contribute exactly zero points
+ * and always will. The empty state says so, because a chart that is empty for
+ * a permanent reason should not look like one that is merely waiting.
+ */
+export function PaceAccuracy({
+  pace,
+  accent
+}: {
+  pace: PacePoint[]
+  accent: string
+}): React.JSX.Element {
+  const dots: PaceDot[] = pace.map((p) => ({
+    day: dayNumber(p.date),
+    ratio: round(p.ratio, 3),
+    date: p.date,
+    target: round(p.target, 1),
+    actual: p.actual,
+    unit: p.unit
+  }))
+
+  const first = pace[0]?.date ?? null
+  const last = pace[pace.length - 1]?.date ?? null
+  // Said in the empty state, because "2 sessions" on its own sounds like two
+  // points spread across the history rather than two in one afternoon.
+  const span =
+    first === null || last === null
+      ? ''
+      : first === last
+        ? `, both on ${first}`
+        : `, ${first} to ${last}`
+
+  if (dots.length < FEW_PACED) {
+    return (
+      <div className="an-panel">
+        <div className="an-panel__head">
+          <h4 className="an-panel__title">
+            Pace against target
+            <span className="an-panel__sub">not enough data yet</span>
+          </h4>
+        </div>
+
+        {/* The slot keeps its shape so the panel reads as a chart waiting for
+            data rather than as a gap in the page. One mark per paced session,
+            lit when there is one. */}
+        <div className="an-track">
+          {Array.from({ length: FEW_PACED * 4 }, (_, i) => (
+            <span
+              key={i}
+              className={i < dots.length ? 'is-on' : undefined}
+              title={
+                i < dots.length
+                  ? `${dots[i].date} — ${dots[i].actual} of ${dots[i].target} ${dots[i].unit} (${Math.round(dots[i].ratio * 100)}%)`
+                  : 'no paced session yet'
+              }
+            />
+          ))}
+        </div>
+
+        <div className="an-empty">
+          <b className="an-empty__title">
+            {dots.length === 0
+              ? 'No session has run against a pace target yet'
+              : `${count(dots.length, 'paced session')}${span}`}
+          </b>
+          <p className="an-empty__body">
+            {dots.length > 0 && first === last ? 'One sitting is not a trend. ' : ''}
+            Set a target from the pace button beside start — something like 100 words per 20 minutes
+            — and the session is recorded against it. This chart then shows what you produced as a
+            share of what you aimed at, with 1.0 the line where the prediction landed. The imported
+            history never contributes: Hourglass stored a countdown reading with no target attached,
+            so none of those {count(2474, 'row')} carries one.
+          </p>
+          <div className="an-empty__meter">
+            <i style={{ width: `${Math.min(100, (dots.length / FEW_PACED) * 100)}%` }} />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const days = dots.map((d) => d.day)
+  const low = Math.min(...days)
+  const high = Math.max(...days)
+  // Several sessions on one day would otherwise give a zero-width domain.
+  const pad = Math.max(3, (high - low) * 0.02)
+
+  const met = dots.filter((d) => d.ratio >= 1).length
+  const mean = dots.reduce((sum, d) => sum + d.ratio, 0) / dots.length
+  // Headroom above the reference line, so a run that beat its target is not
+  // drawn flush against the top edge.
+  const ceiling = Math.max(1.2, round(Math.max(...dots.map((d) => d.ratio)) * 1.1, 2))
+
+  return (
+    <Frame
+      title="Pace against target"
+      sub="produced as a share of predicted"
+      note={`${count(dots.length, 'paced session')}, ${met} at or above target. Mean ${round(mean, 2)}× what was aimed at. The ratio is unit-free, so sessions counted in words and in questions belong on one axis — the absolute amounts never would.`}
+    >
+      <ResponsiveContainer width="100%" height={220}>
+        <ScatterChart margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+          <CartesianGrid stroke={GRID} />
+          <XAxis
+            type="number"
+            dataKey="day"
+            domain={[low - pad, high + pad]}
+            tickLine={false}
+            tickFormatter={(value: string | number): string => monthLabel(isoDate(Number(value)))}
+          />
+          <YAxis
+            type="number"
+            dataKey="ratio"
+            width={48}
+            tickLine={false}
+            domain={[0, ceiling]}
+            allowDataOverflow
+            tickFormatter={(value: string | number): string => `${Number(value)}×`}
+          />
+          {/* Labelled: an unexplained line across a chart that gets filmed is
+              debris. This is the whole point of the panel - above it you beat
+              the target, below it you missed. */}
+          <ReferenceLine
+            y={1}
+            stroke={tint(accent, '80')}
+            strokeDasharray="4 4"
+            label={{ value: 'target', position: 'insideBottomRight', fontSize: 10 }}
+          />
+          <Tooltip
+            {...TOOLTIP}
+            cursor={{ stroke: '#ffffff20' }}
+            labelFormatter={(_label: React.ReactNode, payload): string => {
+              const row = payload?.[0]?.payload as PaceDot | undefined
+              return row ? `${row.date} — ${row.actual} of ${row.target} ${row.unit}` : ''
+            }}
+          />
+          <Scatter
+            name="Share of target"
+            data={dots}
+            fill={tint(accent, 'cc')}
+            stroke={accent}
+            isAnimationActive={false}
+          />
+        </ScatterChart>
+      </ResponsiveContainer>
     </Frame>
   )
 }
