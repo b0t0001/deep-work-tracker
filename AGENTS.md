@@ -116,6 +116,44 @@ code is not verification.
 **Report what you did not do** as well as what you did. A report that lists
 only successes is one the manager has to re-audit from scratch.
 
+## A screenshot of an uncomposited window is not evidence of a bug
+
+This has now produced **four** phantom defects in one day, each of which cost
+real time and two of which were written into a spec as fact:
+
+| Reported | Actually |
+| --- | --- |
+| Ring-mode header icons never hide | the capture caught a 160 ms opacity transition on frame zero |
+| `is-ring` is on no element, 46 CSS rules dead | React had not committed the re-render, because it had no frame to commit on |
+| Settings tab renders white while inactive | `.tab` has `transition: color 120ms ease`; the frame caught it part way back from the active colour |
+| Analytics series render empty | *not* this - `isAnimationActive={false}`, and the shots are byte-identical across 0, 1 and 3 discarded frames |
+
+One root cause: a `show: false` BrowserWindow is never composited, so Chromium
+never ticks its frame clock. CSS transitions do not advance and **React does
+not commit state updates**, so a drive script that clicks something and then
+waits is photographing the page as it was before the click. Waiting longer
+never helps, because nothing during the wait draws anything. `capturePage()`
+is one of the few things that forces a frame, which is why the fix is a loop
+of three captures rather than one - a single discard looks sufficient and is
+not, measured.
+
+**So, before reporting any visual finding as a defect:**
+
+1. Confirm it on a **settled** capture - the three-frame loop in `shoot.ts`,
+   not a single shot - or on a real composited window over CDP.
+2. If the element has a `transition`, assume the frozen frame until shown
+   otherwise. Grep the stylesheet for one before writing up a mechanism.
+3. `document.getAnimations().length === 0` does **not** mean nothing was
+   animating. It also means the class carrying the transition never applied.
+4. Prefer the installed build for anything about the timer window. It is the
+   only thing the user actually looks at, and it is composited.
+
+The last entry in the table is the one to remember: the Analytics series were
+fine, and "the harness fix landed so the evidence is sound" was the wrong
+reason to believe it. The right reason was that the images were byte-identical
+with and without the fix. A correct conclusion reached through a broken
+argument leaves the broken argument in place for next time.
+
 ## Before adding any control that overlays the dial
 
 Electron resolves overlapping drag regions by **document order, not
