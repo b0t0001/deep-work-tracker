@@ -177,6 +177,23 @@ byte-identical with and without the fix. A correct conclusion reached through a
 broken argument leaves the broken argument in place for next time, which is
 how the first three of these happened.
 
+## `npm run shoot` renders `out/`, not your source
+
+The harness loads `out/renderer/index.html`, which `electron-vite build`
+produces. It does **not** rebuild it. So a shot taken straight after an edit
+shows the previous build, silently and convincingly - it is a real screenshot
+of a real page, just not of the code you are holding.
+
+Caught on 2026-11-05 shooting the week tile straight after changing it: the
+image showed the old `-31%` with complete conviction, and the only reason it
+was noticed is that the expected number was known in advance. Had the change
+been one whose result was not predicted, the shot would have been read as
+evidence that it did not work.
+
+**Run `npm run build` before `npm run shoot`** whenever the renderer changed.
+Same family as the stale installed build, one level down, and with the same
+signature: the artifact is real, and it is of something else.
+
 ## Before adding any control that overlays the dial
 
 Electron resolves overlapping drag regions by **document order, not

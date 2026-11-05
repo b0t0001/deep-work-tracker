@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
-import { weekOverWeek, type Analytics } from '@shared/analytics'
+import { previousDay, weekOverWeek, type Analytics } from '@shared/analytics'
 import { useAccentSync } from './lib/accent'
 import {
   ByProject,
@@ -516,7 +516,13 @@ function AnalyticsTab(): React.JSX.Element {
   }
 
   const today = localToday()
-  const week = weekOverWeek(data.daily, today)
+  // The window ends on the last COMPLETE day, not today. A day still in
+  // progress is not a data point, and it does not merely depress the figure -
+  // it flatters it, because a day with no hours yet drops out of the
+  // per-worked-day denominator while the week before it is counted in full.
+  // Measured on the real history: ending today reported -31%, ending
+  // yesterday reports -37%, and -37% is the honest one.
+  const week = weekOverWeek(data.daily, previousDay(today))
 
   // Over calendar days in the range, not over active days only. CLAUDE.md
   // settled this: dividing by active days answers "how long is a working day",
@@ -529,8 +535,19 @@ function AnalyticsTab(): React.JSX.Element {
   // a heavier one - which is why the fix for "this reads as discouraging" was
   // to move the comparison out of the hero slot rather than to find a kinder
   // number.
-  const change =
-    week.perDayChangePercent === null
+  // With no worked day in the window there is nothing to compare, and the
+  // honest reading is that the record stops rather than that the work did.
+  // Every row in this database arrived by import, so a quiet week here can
+  // mean the spreadsheet has not been brought in lately - and a decline drawn
+  // from that would be measuring how stale the import is, not how much work
+  // happened. Say which it is instead of printing a number the data cannot
+  // support.
+  const stale = week.thisWeekDays === 0
+  const change = stale
+    ? data.lastDate
+      ? `no sessions logged since ${data.lastDate}`
+      : 'no sessions logged yet'
+    : week.perDayChangePercent === null
       ? 'nothing the week before to compare against'
       : `${week.perDayChangePercent >= 0 ? '+' : ''}${Math.round(week.perDayChangePercent)}% a day on the week before`
 
@@ -586,7 +603,7 @@ function AnalyticsTab(): React.JSX.Element {
           <span>
             a day over {week.thisWeekDays} {week.thisWeekDays === 1 ? 'day' : 'days'} worked this
             week &middot;{' '}
-            {week.perDayChangePercent === null ? (
+            {stale || week.perDayChangePercent === null ? (
               change
             ) : (
               <span className={week.perDayChangePercent >= 0 ? 'is-up' : 'is-down'}>{change}</span>
