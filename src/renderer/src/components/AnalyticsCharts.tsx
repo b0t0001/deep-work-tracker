@@ -302,9 +302,16 @@ function Empty({ height, children }: { height: number; children: string }): Reac
 /**
  * How far back the chart goes, and how finely it is cut.
  *
- * A doubling ladder rather than a few coarse ranges: the question "how has
- * this fortnight gone" is asked far more often than "how have three years
- * gone", and the old 1y/2y/all could not answer it at all.
+ * Doubling steps rather than a few coarse ranges: the question "how has this
+ * fortnight gone" is asked far more often than "how have three years gone",
+ * and the old 1y/2y/all could not answer it at all.
+ *
+ * A dropdown, not a row of buttons. Six of them spent a row's width saying two
+ * characters each, which is the trade the Data tab already refused for its
+ * Source and rows-per-page pickers - it keeps buttons only for its date
+ * presets, where there are four and each is a one-tap shortcut rather than a
+ * persistent selection. This is a persistent selection, and the extra room
+ * lets the options read as words instead of abbreviations.
  *
  * The bucket follows the span rather than being chosen separately. A week of
  * weekly buckets is one point, which is not a chart - so anything up to eight
@@ -314,12 +321,12 @@ function Empty({ height, children }: { height: number; children: string }): Reac
  * than two for the user to reconcile.
  */
 const SPANS = [
-  { id: '1w', label: '1w', days: 7 },
-  { id: '2w', label: '2w', days: 14 },
-  { id: '4w', label: '4w', days: 28 },
-  { id: '8w', label: '8w', days: 56 },
-  { id: '1y', label: '1y', days: 371 },
-  { id: 'all', label: 'all', days: Infinity }
+  { id: '1w', label: 'the last week', days: 7 },
+  { id: '2w', label: 'the last 2 weeks', days: 14 },
+  { id: '4w', label: 'the last 4 weeks', days: 28 },
+  { id: '8w', label: 'the last 8 weeks', days: 56 },
+  { id: '1y', label: 'the last year', days: 371 },
+  { id: 'all', label: 'everything', days: Infinity }
 ] as const
 
 type SpanId = (typeof SPANS)[number]['id']
@@ -360,19 +367,21 @@ export function HoursOverTime({
       }
       aside={
         daily.length > 0 ? (
-          <div className="an-seg">
-            {SPANS.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                className={option.id === span ? 'is-on' : undefined}
-                aria-pressed={option.id === span}
-                onClick={() => setSpan(option.id)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <label className="ac__note" style={{ margin: 0 }}>
+            Show{' '}
+            <select
+              className="ac__unit"
+              value={span}
+              onChange={(event) => setSpan(event.target.value as SpanId)}
+              aria-label="How far back to show"
+            >
+              {SPANS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
         ) : undefined
       }
       note={
