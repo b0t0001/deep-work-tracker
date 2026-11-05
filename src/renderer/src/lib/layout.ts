@@ -12,6 +12,7 @@
  * so rather than pretending.
  */
 import { useCallback, useEffect, useState } from 'react'
+import type { DeepWorkApi } from '../../../preload'
 import { defaultLayout, resolveLayout, type Layout } from '@shared/layout'
 
 /**
@@ -23,14 +24,31 @@ import { defaultLayout, resolveLayout, type Layout } from '@shared/layout'
  * still resolved here, because an IPC payload is only as trustworthy as the
  * process that sent it and this one crosses a bridge.
  */
-interface LayoutChannel {
-  get(): Promise<Layout>
-  set(layout: Layout): Promise<Layout>
-}
+/**
+ * The channel's shape, taken from the preload bridge rather than redeclared.
+ *
+ * This file used to declare its own `LayoutChannel` and reach `window.api`
+ * through `as unknown as`. That cast is why a real mismatch typechecked clean
+ * for three commits: the renderer said the channel took a `Layout`, preload
+ * said it took a string, and because the cast erased the boundary there was
+ * nothing for TypeScript to compare. Saving a layout threw in the main
+ * process, the rejection was swallowed by design, and the `persists` flag
+ * below could not see it because the functions did exist - they were simply
+ * the wrong shape.
+ *
+ * `DeepWorkApi` is `typeof api` in `preload/index.ts`, so deriving from it
+ * means the two halves are now checked against each other by the compiler.
+ * An IPC boundary is the one place where both sides may be written by
+ * different people at the same time, which is the worst possible place to
+ * turn type checking off.
+ */
+type LayoutChannel = DeepWorkApi['layout']
 
 function channel(): LayoutChannel | null {
-  const api = window.api as unknown as { layout?: LayoutChannel } | undefined
-  const found = api?.layout
+  // `Partial` rather than a cast: a preload built before this channel existed
+  // genuinely has no `layout`, and that is worth handling - but it is absence
+  // being handled, not the shape being hidden.
+  const found = (window.api as Partial<DeepWorkApi>).layout
   return found && typeof found.get === 'function' && typeof found.set === 'function' ? found : null
 }
 

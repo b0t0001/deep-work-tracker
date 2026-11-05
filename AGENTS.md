@@ -177,6 +177,35 @@ byte-identical with and without the fix. A correct conclusion reached through a
 broken argument leaves the broken argument in place for next time, which is
 how the first three of these happened.
 
+## Never reach `window.api` through a cast
+
+`preload/index.ts` exports `DeepWorkApi = typeof api`, and
+`preload/index.d.ts` declares `window.api` as it. So the renderer gets the
+real shape of every channel for free, and a mismatch between the two halves
+is a compile error.
+
+Writing `window.api as unknown as { thing?: Thing }` throws that away. It
+looks harmless - the local interface says what you believe the channel is -
+and it is the single worst place in this codebase to do it, because an IPC
+boundary is the one surface where **both sides may be written by different
+sessions at the same time**.
+
+That is not hypothetical. For three commits the renderer declared
+`set(layout: Layout)` while preload declared `set(json: string)`: saving a
+layout threw a `TypeError` in the main process, the rejection was swallowed by
+a `catch` that exists so a preference failure cannot interrupt anyone, and the
+"Not saved" warning could not fire because it checks that the functions
+*exist*, not that they work. Typecheck was clean the entire time, because the
+cast meant there was nothing to compare.
+
+Removing the cast and deriving from `DeepWorkApi` was verified by
+reintroducing the old shape in preload: `error TS2345: Argument of type
+'Layout' is not assignable to parameter of type 'string'`. The compiler now
+catches in a second what took three sessions and an installed build to find.
+
+Use `Partial<DeepWorkApi>` when a channel may genuinely be absent - that
+handles absence without hiding shape.
+
 ## They are all one bug: the artifact is real, and it is of something else
 
 Six incidents on 2026-11-05, and they look like six unrelated faults until
