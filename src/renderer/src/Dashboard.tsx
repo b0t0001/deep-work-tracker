@@ -816,13 +816,29 @@ function AnalyticsTab(): React.JSX.Element {
       className="panel panel--wide"
       style={{ '--an-fs': layout.fontScale } as React.CSSProperties}
     >
-      <header className="data-head">
-        <h2>Analytics</h2>
-        {data.firstDate && data.lastDate && (
-          <p className="data-head__span">
-            recorded {formatDateRange(data.firstDate, data.lastDate)}
-          </p>
-        )}
+      {/* The header carries the control rather than sitting above it. Under
+          the figure row it was below four large numbers, which is where the
+          eye has already stopped - the user asked for movable panels and then
+          reported never getting them while this was on screen the whole time.
+          Beside the title it is the first thing in the tab after the tab's own
+          name. */}
+      <header className="data-head data-head--with-action">
+        <div>
+          <h2>Analytics</h2>
+          {data.firstDate && data.lastDate && (
+            <p className="data-head__span">
+              recorded {formatDateRange(data.firstDate, data.lastDate)}
+            </p>
+          )}
+        </div>
+        <LayoutBar
+          editing={editing}
+          onEditing={setEditing}
+          layout={layout}
+          persists={persists}
+          onChange={update}
+          onReset={reset}
+        />
       </header>
 
       {/*
@@ -878,14 +894,6 @@ function AnalyticsTab(): React.JSX.Element {
       {/* Rows rather than one column: a chart that reads fine at half the
           width should not stretch a 220px plot across the whole panel. The
           calendar leads because the user asked for it by name. */}
-      <LayoutBar
-        editing={editing}
-        onEditing={setEditing}
-        layout={layout}
-        persists={persists}
-        onChange={update}
-        onReset={reset}
-      />
 
       <div className={`an${editing ? ' is-arranging' : ''}`}>
         {visiblePanels(layout).map((id) => (
@@ -1226,7 +1234,7 @@ function DataTab(): React.JSX.Element {
   async function remove(row: SessionRow): Promise<void> {
     const confirmed = await window.api.ui.confirm({
       title: 'Delete session',
-      message: `Delete ${row.task ?? 'this unlabelled session'}?`,
+      message: `Delete ${row.task ?? 'this unlabeled session'}?`,
       detail: `${formatDate(row.session_date) || 'no date'} · ${hours(row.running_duration_s)} recorded.
 
 This can be undone.`,
@@ -1243,7 +1251,7 @@ This can be undone.`,
       const again = await window.api.ui.confirm({
         title: 'This row came from the spreadsheet',
         message: 'Delete imported history?',
-        detail: `${formatDate(row.session_date) || 'no date'} · ${row.task ?? 'unlabelled'}
+        detail: `${formatDate(row.session_date) || 'no date'} · ${row.task ?? 'unlabeled'}
 
 Undo brings it back, and so does re-importing the CSV — but re-importing replaces every imported row, so it would discard any edits made to the others.`,
         confirmLabel: 'Delete imported row'
@@ -1304,7 +1312,7 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
           }}
         >
           <option value="">All projects</option>
-          <option value="-1">— Unlabelled —</option>
+          <option value="-1">— Unlabeled —</option>
           {projects.map((option) => (
             <option key={option.id} value={String(option.id)}>
               {option.name} ({option.sessions.toLocaleString()})
@@ -1471,8 +1479,8 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
                     archaeology. A bare em dash reads as "nothing here" and
                     does not connect the row to the filter that finds it.
                     Muted, because it is an absence rather than a value. */}
-                <td>{row.project_name ?? <span className="muted">Unlabelled</span>}</td>
-                <td>{row.task ?? <span className="muted">unlabelled</span>}</td>
+                <td>{row.project_name ?? <span className="muted">Unlabeled</span>}</td>
+                <td>{row.task ?? <span className="muted">unlabeled</span>}</td>
                 <td className="num">{hours(row.planned_duration_s)}</td>
                 <td className="num">{hours(row.running_duration_s)}</td>
                 <td className="num">

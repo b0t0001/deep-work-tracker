@@ -2280,6 +2280,29 @@ code {
 
 /* ---------- the bar ---------- */
 
+/* The header holds the title on the left and the panel control on the right.
+   The control sits in the tab's first row rather than under the figures,
+   where the eye has already stopped. */
+.data-head--with-action {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.data-head--with-action > div {
+  min-width: 0;
+}
+
+/* Beside the title, not pushed to the far edge. Right-aligned it is still at
+   the top but it is also as far from the heading as the row allows, which is
+   the same "somewhere the eye has stopped" problem one row up. Level with the
+   heading rather than with the block, so it reads as part of that line. */
+.data-head--with-action .an-bar {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+
 .an-bar {
   display: flex;
   gap: 10px;

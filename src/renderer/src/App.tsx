@@ -897,7 +897,7 @@ export default function App(): React.JSX.Element {
           <button
             className="icon"
             onClick={() => void window.api.window.minimize()}
-            title="Minimise"
+            title="Minimize"
           >
             <Icon name="minimize" />
           </button>
