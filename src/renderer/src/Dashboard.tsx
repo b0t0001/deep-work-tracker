@@ -1212,7 +1212,10 @@ const SOURCES: Array<{ id: string; label: string; value: string | null }> = [
   { id: 'any', label: 'Any source', value: null },
   { id: 'app', label: 'Timed', value: 'app' },
   { id: 'manual', label: 'Manual', value: 'manual' },
-  { id: 'import', label: 'Imported', value: 'import' }
+  { id: 'import', label: 'Imported', value: 'import' },
+  // Every row an unpackaged build or a testing session wrote, so they can be
+  // reviewed and cleared in one pass rather than hunted for.
+  { id: 'test', label: 'Test', value: 'test' }
 ]
 
 function today(): Date {
@@ -1605,7 +1608,12 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
                   {row.work_quantity == null ? '—' : `${row.work_quantity} ${row.work_unit ?? ''}`}
                 </td>
                 <td>
-                  <span className={`badge badge--${row.source}`}>{row.source}</span>
+                  <span className={`badge badge--${row.source}`}>
+                    {/* Shouted, in orange: the one source that means "this
+                        is not real history", and the user asked for it to
+                        be impossible to miss. */}
+                    {row.source === 'test' ? 'TEST' : row.source}
+                  </span>
                 </td>
                 <td className="row-actions">
                   {/* The words are gone but the accessible name is not: this

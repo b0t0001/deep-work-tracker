@@ -29,11 +29,15 @@ export function openDatabase(): DatabaseSync {
   // real processes: without it the second writer threw immediately; with it the
   // write waited 1,087 ms for the lock and succeeded.
   db.exec('PRAGMA busy_timeout = 5000')
-  migrate(db)
+  // A migration can rewrite every row - migration 4 rebuilds the whole
+  // sessions table - and committed is not the same as safe: until a checkpoint
+  // the rebuilt table lives only in the -wal. Same rule as every other write.
+  if (migrate(db) > 0) checkpoint()
   return db
 }
 
-function migrate(connection: DatabaseSync): void {
+/** Applies what has not run yet, and says how many that was. */
+function migrate(connection: DatabaseSync): number {
   connection.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       id         INTEGER PRIMARY KEY,
@@ -49,6 +53,7 @@ function migrate(connection: DatabaseSync): void {
       .map((row) => Number((row as { id: number }).id))
   )
 
+  let count = 0
   for (const migration of MIGRATIONS) {
     if (applied.has(migration.id)) continue
     // Each migration is one transaction: a failure leaves the schema untouched
@@ -60,11 +65,13 @@ function migrate(connection: DatabaseSync): void {
         .prepare('INSERT INTO schema_migrations (id, name, applied_at) VALUES (?, ?, ?)')
         .run(migration.id, migration.name, new Date().toISOString())
       connection.exec('COMMIT')
+      count += 1
     } catch (error) {
       connection.exec('ROLLBACK')
       throw new Error(`Migration ${migration.id} (${migration.name}) failed: ${String(error)}`)
     }
   }
+  return count
 }
 
 /**

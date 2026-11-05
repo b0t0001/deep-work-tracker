@@ -15,6 +15,18 @@ import {
  * dozen round trips that each re-scan thousands of rows would be slower and
  * could disagree with each other if a session landed between two of them.
  */
+/**
+ * The rows analytics may count: everything except `test`.
+ *
+ * `test` marks a row written by an unpackaged build or a session testing the
+ * app. One three-second row does not move a total, but test data anywhere in
+ * the statistics is what makes the statistics untrustworthy, and the rule
+ * should not depend on the rows happening to be small. Every query below reads
+ * through this rather than repeating the clause, so a new chart cannot forget
+ * it. SQLite flattens the subquery, so the indexes on `sessions` still apply.
+ */
+const COUNTED = `(SELECT * FROM sessions WHERE source <> 'test')`
+
 /** Rates are per-unit, and a unit with a handful of rows is noise not a trend. */
 const MIN_SESSIONS_FOR_A_UNIT = 10
 /** Enough to cover questions, words, slides, pages and the rest of the real tail. */
@@ -39,7 +51,7 @@ export function analytics(): Analytics {
               COUNT(*) AS sessions,
               COALESCE(SUM(running_duration_s), 0) AS seconds,
               COUNT(DISTINCT session_date) AS activeDays
-         FROM sessions`
+         FROM ${COUNTED} AS sessions`
     )
     .get() as {
     first: string | null
@@ -76,7 +88,7 @@ export function analytics(): Analytics {
         `SELECT session_date AS date,
                 SUM(running_duration_s) / 3600.0 AS hours,
                 COUNT(*) AS sessions
-           FROM sessions
+           FROM ${COUNTED} AS sessions
           WHERE session_date IS NOT NULL
           GROUP BY session_date
           ORDER BY session_date`
@@ -93,7 +105,7 @@ export function analytics(): Analytics {
         `SELECT COALESCE(p.name, 'Unlabeled') AS name,
                 SUM(s.running_duration_s) / 3600.0 AS hours,
                 COUNT(*) AS sessions
-           FROM sessions s LEFT JOIN projects p ON p.id = s.project_id
+           FROM ${COUNTED} s LEFT JOIN projects p ON p.id = s.project_id
           GROUP BY COALESCE(p.name, 'Unlabeled')
           ORDER BY hours DESC`
       )
@@ -112,7 +124,7 @@ export function analytics(): Analytics {
       `SELECT CAST(strftime('%H', started_at, 'localtime') AS INTEGER) AS hour,
               SUM(running_duration_s) / 3600.0 AS hours,
               COUNT(*) AS sessions
-         FROM sessions
+         FROM ${COUNTED} AS sessions
         WHERE source = 'app' AND started_at IS NOT NULL
         GROUP BY hour`
     )
@@ -133,7 +145,7 @@ export function analytics(): Analytics {
   const timedSpan = db
     .prepare(
       `SELECT COUNT(*) AS n, MIN(session_date) AS first, MAX(session_date) AS last
-         FROM sessions
+         FROM ${COUNTED} AS sessions
         WHERE source = 'app' AND started_at IS NOT NULL`
     )
     .get() as { n: number; first: string | null; last: string | null }
@@ -143,7 +155,7 @@ export function analytics(): Analytics {
   const plannedRows = db
     .prepare(
       `SELECT planned_duration_s AS planned, running_duration_s AS actual
-         FROM sessions
+         FROM ${COUNTED} AS sessions
         WHERE planned_duration_s > 0 AND running_duration_s > 0`
     )
     .all() as Array<{ planned: number; actual: number }>
@@ -165,7 +177,7 @@ export function analytics(): Analytics {
   const unitRows = db
     .prepare(
       `SELECT work_unit AS unit, COUNT(*) AS n
-         FROM sessions
+         FROM ${COUNTED} AS sessions
         WHERE work_unit IS NOT NULL AND work_unit <> ''
           AND work_quantity > 0 AND running_duration_s > 0
           AND unquantifiable = 0
@@ -180,7 +192,7 @@ export function analytics(): Analytics {
     `SELECT session_date AS date,
             work_quantity AS quantity,
             running_duration_s / 60.0 AS minutes
-       FROM sessions
+       FROM ${COUNTED} AS sessions
       WHERE work_unit = ? AND work_quantity > 0 AND running_duration_s > 0
         AND unquantifiable = 0 AND session_date IS NOT NULL
       ORDER BY session_date`
@@ -213,7 +225,7 @@ export function analytics(): Analytics {
                 running_duration_s AS seconds,
                 work_quantity AS actual,
                 work_unit AS unit
-           FROM sessions
+           FROM ${COUNTED} AS sessions
           WHERE pace_target_qty > 0 AND pace_target_interval_s > 0
             AND work_quantity IS NOT NULL AND session_date IS NOT NULL
           ORDER BY session_date`
@@ -246,7 +258,7 @@ export function analytics(): Analytics {
     db
       .prepare(
         `SELECT work_unit AS unit, SUM(work_quantity) AS quantity, COUNT(*) AS sessions
-           FROM sessions
+           FROM ${COUNTED} AS sessions
           WHERE work_unit IS NOT NULL AND work_unit <> ''
             AND work_quantity IS NOT NULL AND unquantifiable = 0
           GROUP BY work_unit
@@ -260,7 +272,7 @@ export function analytics(): Analytics {
     .prepare(
       `SELECT s.session_date AS date, s.task AS task, p.name AS project,
               s.running_duration_s AS seconds
-         FROM sessions s LEFT JOIN projects p ON p.id = s.project_id
+         FROM ${COUNTED} s LEFT JOIN projects p ON p.id = s.project_id
         ORDER BY s.running_duration_s DESC
         LIMIT 1`
     )
@@ -282,7 +294,7 @@ export function analytics(): Analytics {
   // escape has collapsed in transit in this repo more than once.
   const editRows = db
     .prepare(
-      "SELECT task, running_duration_s AS seconds FROM sessions WHERE lower(task) LIKE '%edit%'"
+      `SELECT task, running_duration_s AS seconds FROM ${COUNTED} AS sessions WHERE lower(task) LIKE '%edit%'`
     )
     .all() as Array<{ task: string; seconds: number }>
   const editingHours =

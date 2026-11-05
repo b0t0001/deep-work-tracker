@@ -12,6 +12,11 @@
      `--surface` without reading as something you can press, which is what
      `--surface-raised` implies and is too light for. */
   --surface-panel: #1a1d23;
+  /* Rows written while testing. A fixed orange, never the accent: the accent
+     is the user's choice and must not be able to restyle a warning. Amber
+     (#f28c28) sits near this hue, which is why `.badge--test` also carries a
+     tinted fill and capitals - an `app` badge is neither. */
+  --test: #fb923c;
 
   /* Everything scales off the viewport, so one layout serves the compact
      window, a hand-resized window, and a projector in full screen. */
@@ -1176,6 +1181,13 @@ input {
 
 .badge--app {
   color: var(--accent);
+}
+
+.badge--test {
+  color: var(--test);
+  background: color-mix(in srgb, var(--test) 16%, transparent);
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 /* ---------- import ---------- */

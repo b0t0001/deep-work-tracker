@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import { checkpoint, checkpointSoon, openDatabase } from './index'
 import { runningMs, type TimerSnapshot } from '../../shared/timer'
 import { canonicalProjectName } from '../../shared/projects'
@@ -45,6 +46,23 @@ export const SESSION_COLUMNS = [
 ] as const
 
 export type SessionPatch = Partial<Omit<SessionRow, 'id'>>
+
+/**
+ * What a newly written row says about where it came from.
+ *
+ * An unpackaged build - `npm run dev`, the shoot harness, every script that
+ * bundles main-process code against the electron stub - is by definition
+ * someone testing, so everything it writes is `test` whatever it was meant to
+ * be. That is automatic rather than opt-in on purpose: five rows written by
+ * sessions had to be found and deleted from the user's history by hand, and a
+ * marker that relies on the writer remembering it would not have marked them.
+ *
+ * Only rows coming into existence go through this. Undo, redo and restore put
+ * back a row that already had a source, and keep it.
+ */
+export function sourceForNewRow(intended: 'app' | 'manual'): 'app' | 'manual' | 'test' {
+  return app.isPackaged ? intended : 'test'
+}
 
 const iso = (epochMs: number): string => new Date(epochMs).toISOString()
 
@@ -118,10 +136,12 @@ export function lastProjectName(): string | null {
     .prepare(
       `SELECT p.name AS name
          FROM sessions s JOIN projects p ON p.id = s.project_id
-        WHERE s.source = 'app'
+        WHERE s.source = ?
         ORDER BY s.id DESC LIMIT 1`
     )
-    .get() as { name: string } | undefined
+    // The source this build records under, so a dev run carries its own last
+    // project forward and a packaged one never picks up a test row's.
+    .get(sourceForNewRow('app')) as { name: string } | undefined
   return row?.name ?? null
 }
 
@@ -140,7 +160,7 @@ export function recordSession(snapshot: TimerSnapshot, pace?: PaceTarget | null)
            (project_id, task, session_date, started_at, ended_at,
           planned_duration_s, running_duration_s,
           pace_target_qty, pace_target_interval_s, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'app')`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         findOrCreateProject(snapshot.project),
@@ -153,7 +173,8 @@ export function recordSession(snapshot: TimerSnapshot, pace?: PaceTarget | null)
         Math.round(snapshot.plannedMs / 1000),
         runningSeconds,
         pace?.quantity ?? null,
-        pace ? Math.round(pace.intervalMs / 1000) : null
+        pace ? Math.round(pace.intervalMs / 1000) : null,
+        sourceForNewRow('app')
       )
 
     const sessionId = Number(result.lastInsertRowid)
@@ -180,7 +201,7 @@ export interface SessionQuery {
   to?: string | null
   /** Substring of the task or the project name, case-insensitive. */
   search?: string | null
-  /** `app` | `manual` | `import`. Null is all three. */
+  /** `app` | `manual` | `import` | `test`. Null is all four. */
   source?: string | null
   projectId?: number | null
   /** Null is "show all" - SQLite reads a negative LIMIT as no limit at all. */

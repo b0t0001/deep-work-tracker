@@ -5,6 +5,7 @@ import {
   insertPauses,
   insertSession,
   patchSession,
+  sourceForNewRow,
   type PauseRow,
   type SessionPatch,
   type SessionRow
@@ -61,7 +62,10 @@ function restore(row: SessionRow, pauses: PauseRow[]): void {
 }
 
 export function createSession(patch: SessionPatch, label: string): number {
-  const id = insertSession(patch)
+  // A session typed in by hand is `manual` in the installed app and `test` in
+  // any unpackaged one - see sourceForNewRow. The renderer's own value is not
+  // trusted for this, since it cannot know which build it is running in.
+  const id = insertSession({ ...patch, source: sourceForNewRow('manual') })
   const row = getSession(id)
   if (row) push({ kind: 'insert', label, row, pauses: [] })
   return id
