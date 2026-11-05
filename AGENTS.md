@@ -177,6 +177,48 @@ byte-identical with and without the fix. A correct conclusion reached through a
 broken argument leaves the broken argument in place for next time, which is
 how the first three of these happened.
 
+## The stale reading moves to people once it stops being artifacts
+
+By the end of 2026-11-05 the commonest error was no longer a stale tree or a
+stale build. It was **one session reporting another session's state from a
+reading taken minutes earlier**. Two of us told the user their installed app
+was the 14:15 build while it had been 14:31 for some time, each of us having
+checked honestly and then relayed the answer as though it were still true.
+
+It is the same fault as every row in the table above, with the artifact being
+a *sentence someone else wrote*. And it is worse in one way: a stale tree can
+be re-read by anyone, while a stale sentence carries no timestamp and cannot
+be checked without redoing the work behind it.
+
+**The fix is cheap and it belongs to whoever did the thing**, because they are
+the only one who can state it without inference:
+
+- Report state as **a timestamp and a commit the reader can quote** -
+  "installed `app.asar` 14:31:38, built from `1365fcb`" - rather than
+  "installed and verified".
+- Before relaying someone else's state, re-read the artifact. If that is not
+  possible, attribute and date it: "as of their 14:15 message".
+- **Announce before acting** rather than sampling whether anyone is busy. A
+  "nothing running" reading is a one-second snapshot, not an idle machine.
+
+## Guard a user decision even against the record
+
+Twice today a session stopped a change because it reversed something the user
+had chosen - the typeface being dropped, and a font file being deleted. Both
+times the stop was correct and the conclusion was wrong: the user had changed
+their own mind in a conversation with a third session, and neither the spec
+nor the commit log knew.
+
+**Keep doing it anyway.** The cost of asking is one message. The cost of not
+asking is that a user decision gets reversed and nobody notices, which is the
+one failure in this project with no technical trace at all.
+
+The thing to change is not the checking, it is where the answer lives. A
+decision the user makes in conversation is invisible to every other session
+until someone writes it down. `SPEC-2026-11-06.md` is a record of what the
+manager wrote down, not of what the user wants - and the gap between those is
+where both of these came from.
+
 ## Never reach `window.api` through a cast
 
 `preload/index.ts` exports `DeepWorkApi = typeof api`, and
