@@ -1,5 +1,5 @@
 import { checkpoint, openDatabase } from './db'
-import { parseCsv } from './import/csv'
+import { normalizeProject, parseCsv } from './import/csv'
 
 /**
  * Rebuilding the database from a backup CSV.
@@ -82,6 +82,34 @@ function currentSessionCount(): number {
   return Number(row?.n ?? 0)
 }
 
+/**
+ * A backup's project name, resolved the way an import would resolve it.
+ *
+ * Without this a restore and an import disagree about the same history. The
+ * importer collapses three and a half years of drifted free-text labels
+ * through `PROJECT_ALIASES`; `restoreFromCsv` wrote the column verbatim, so
+ * restoring any backup taken before the 2026-09-23 consolidation rebuilt
+ * **66 projects where the import yields 36** - and the only database-shaped
+ * backup predating it by half an hour is the one kept for an emergency.
+ *
+ * That is not academic. On 2026-11-05 a session read the then-nearly-empty
+ * database and was a click away from recommending exactly that restore.
+ *
+ * Safe because it is idempotent over names the importer itself produced:
+ * checked against all 36 current projects, `normalizeProject` changes none of
+ * them and nulls none of them, so restoring a backup taken after the
+ * consolidation is a no-op. Checked against the 2026-09-23 backup it collapses
+ * its 66 values to exactly the same 36, by the merges the user confirmed.
+ *
+ * The cost is that a restore is no longer byte-faithful to the project column,
+ * which is the right trade: ids, timings and quantities are reproduced exactly,
+ * and a label the user has already ruled on is not worth resurrecting in a
+ * form the rest of the app no longer uses.
+ */
+function canonicalProject(raw: string | null): string | null {
+  return raw === null ? null : normalizeProject(raw)
+}
+
 export function previewRestore(csv: string): RestorePreview {
   const empty: RestorePreview = {
     ok: false,
@@ -105,7 +133,7 @@ export function previewRestore(csv: string): RestorePreview {
     seconds += num(at(row, 'running_duration_s')) ?? 0
     const date = text(at(row, 'session_date'))
     if (date) dates.push(date)
-    const project = text(at(row, 'project'))
+    const project = canonicalProject(text(at(row, 'project')))
     if (project) projects.add(project)
   }
   dates.sort()
@@ -167,7 +195,7 @@ export function restoreFromCsv(csv: string): RestoreResult {
     let pauseCount = 0
 
     for (const row of parsed.body) {
-      const projectName = text(at(row, 'project'))
+      const projectName = canonicalProject(text(at(row, 'project')))
       let projectId: number | null = null
       if (projectName) {
         const cached = projectIds.get(projectName)

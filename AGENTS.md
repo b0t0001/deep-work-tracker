@@ -168,6 +168,36 @@ is not.
 
 ---
 
+## There are three `userData` folders. Only one is real.
+
+Checked 2026-11-05. A build that resolves `userData` to the wrong one reads and
+writes a database nobody is looking at, and reports an empty history with no
+error at all - which is the most confusing failure this app can produce, and
+one that has already wasted time here.
+
+| Path under `%APPDATA%` | What it is | State |
+| --- | --- | --- |
+| `deep-work-tracker` | **The real history.** The installed app. | 2,474 imported + 3 app sessions |
+| `deep-work-tracker-dev` | `npm run dev`. The only build any session may write to. | empty by design |
+| `Electron` | Historical. A run from before `app.name` was set, so Electron used its own default. | `deepwork.db` exists, **15 pages, 0 sessions** |
+
+`Roaming\Electron\deepwork.db` is dated 2026-09-23 01:58 - twenty-eight minutes
+after the backup that proves 2,363 sessions existed in the real profile. It has
+never held a row. It is worth knowing about for two reasons:
+
+- It explains how a session can look at a perfectly healthy database and
+  conclude the history is gone. It is not what caused the September loss - the
+  rows were in `deep-work-tracker` and a backup taken at 01:30 proves it - but
+  it is the same *shape* of confusion.
+- `src/main/index.ts` now sets `userData` to `deep-work-tracker-dev` for an
+  unpackaged build, before `whenReady`, because the path is fixed the first
+  time anything resolves it. Nothing should reach `Electron` again. If a
+  session ever finds rows there, **report it, do not merge it** - rows in a
+  folder nothing writes to would mean the resolution order is wrong, which is
+  a bigger problem than the rows.
+
+Do not delete it without asking the user. It costs 146 KB and it is evidence.
+
 # Handoff - manager session, 2026-11-05
 
 State at shutdown, written into the repo because a session's own context does
@@ -175,8 +205,8 @@ not survive one.
 
 ## The database is full again, and the loss mode is closed
 
-`AppData\Roaming\deep-work-tracker\deepwork.db` holds **2,473 imported + 3 app
-sessions, 2,749.8 hours, 2023-03-27 to 2026-11-03, 36 projects**,
+`AppData\Roaming\deep-work-tracker\deepwork.db` holds **2,474 imported + 3 app
+sessions, 2,750.91 hours, 2023-03-27 to 2026-11-03, 36 projects**,
 `quick_check: ok`, `page_count 89`, **and no `-wal` beside it**.
 
 That last detail is the one that matters. In September the rows were committed
@@ -187,7 +217,9 @@ checkpointed into `deepwork.db` itself, which is why its page count moved.
 **Verified independently of the importer's own report**, by parsing the
 spreadsheet and the database separately and comparing: 2,473 rows against
 2,474 timed rows in the sheet, 2,749.8 hours against 2,750.9. The gap is one
-row, found and explained below. Every imported row has `started_at IS NULL`,
+row, found and explained below. **Closed on 2026-11-05**: the database was
+re-imported through the fixed parser and now holds all 2,474, with the
+recovered row at id 226 carrying a null `project_id`. Every imported row has `started_at IS NULL`,
 as it must - a countdown reading cannot become a clock time.
 
 ## Why data was lost, as far as the evidence supports
