@@ -8,17 +8,26 @@ session does not reach for them again.
 ## The short version
 
 `scripts/shoot.ts` opens `show: false` windows. A window that is never shown
-is never composited, and Chromium drives both CSS transitions and React's
-commit loop off frames rather than wall-clock time. `capturePage()` is one of
-the few things that asks a hidden window for a frame.
+is never composited, and Chromium drives painting — and with it CSS
+transition progression — off frames rather than wall-clock time.
+`capturePage()` is one of the few things that asks a hidden window for a
+frame.
 
 So in a hidden window, until something forces a frame:
 
-- a CSS transition stays pinned on the frame it started from;
-- a React state update **does not commit**, so the DOM itself is stale;
-- a scroll position set from script is not reflected in what is captured.
+- a CSS transition stays pinned on the value it started from;
+- a scroll position set from script is not reflected in what is captured;
+- **painting** does not happen, which is what all of the above amounts to.
 
 The harness now discards three captures 500 ms apart before keeping one.
+
+**The rule to carry away:** in a hidden window the DOM and computed styles are
+trustworthy; the pixels are not. Distrust the PNG, not the reading.
+
+An earlier version of this file claimed React could not commit a state update
+without a frame. That is wrong and is corrected in full below — believing it
+would make probes harder rather than safer, because it would tell you to
+disbelieve the readings that actually solve things.
 
 ## Item 8 is closed: it was never an app defect
 
@@ -59,28 +68,51 @@ and one demonstrably is not. The thing worth remembering is that a single
 discard *looks* sufficient and is not, which is the worst shape a fix can
 have.
 
-## The mechanism reaches further than CSS: React does not commit either
+## What is frame-gated, and what is not
 
-I probed ring mode and got `cardCls="card"`, `isRing=0`, and reported that the
-class was missing from the app. It is not. `App.tsx` builds
+I first probed ring mode and got `cardCls="card"`, `isRing=0`, and reported
+that the class was missing from the app. It is not. `App.tsx` builds
 `` `card${variant === 'ring' ? ' is-ring' : ''}` ``, and my probe simply never
-clicked the variant toggle — I measured **bar mode** and called it ring.
+clicked the variant toggle — I measured **bar mode** and called it ring. That
+reading is evidence about my probe, not about the app or about React.
 
-But the correction is more interesting than the mistake. Even a probe that
-*does* click the toggle reads a stale DOM: `click('.icon')` calls
-`setVariant`, and in an uncomposited window that state update has no frame to
-commit on. Measured, in the harness, after clicking the toggle and waiting
-900 ms: `cardCls="card is-ring"`, `anims=1` — the class had landed and the
-transition was in flight but frozen. Earlier, with a shorter path, the class
-had not landed at all.
+I then drew a second, wider conclusion from it — that `setVariant` cannot
+flush in an uncomposited window, so the DOM itself is stale — and that is
+**also wrong**. The artist disproved it directly. Their `ring-rest` case ran
+on a freshly created hidden window on which `capturePage()` had *never* been
+called: `loadFile`, wait, click the toggle, wait, read. Zero frames had ever
+been composited, and it returned `cardClass: "card is-ring"`,
+`head.opacity: "0"`, `anyHover: 0`. React committed and style resolution ran
+with no frame in existence.
 
-The proof that the app was always fine is the artist's own result rather than
-any reading of the source: if the app never applied `is-ring`, extra frames
-could not have fixed the PNG. Frames are what let React commit.
+That is what React 18 should do: a `setState` inside a click handler is a
+discrete update flushed at the end of the event, and the scheduler uses
+`MessageChannel`, not `requestAnimationFrame`. Nothing in it is frame-gated.
+Style recalculation is not frame-gated either.
 
-**Consequence for anyone writing a probe:** reading the DOM in a hidden window
-after a state change is unreliable. Force a frame first, and prefer a reading
-taken after a capture to one taken before it.
+So the boundary is narrower than I had it:
+
+| | frame-gated? |
+| --- | --- |
+| React commit of a state update | no |
+| DOM mutation, class changes | no |
+| Style resolution / `getComputedStyle` | no |
+| **CSS transition progression** | **yes** |
+| **Painting, and therefore `capturePage()`** | **yes** |
+
+**One caveat on "computed styles are trustworthy".** They report the current
+value honestly, but if a transition is in flight that value is the frozen one.
+My own harness probe, after clicking the toggle and waiting 900 ms, read
+`cardCls="card is-ring"` — class applied, confirming the above — alongside
+`headOp=1` and `anims=1`: a transition that had started and not advanced. The
+artist's fresh-window case had already settled to 0. So a computed style is
+accurate about *now*, and "now" can be the start of a transition that will
+never move until something paints. Read it, but check `getAnimations()` before
+treating it as the settled value.
+
+**Consequence for anyone writing a probe:** read the DOM freely, before any
+capture — those readings are sound, and they are what solved this. Distrust
+the PNG, and distrust a computed style only while an animation is pending.
 
 ## What this did *not* affect: the Analytics charts
 
