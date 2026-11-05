@@ -691,11 +691,25 @@ function ratioBars(data: PlannedVsActualPoint[]): RatioBar[] {
  * fastest session dictates. The 98th percentile keeps essentially everything
  * on the plot while taking the axis off a lone extreme; the small headroom
  * stops the topmost dot sitting exactly on the frame.
+ *
+ * The rank is `(n - 1) * 0.98`, not `n * 0.98`, and the difference is not
+ * cosmetic. On a zero-indexed array `Math.floor(n * 0.98)` reaches the last
+ * element for every n up to 50, so the "98th percentile" silently *was* the
+ * maximum - and the units with the least data are exactly the ones a single
+ * outlier distorts most. Six of the twelve units in the real history fell in
+ * that range. Measured on it: `lab` (18 rows) put its median at 13% of the
+ * axis and now puts it at 27%, `sentence` 24% to 46%, `cell` 15% to 30%, while
+ * `question` and `word` move by about a tenth of a percent.
+ *
+ * It costs a little more clipping - at worst one point in eighteen, against
+ * none before - and that is the right trade, because clipped points are
+ * counted and named in the caption rather than dropped. A busy top edge is
+ * recoverable; a chart whose data sits in the bottom eighth says nothing.
  */
 function rateCeiling(rates: number[]): number {
   if (rates.length === 0) return 1
   const sorted = [...rates].sort((a, b) => a - b)
-  const at = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.98))]
+  const at = sorted[Math.floor((sorted.length - 1) * 0.98)]
   const top = Math.max(at, sorted[0])
   return top > 0 ? top * 1.08 : 1
 }
