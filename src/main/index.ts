@@ -445,14 +445,27 @@ function registerIpc(): void {
   // worked" - the most alarming possible way to report a query error.
   ipcMain.handle('analytics:get', () => safely(() => analytics(), null))
 
+  /*
+   * These two throw when there is no row to attach to, rather than returning
+   * quietly.
+   *
+   * They used to be `if (completed) ...` with no else, so when `recordSession`
+   * had failed and `lastCompleted` was null, the user could type `19` and
+   * `questions` into the stop prompt and the handler would do nothing and
+   * resolve successfully. Nothing on screen said otherwise. A write that
+   * cannot happen has to be a rejection, because a resolved promise is the
+   * renderer's only evidence that the value landed.
+   */
   ipcMain.handle('sessions:setStopReason', (event, reason: string | null, note: string | null) => {
     const completed = instanceFor(event)?.lastCompleted
-    if (completed) setStopReason(completed.id, reason, note)
+    if (!completed) throw new Error('There is no recorded session to attach a reason to.')
+    setStopReason(completed.id, reason, note)
   })
 
   ipcMain.handle('sessions:setQuantity', (event, quantity: number | null, unit: string | null) => {
     const completed = instanceFor(event)?.lastCompleted
-    if (completed) setWorkQuantity(completed.id, quantity, unit)
+    if (!completed) throw new Error('There is no recorded session to attach this to.')
+    setWorkQuantity(completed.id, quantity, unit)
   })
 
   ipcMain.handle('sessions:lastUnit', (_event, task: string | null) => lastUnitFor(task))

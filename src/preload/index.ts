@@ -46,6 +46,21 @@ const api = {
       ipcRenderer.on('timer:completed', listener)
       return () => ipcRenderer.removeListener('timer:completed', listener)
     },
+    /**
+     * The session could not be written. Main catches the throw so the timer
+     * still stops cleanly, which means nothing else on screen will look wrong
+     * — this is the only way the window learns.
+     *
+     * It existed as a send with no receiver until 2026-11-05: main reported
+     * the failure faithfully and the message arrived nowhere, so a run could
+     * be lost in silence while the stop prompt accepted a quantity into a row
+     * that did not exist.
+     */
+    onRecordFailed: (handler: (reason: string) => void): Unsubscribe => {
+      const listener = (_e: unknown, reason: string): void => handler(reason)
+      ipcRenderer.on('timer:recordFailed', listener)
+      return () => ipcRenderer.removeListener('timer:recordFailed', listener)
+    },
     onPace: (handler: (event: PaceEvent) => void): Unsubscribe => {
       const listener = (_e: unknown, event: PaceEvent): void => handler(event)
       ipcRenderer.on('timer:pace', listener)

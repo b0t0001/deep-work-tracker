@@ -194,6 +194,17 @@ export default function App(): React.JSX.Element {
   }
 
   const [stopPrompt, setStopPrompt] = useState(false)
+  /**
+   * Set when a run could not be written, or when a write from the stop prompt
+   * is refused. It replaces the prompt rather than sitting beside it: the
+   * window is 250px, and asking for a quantity that cannot be stored is worse
+   * than asking for nothing.
+   *
+   * It never auto-dismisses. Everything else here clears itself after thirty
+   * seconds because missing it costs a label; missing this one means not
+   * knowing a session was lost.
+   */
+  const [recordError, setRecordError] = useState<string | null>(null)
   const [qty, setQty] = useState('')
   const [qtyUnit, setQtyUnit] = useState('')
   const qtyRef = useRef<HTMLInputElement>(null)
@@ -215,6 +226,25 @@ export default function App(): React.JSX.Element {
   // same pace can be re-armed for the next run with one click.
   useEffect(() => {
     return window.api.pace.onEnded(() => setPace(null))
+  }, [])
+
+  /*
+   * The session could not be written.
+   *
+   * Main catches the throw so the clock still stops cleanly, which is right -
+   * a crash dialog over a timer that will not stop is worse - but it means
+   * nothing else on screen looks wrong. Without this subscription the run
+   * vanished in silence while the stop prompt went on accepting a quantity
+   * for a row that was never created.
+   *
+   * The prompt is closed as well as replaced, so there is no field left to
+   * type into.
+   */
+  useEffect(() => {
+    return window.api.timer.onRecordFailed((reason) => {
+      setRecordError(reason)
+      setStopPrompt(false)
+    })
   }, [])
 
   // Expiry cue: sound plus a flash, matching Hourglass - three flashes at 0.2s.
@@ -342,6 +372,11 @@ export default function App(): React.JSX.Element {
     if (plannedMs === null) return
     normalizeDraft()
     setStopPrompt(false)
+    // The warning is about the run that just failed, not the one starting. It
+    // persists until something replaces it precisely so it cannot be missed,
+    // but leaving it over a running clock would make it look like this session
+    // is the broken one.
+    setRecordError(null)
     void window.api.timer.start(plannedMs)
   }
 
@@ -381,25 +416,39 @@ export default function App(): React.JSX.Element {
    * Written as it is typed rather than behind a confirm button, matching the
    * pace panel. There is no moment where what is on screen is not what is
    * stored, so dismissing the prompt can never lose an entry.
+   *
+   * That guarantee is only true if a refused write says so. `void` silences
+   * the floating-promise lint; it does not handle a rejection, so without the
+   * catch the sentence above was simply false whenever the row was missing or
+   * the database refused the update.
    */
   function saveQuantity(nextQty: string, nextUnit: string): void {
     const amount = nextQty.trim() === '' ? null : Number(nextQty)
-    void window.api.timer.setQuantity(
-      amount !== null && Number.isFinite(amount) ? amount : null,
-      nextUnit.trim() === '' ? null : nextUnit.trim()
-    )
+    window.api.timer
+      .setQuantity(
+        amount !== null && Number.isFinite(amount) ? amount : null,
+        nextUnit.trim() === '' ? null : nextUnit.trim()
+      )
+      .catch((error: unknown) => setRecordError(String(error)))
   }
 
   function answerStop(reason: string | null): void {
-    if (reason) void window.api.timer.setStopReason(reason, null)
+    if (reason) {
+      window.api.timer
+        .setStopReason(reason, null)
+        .catch((error: unknown) => setRecordError(String(error)))
+    }
     closeStopPrompt()
   }
 
   function undoStop(): void {
-    void window.api.timer.undoStop().then(() => {
-      // Undo may have brought a pace loop back with the session.
-      void window.api.timer.getPace().then(setPace)
-    })
+    window.api.timer
+      .undoStop()
+      .then(() => {
+        // Undo may have brought a pace loop back with the session.
+        void window.api.timer.getPace().then(setPace)
+      })
+      .catch((error: unknown) => setRecordError(String(error)))
     // The row it was written to is gone, so the fields must not carry over to
     // whatever is stopped next.
     setQty('')
@@ -546,7 +595,12 @@ export default function App(): React.JSX.Element {
         </div>
       )}
 
-      {stopPrompt && (
+      {/* `&& recordError === null`: when the write failed there is no row to
+          attach anything to, so a field that accepts a quantity is a field
+          that throws it away. The error replaces the prompt rather than
+          sitting beside it - at 250px there is no room for both, and only one
+          of them is true. */}
+      {stopPrompt && recordError === null && (
         <div className="stop-output">
           <input
             ref={qtyRef}
@@ -589,7 +643,7 @@ export default function App(): React.JSX.Element {
         </div>
       )}
 
-      {stopPrompt && (
+      {stopPrompt && recordError === null && (
         <div className="stop-prompt">
           <button className="stop-prompt__undo" onClick={undoStop} title="Resume the session">
             Undo
@@ -598,6 +652,68 @@ export default function App(): React.JSX.Element {
           <button onClick={() => answerStop('tired')}>tired</button>
           <button onClick={() => answerStop('interrupted')}>cut off</button>
           <button className="stop-prompt__skip" onClick={() => answerStop(null)} title="Skip">
+            &times;
+          </button>
+        </div>
+      )}
+
+      {/* Declared after the dial, like the rest of the chrome: Electron
+          resolves overlapping drag regions by document order, so a control
+          declared before the surface it covers renders, highlights in
+          devtools, and never receives a click.
+
+          The inline styles are a placeholder so this is legible today without
+          reaching into `main.css`, which the artist owns. They belong in a
+          `.card__error` rule — the markup is already classed for it. */}
+      {recordError !== null && (
+        <div
+          className="card__error"
+          role="alert"
+          style={{
+            position: 'absolute',
+            inset: 'auto 8px 8px',
+            zIndex: 6,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 8,
+            padding: '8px 10px',
+            borderRadius: 8,
+            border: '1px solid #ff6b6b66',
+            background: '#2a1416f2',
+            color: 'var(--text)',
+            fontSize: 11,
+            lineHeight: 1.35,
+            textAlign: 'left'
+          }}
+        >
+          <span style={{ flex: '1 1 auto' }}>
+            <b style={{ display: 'block' }}>This session was not saved.</b>
+            The timer stopped normally, but writing it to the database failed, so nothing you typed
+            about it was stored either. The run&apos;s timing is lost.
+            {/* The raw reason, kept but set apart. Running it into the prose
+                read as a sentence that trailed off into jargon; on its own
+                line it is what it is - the detail to quote when asking why. */}
+            <span
+              style={{ display: 'block', marginTop: 4, color: 'var(--text-dim)', fontSize: 10 }}
+            >
+              {recordError}
+            </span>
+          </span>
+          <button
+            className="card__error-dismiss"
+            onClick={() => setRecordError(null)}
+            title="Dismiss"
+            style={{
+              flex: '0 0 auto',
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-dim)',
+              cursor: 'pointer',
+              fontSize: 14,
+              lineHeight: 1,
+              padding: 2
+            }}
+          >
             &times;
           </button>
         </div>
