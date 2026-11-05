@@ -2352,16 +2352,10 @@ code {
   min-width: 0;
 }
 
-/* The calendar was explicitly asked for and was the faintest thing on the
-   page. It leads now, and a wash of the accent marks it as the one panel that
-   is not simply another chart. */
-.an-panel--hero {
-  background: linear-gradient(
-    170deg,
-    color-mix(in srgb, var(--accent) 7%, var(--surface-panel)),
-    var(--surface-panel) 60%
-  );
-}
+/* The calendar leads by being first and by being the full width of the tab,
+   which is enough. It had an accent wash as well; washed panels read as
+   decoration applied to a surface rather than as the surface, and once every
+   panel is flat the one that is first is obviously first. */
 
 .an-panel__head {
   display: flex;
@@ -2425,13 +2419,12 @@ code {
   background: var(--surface-panel);
 }
 
+/* Flat, like the three beside it. The accent wash was doing the same job as
+   the accent-coloured figure and the tinted border, and three signals for one
+   piece of hierarchy is two too many - it read as a panel lit from somewhere
+   the rest of the page is not. The number carries it. */
 .an-stat--lead {
   border-color: color-mix(in srgb, var(--accent) 28%, transparent);
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, var(--accent) 16%, var(--surface-panel)),
-    var(--surface-panel)
-  );
 }
 
 .an-stat strong {
