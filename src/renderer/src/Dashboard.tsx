@@ -31,6 +31,7 @@ import {
   PlannedVsActual,
   RateTrend
 } from './components/AnalyticsCharts'
+import { StatsTable } from './components/StatsTable'
 import { CalendarHeatmap, TimeOfDayHeatmap } from './components/Heatmaps'
 
 type Tab = 'settings' | 'data' | 'analytics' | 'import'
@@ -488,18 +489,36 @@ function hoursLabel(value: number): string {
  */
 const PANELS: Record<PanelId, { label: string; full: boolean }> = {
   calendar: { label: 'Every day', full: true },
+  // Full width although it is only three columns. Half width would leave it
+  // paired with a chart, and the odd number of half-width panels would then
+  // strand one of them alone on a row; the table caps its own width in CSS so
+  // the figures stay together rather than drifting to opposite edges.
+  stats: { label: 'Stats', full: true },
   hoursPerWeek: { label: 'Hours per week', full: true },
   projects: { label: 'Hours by project', full: false },
-  plannedRatio: { label: 'How much of the timer you run', full: false },
+  plannedRatio: { label: 'Are your timers the right length?', full: false },
   rateTrend: { label: 'Work rate over time', full: true },
   timeOfDay: { label: 'Time of day', full: false },
   pace: { label: 'Pace against target', full: false }
 }
 
-function panelFor(id: PanelId, data: Analytics, accent: string): React.JSX.Element {
+/**
+ * `window_` and `today` are passed in rather than read by each panel, because
+ * the window belongs to the tab. A panel that resolved its own would be a
+ * second definition of the period the figure row above it already names.
+ */
+function panelFor(
+  id: PanelId,
+  data: Analytics,
+  accent: string,
+  window_: WindowId,
+  today: string
+): React.JSX.Element {
   switch (id) {
     case 'calendar':
       return <CalendarHeatmap daily={data.daily} accent={accent} />
+    case 'stats':
+      return <StatsTable data={data} today={today} window={window_} accent={accent} />
     case 'hoursPerWeek':
       return <HoursOverTime daily={data.daily} accent={accent} />
     case 'projects':
@@ -1032,7 +1051,7 @@ function AnalyticsTab(): React.JSX.Element {
             layout={layout}
             onChange={update}
           >
-            {panelFor(id, data, accent)}
+            {panelFor(id, data, accent, window_, today)}
           </Slot>
         ))}
       </div>

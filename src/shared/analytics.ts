@@ -431,3 +431,129 @@ export function plannedFit(data: PlannedVsActual[], minRuns: number): PlannedFit
     )
   }
 }
+
+/* ----------------------------------------------------------------------- *
+ * The stats table: averages and medians per day, week and month.
+ *
+ * This is the part of their spreadsheet they said they look at most, so the
+ * figures have to match what that sheet would have told them, and the reasons
+ * for each choice are written down rather than left to be re-derived.
+ * ----------------------------------------------------------------------- */
+
+/** One row of the table: how many periods, and the two figures over them. */
+export interface PeriodFigures {
+  /** Whole periods inside the window. Zero means there is nothing to say. */
+  count: number
+  /** Hours per period. Null only when `count` is zero. */
+  mean: number | null
+  /** The middle period, or the mean of the middle two. Null with no periods. */
+  median: number | null
+}
+
+export interface PeriodStats {
+  from: string
+  to: string
+  totalHours: number
+  day: PeriodFigures
+  week: PeriodFigures
+  month: PeriodFigures
+}
+
+/** A week and a month, as lengths rather than as calendar objects - see below. */
+export const WEEK_DAYS = 7
+export const MONTH_DAYS = 30
+
+const STATS_DAY_MS = 86_400_000
+
+function epochDay(date: string): number {
+  const [y, m, d] = date.split('-').map(Number)
+  return Math.round(Date.UTC(y, m - 1, d) / STATS_DAY_MS)
+}
+
+/**
+ * The middle value, or the mean of the middle two.
+ *
+ * Takes the array as given and sorts a copy: a median that reorders its input
+ * would quietly corrupt the day series it was handed.
+ */
+export function median(values: number[]): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+function figures(totals: number[]): PeriodFigures {
+  if (totals.length === 0) return { count: 0, mean: null, median: null }
+  const sum = totals.reduce((a, b) => a + b, 0)
+  return { count: totals.length, mean: sum / totals.length, median: median(totals) }
+}
+
+/**
+ * Hours per day, per week and per month across a span, as mean and median.
+ *
+ * **Empty periods count.** A day with no hours is a day, and a week off is a
+ * week - this is the same rule `averagePerDay` follows and for the same
+ * reason: dividing by worked days answers "how long is a working day", which
+ * turns a fortnight away from the desk into no change at all. It matters more
+ * for the median than for the mean, because dropping the zeroes does not just
+ * raise the figure, it moves which observation sits in the middle. On the real
+ * history the daily median over all time is 1.50 h counting every day and
+ * 2.22 h counting only worked ones - the second is a true statement about
+ * something nobody asked.
+ *
+ * **A week is seven days and a month is thirty, counted back from the end.**
+ * Not calendar weeks and months, and the reason is that the window is already
+ * a rolling span: `WINDOWS` defines "past month" as thirty days precisely so
+ * it covers the same length whatever day it is opened on. Aligning the periods
+ * to Mondays and to the first of the month inside a rolling window makes the
+ * two fight - "the past week" would contain a whole calendar week only one day
+ * in seven, so the weekly row would be empty most of the time.
+ *
+ * **The part-period at the old edge is dropped, not scaled.** Blocks are laid
+ * out from `to` backwards, so the most recent is always whole and any
+ * remainder falls at the far end, where it is the oldest days in the window. A
+ * three-day stub counted as a week would read as a terrible week and drag the
+ * median down; scaled up to seven it would be a projection rather than an
+ * observation, and a median of projections is not a median of anything. Where
+ * the span is shorter than the period, the count is zero and the row says so
+ * rather than inventing one.
+ *
+ * `totalHours` ignores the blocks and sums the whole span, so the total always
+ * covers every day shown in the day row.
+ */
+export function periodStats(daily: DayTotal[], from: string, to: string): PeriodStats {
+  const first = epochDay(from)
+  const last = epochDay(to)
+  const span = last - first + 1
+
+  const hoursByDay = new Map<number, number>()
+  for (const row of daily) {
+    const n = epochDay(row.date)
+    if (n >= first && n <= last) hoursByDay.set(n, (hoursByDay.get(n) ?? 0) + row.hours)
+  }
+
+  const days: number[] = []
+  for (let n = first; n <= last; n += 1) days.push(hoursByDay.get(n) ?? 0)
+
+  // Blocks run backwards from the end, so `days` is read from its tail. The
+  // leftover at the head is the dropped part-period.
+  function blocks(length: number): number[] {
+    const whole = Math.floor(days.length / length)
+    const out: number[] = []
+    for (let i = 0; i < whole; i += 1) {
+      const end = days.length - i * length
+      out.push(days.slice(end - length, end).reduce((a, b) => a + b, 0))
+    }
+    return out.reverse()
+  }
+
+  return {
+    from,
+    to,
+    totalHours: days.reduce((a, b) => a + b, 0),
+    day: span > 0 ? figures(days) : { count: 0, mean: null, median: null },
+    week: figures(blocks(WEEK_DAYS)),
+    month: figures(blocks(MONTH_DAYS))
+  }
+}

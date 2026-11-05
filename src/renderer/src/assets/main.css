@@ -2525,6 +2525,92 @@ code {
   font-weight: 600;
 }
 
+/* ---------- Analytics: the stats table ---------- */
+
+/* A table, not a chart, and it should look like one rather than like a panel
+   that happens to contain rows. Capped at a reading width inside a full-width
+   panel: stretched to 1,300px the label and its two figures end up at opposite
+   edges of the screen and the eye has to travel the whole way to compare them,
+   which is the one thing this panel is for. */
+.an-stats-table {
+  width: 100%;
+  max-width: 620px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: calc(12.5px * var(--an-fs, 1));
+}
+
+.an-stats-table th,
+.an-stats-table td {
+  padding: 7px 0;
+  /* `14.62` must never wrap to a second line - the whole row would double in
+     height, which is the fault the Data tab already paid for once. */
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+/* The row labels: the quiet half of the table, since a reader scanning it
+   already knows which row they came for. */
+.an-stats-table tbody th {
+  width: 100%;
+  color: var(--text-dim);
+  font-weight: 400;
+  text-align: left;
+}
+
+.an-stats-table td {
+  padding-left: 22px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* The column heads carry the denominator under the name, so "14.6 hours a
+   week" can be read as "over 52 weeks" without going to the note. */
+.an-stats-table thead th {
+  /* The same gutter the cells below use. Without it the two column names run
+     together into "All timeThe past week" - the headings have no spacing of
+     their own, and the figures underneath were carrying it alone. */
+  padding-left: 22px;
+  padding-bottom: 8px;
+  color: var(--text);
+  font-size: calc(12px * var(--an-fs, 1));
+  font-weight: 600;
+  text-align: right;
+  vertical-align: bottom;
+}
+
+.an-stats-table thead th span {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-size: calc(10.5px * var(--an-fs, 1));
+  font-weight: 400;
+  /* The heading above it is coloured for the chosen window; the count under it
+     is a fact about the data either way, so it stays neutral. */
+}
+
+/* The total is a different kind of figure from the six above it - a sum rather
+   than a rate - so it is separated rather than merely listed last. */
+.an-stats-table tbody tr:last-child th,
+.an-stats-table tbody tr:last-child td {
+  padding-top: 11px;
+  border-bottom: 0;
+  border-top: 1px solid var(--border);
+}
+
+.an-stats-table tbody tr:last-child th {
+  color: var(--text);
+}
+
+/* The note belongs to the table, so it ends where the table ends. Run to the
+   full width of the panel it reads as a caption for the whole tab rather than
+   a footnote to these seven rows, and the line length stops being comfortable
+   anyway. */
+.an-stats-table + .an-panel__note {
+  max-width: 620px;
+}
+
 /* ---------- Analytics: the figure row ---------- */
 
 /* Four identical grey boxes said four equally important things. The week just

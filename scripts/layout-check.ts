@@ -55,11 +55,20 @@ eq(
   const before = { order: ['calendar', 'hoursPerWeek', 'projects'], hidden: [], fontScale: 1 }
   const got = resolveLayout(before)
   eq('every panel is present after resolving', got.order.length, PANEL_IDS.length)
-  eq('the expressed order is preserved at the front', got.order.slice(0, 3), [
-    'calendar',
-    'hoursPerWeek',
-    'projects'
-  ])
+  // Relative to itself, not at the front: a new panel whose default position
+  // falls between two the user has placed belongs between them. `stats` is
+  // exactly that case - it sits second in PANEL_IDS, so it lands between
+  // `calendar` and `hoursPerWeek` rather than after everything they chose.
+  eq(
+    'the expressed order is preserved relative to itself',
+    got.order.filter((id) => before.order.includes(id)),
+    ['calendar', 'hoursPerWeek', 'projects']
+  )
+  eq(
+    'and a panel never opined about lands in its default position, not last',
+    got.order.slice(0, 4),
+    ['calendar', 'stats', 'hoursPerWeek', 'projects']
+  )
   eq('a panel never opined about is visible, not hidden', got.hidden, [])
   eq('and it is actually drawn', visiblePanels(got).includes('pace'), true)
 }
@@ -71,6 +80,7 @@ eq(
       'pace',
       'calendar',
       'rateTrend',
+      'stats',
       'timeOfDay',
       'projects',
       'plannedRatio',

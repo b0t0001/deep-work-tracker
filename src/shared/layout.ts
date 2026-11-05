@@ -10,6 +10,11 @@
 /** Panel ids, named for what a panel is rather than where it sits. */
 export const PANEL_IDS = [
   'calendar',
+  // Second, under the figure row whose window it shares. It is the thing the
+  // user said they look at most, and it is the only panel that is read rather
+  // than looked at, so it goes where the eye already is before the charts
+  // start.
+  'stats',
   'hoursPerWeek',
   'projects',
   'plannedRatio',

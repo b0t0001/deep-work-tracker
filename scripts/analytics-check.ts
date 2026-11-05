@@ -14,6 +14,8 @@
 
 import {
   fillDays,
+  median,
+  periodStats,
   plannedFit,
   sittings,
   streaks,
@@ -1036,6 +1038,172 @@ eq(
     8
   ),
   { plannedMinutes: 60, sessions: 531, actualMinutes: 45.1, suggestedMinutes: 45 }
+)
+
+// ------------------------------------------------------- median ------------
+
+section('--- median ---')
+
+eq('nothing has no middle', median([]), null)
+eq('one value is its own middle', median([4]), 4)
+eq('an odd count takes the middle', median([5, 1, 3]), 3)
+eq('an even count takes the mean of the middle two', median([1, 2, 3, 4]), 2.5)
+eq('zeroes are values like any other', median([0, 0, 0, 9]), 0)
+
+check(
+  'the input is not reordered',
+  (() => {
+    const input = [3, 1, 2]
+    median(input)
+    return same(input, [3, 1, 2])
+  })(),
+  "median sorted its caller's array"
+)
+
+// ------------------------------------------------------- periodStats -------
+
+section('--- periodStats ---')
+
+/** A week of days, hours given oldest first. */
+function week(hours: number[], from = '2026-03-02'): DayTotal[] {
+  const start = Date.parse(from + 'T00:00:00Z')
+  return hours.map((h, i) => ({
+    date: new Date(start + i * 86_400_000).toISOString().slice(0, 10),
+    hours: h,
+    sessions: h > 0 ? 1 : 0
+  }))
+}
+
+check(
+  'an empty day is a day, so it counts in both figures',
+  (() => {
+    // Seven days, one of them worked. Over worked days only this would read
+    // 7 h mean and 7 h median; counting every day it is 1 h and 0 h.
+    const s = periodStats(week([0, 0, 0, 7, 0, 0, 0]), '2026-03-02', '2026-03-08')
+    return s.day.count === 7 && s.day.mean === 1 && s.day.median === 0
+  })(),
+  'the zeroes were dropped somewhere'
+)
+
+check(
+  'days with no row at all count too, not just days recorded as zero',
+  (() => {
+    // One row in a seven-day span: the other six never appear in `daily`.
+    const s = periodStats(
+      [{ date: '2026-03-05', hours: 7, sessions: 1 }],
+      '2026-03-02',
+      '2026-03-08'
+    )
+    return s.day.count === 7 && s.day.mean === 1 && s.day.median === 0
+  })(),
+  'a missing day was not filled in as zero'
+)
+
+eq(
+  'a week is seven days, and one of them is one whole week',
+  (() => {
+    const s = periodStats(week([1, 2, 3, 4, 5, 6, 7]), '2026-03-02', '2026-03-08')
+    return [s.day.count, s.week.count, s.month.count, s.week.mean, s.week.median]
+  })(),
+  [7, 1, 0, 28, 28]
+)
+
+eq(
+  'a span shorter than a week has no week to report',
+  (() => {
+    const s = periodStats(week([1, 2, 3]), '2026-03-02', '2026-03-04')
+    return [s.week.count, s.week.mean, s.week.median]
+  })(),
+  [0, null, null]
+)
+
+check(
+  'blocks are laid out from the end, so the part-period falls at the old edge',
+  (() => {
+    // Nine days; the hours sit in the two oldest. The single whole week is the
+    // seven most recent days, which are empty - and the total still counts the
+    // hours, because the total is the span and not the blocks.
+    const s = periodStats(week([5, 5, 0, 0, 0, 0, 0, 0, 0]), '2026-03-02', '2026-03-10')
+    return s.week.count === 1 && s.week.mean === 0 && s.totalHours === 10
+  })(),
+  'the dropped remainder was taken from the recent end, or folded into a block'
+)
+
+check(
+  'an exact multiple drops nothing',
+  (() => {
+    const s = periodStats(week(Array(14).fill(1)), '2026-03-02', '2026-03-15')
+    return s.week.count === 2 && s.week.mean === 7 && s.totalHours === 14
+  })(),
+  'fourteen days should be exactly two weeks'
+)
+
+check(
+  'a month is thirty days, and the weeks inside it are four',
+  (() => {
+    const s = periodStats(week(Array(30).fill(2)), '2026-03-02', '2026-03-31')
+    return s.month.count === 1 && s.month.mean === 60 && s.week.count === 4 && s.week.mean === 14
+  })(),
+  'thirty days should be one month and four whole weeks'
+)
+
+check(
+  'days outside the span are ignored, not clipped into it',
+  (() => {
+    const rows = [
+      { date: '2026-03-01', hours: 100, sessions: 1 },
+      { date: '2026-03-05', hours: 7, sessions: 1 },
+      { date: '2026-03-09', hours: 100, sessions: 1 }
+    ]
+    const s = periodStats(rows, '2026-03-02', '2026-03-08')
+    return s.totalHours === 7 && s.day.count === 7
+  })(),
+  'a row either side of the span leaked in'
+)
+
+check(
+  'two rows on one date are one day, summed',
+  (() => {
+    const rows = [
+      { date: '2026-03-05', hours: 3, sessions: 1 },
+      { date: '2026-03-05', hours: 4, sessions: 1 }
+    ]
+    const s = periodStats(rows, '2026-03-02', '2026-03-08')
+    return s.day.count === 7 && s.totalHours === 7 && s.day.mean === 1
+  })(),
+  'a second row for the same date was dropped or counted as its own day'
+)
+
+check(
+  'the mean of the day row is the same figure averagePerDay reports',
+  (() => {
+    // Not a coincidence worth leaving to chance: the stat row above the table
+    // prints `averagePerDay` and the table prints this, and a reader comparing
+    // the two must not find them disagreeing.
+    const rows = week([1, 0, 4, 0, 0, 2, 0])
+    const s = periodStats(rows, '2026-03-02', '2026-03-08')
+    const byHand = rows.reduce((sum, d) => sum + d.hours, 0) / 7
+    return s.day.mean !== null && Math.abs(s.day.mean - byHand) < 1e-9
+  })(),
+  'the day mean is not hours over calendar days'
+)
+
+// The real history as it stood on 2026-11-05, driven through this same
+// function: 1,319 days from 2023-03-27, 2,750.91 hours, which is 2.09 h a day
+// as a mean and 1.50 h as a median. The gap between those two is the point of
+// the row - half the days are under an hour and a half, while the mean is
+// pulled up by the heavy ones.
+check(
+  'the shape of the real history: a mean well above its median',
+  (() => {
+    const s = periodStats(
+      [...week(Array(10).fill(0), '2026-01-01'), { date: '2026-01-11', hours: 12, sessions: 4 }],
+      '2026-01-01',
+      '2026-01-11'
+    )
+    return s.day.mean !== null && s.day.median === 0 && s.day.mean > s.day.median
+  })(),
+  'a long tail of empty days should pull the mean above the median'
 )
 
 // ---------------------------------------------------------------- report ---
