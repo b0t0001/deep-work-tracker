@@ -527,7 +527,7 @@ function Slot({
   dragging: PanelId | null
   onDragging: (id: PanelId | null) => void
   layout: Layout
-  onChange: (next: Layout) => void
+  onChange: (next: Layout | ((prev: Layout) => Layout)) => void
   children: React.ReactNode
 }): React.JSX.Element {
   const meta = PANELS[id]
@@ -598,15 +598,17 @@ function LayoutBar({
   onEditing: (next: boolean) => void
   layout: Layout
   persists: boolean
-  onChange: (next: Layout) => void
+  onChange: (next: Layout | ((prev: Layout) => Layout)) => void
   onReset: () => void
 }): React.JSX.Element {
   const scaleBy = (delta: number): void => {
-    const next = Math.round((layout.fontScale + delta) * 100) / 100
-    onChange({
-      ...layout,
-      fontScale: Math.min(MAX_FONT_SCALE, Math.max(MIN_FONT_SCALE, next))
-    })
+    onChange((prev) => ({
+      ...prev,
+      fontScale: Math.min(
+        MAX_FONT_SCALE,
+        Math.max(MIN_FONT_SCALE, Math.round((prev.fontScale + delta) * 100) / 100)
+      )
+    }))
   }
 
   return (

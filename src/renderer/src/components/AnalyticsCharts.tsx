@@ -165,7 +165,13 @@ const CHART_CSS = `
   font-size: 12px;
   padding: 4px 8px;
 }
-.ac .recharts-cartesian-axis-tick text {
+/* The tick text carries recharts-cartesian-axis-tick-value; its wrapper is
+   recharts-cartesian-axis-tick-LABEL, so the old descendant selector
+   (.recharts-cartesian-axis-tick text) matched nothing at all and the ticks
+   sat at their inherited 14px. There was no inline style and no attribute to
+   blame, which is what made it look like Recharts was overriding something.
+   Measured: el.matches() on the old selector returned false. */
+.ac .recharts-cartesian-axis-tick-value {
   fill: var(--text-dim);
   font-size: calc(11px * var(--an-fs, 1));
 }

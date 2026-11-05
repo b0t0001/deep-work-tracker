@@ -62,7 +62,7 @@ export interface LayoutState {
   layout: Layout
   /** False when the layout is session-only because the channel is missing. */
   persists: boolean
-  update(next: Layout): void
+  update(next: Layout | ((prev: Layout) => Layout)): void
   reset(): void
 }
 
@@ -94,12 +94,20 @@ export function useLayout(): LayoutState {
     }
   }, [])
 
-  const update = useCallback((next: Layout) => {
+  const update = useCallback((next: Layout | ((prev: Layout) => Layout)) => {
     // Optimistic: the layout is what the user just did, so it should move now
     // and reconcile later rather than wait on a round trip to the database.
-    setLayout(next)
+    // Resolved against the layout as it is now, not as it was when the
+    // handler closed over it. Two quick presses of the text-size button
+    // both computed from the same stale value, so the second did
+    // nothing and the step looked like half of what it is.
+    let resolved: Layout = defaultLayout()
+    setLayout((prev) => {
+      resolved = typeof next === 'function' ? next(prev) : next
+      return resolved
+    })
     void channel()
-      ?.set(next)
+      ?.set(resolved)
       .then((stored) => {
         // Adopt what was actually stored rather than keeping our own idea of
         // it. `writeLayout` resolves before writing, so this is where a panel
