@@ -41,6 +41,8 @@ import {
   startBackupSchedule
 } from './backup'
 import { previewRestore, restoreFromCsv } from './restore'
+import { getSetting, setSetting } from './db/settings'
+import { LAYOUT_KEY, parseLayout, serialiseLayout } from '../shared/layout'
 import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
 
 /** Actions a global shortcut can drive, and what they start out bound to. */
@@ -641,6 +643,18 @@ function registerIpc(): void {
     return importRows(rows)
   })
   ipcMain.handle('import:existingCount', () => importedSessionCount())
+
+  // Raw text out, raw text in - but normalised on the way in, so the stored
+  // row is always something `parseLayout` will accept. The renderer cannot
+  // write an unknown panel id or a font scale of 99 even by accident, and
+  // both sides still get their rules from the same module rather than each
+  // keeping a copy. A failed read degrades to null, which the renderer
+  // already treats as "no layout stored yet": losing a *preference* must
+  // never be able to take the dashboard down with it.
+  ipcMain.handle('layout:get', () => safely(() => getSetting(LAYOUT_KEY), null))
+  ipcMain.handle('layout:set', (_event, json: string) => {
+    setSetting(LAYOUT_KEY, serialiseLayout(parseLayout(json)))
+  })
 
   ipcMain.handle('backup:status', () => backupStatus())
   ipcMain.handle('backup:now', () => runBackup())

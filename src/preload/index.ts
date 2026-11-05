@@ -131,6 +131,19 @@ const api = {
     undo: (): Promise<HistoryState> => ipcRenderer.invoke('history:undo'),
     redo: (): Promise<HistoryState> => ipcRenderer.invoke('history:redo')
   },
+  /**
+   * The Analytics tab's layout, as raw JSON text both ways.
+   *
+   * Text rather than a parsed object on purpose: `shared/layout.ts` owns the
+   * parsing, the merge against the panels that exist, and the clamping, so
+   * passing an object would put half of those rules in the renderer and half
+   * in main and invite the two to drift.
+   */
+  layout: {
+    get: (): Promise<string | null> => ipcRenderer.invoke('layout:get'),
+    set: (json: string): Promise<void> => ipcRenderer.invoke('layout:set', json)
+  },
+
   backups: {
     status: (): Promise<unknown> => ipcRenderer.invoke('backup:status'),
     now: (): Promise<unknown> => ipcRenderer.invoke('backup:now'),
