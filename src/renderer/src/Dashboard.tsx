@@ -5,12 +5,12 @@ import { formatDurationInput, parseDurationMs } from '@shared/duration'
 import { periodOverPeriod, previousDay, type Analytics } from '@shared/analytics'
 import { buildFacts, pickFact, type Fact } from '@shared/facts'
 import {
-  WINDOWS,
   aboveBaseline,
   averagePerDay,
   baseline,
   windowDef,
   windowRange,
+  type Range,
   type WindowId
 } from '@shared/windows'
 import { formatDate, formatDateRange, formatDateTime } from '@shared/dates'
@@ -18,10 +18,16 @@ import { rankProjects } from '@shared/projects'
 import {
   MAX_FONT_SCALE,
   MIN_FONT_SCALE,
+  SECTIONS,
+  rangeFor,
+  sectionOf,
   visiblePanels,
+  withRange,
   type Layout,
-  type PanelId
+  type PanelId,
+  type RangeTargetId
 } from '@shared/layout'
+import { hourTotalsIn, plannedVsActualIn, projectTotalsIn, within } from '@shared/ranges'
 import Icon from './components/Icon'
 import { useLayout } from './lib/layout'
 import { useAccentSync } from './lib/accent'
@@ -35,6 +41,7 @@ import {
 import { StatsTable } from './components/StatsTable'
 import { CalendarHeatmap, TimeOfDayHeatmap } from './components/Heatmaps'
 import { PreviewBanner } from './components/PreviewBanner'
+import { RangePicker } from './components/RangePicker'
 
 type Tab = 'settings' | 'data' | 'analytics' | 'import'
 
@@ -184,88 +191,124 @@ function SettingsTab(): React.JSX.Element {
   }
 
   return (
+    /*
+     * Four groups in a responsive grid rather than one tall column.
+     *
+     * The user's report was that widening the window left the content where
+     * it was - "expanding the settings window should resize all the
+     * information on all the tabs". Lifting the panel's width cap is half the
+     * answer and on its own it makes this tab worse, not better: a toggle, a
+     * numeric field and three key bindings stretched across 1900px are a few
+     * short controls with a metre of empty row beside each.
+     *
+     * So the column count follows the width. `auto-fit` with a 340px minimum
+     * gives one column on the narrow window the dashboard opens at, two at
+     * about 1150, and three or four on a wide screen - and it does it from the
+     * width actually available rather than from a breakpoint guessed at here.
+     */
     <section className="panel">
-      <h2>Timer</h2>
-      <label className="toggle">
-        <input
-          type="checkbox"
-          checked={loop}
-          onChange={(event) => {
-            setLoop(event.target.checked)
-            void window.api.timer.setLoop(event.target.checked)
-          }}
-        />
-        <span>
-          <strong>Loop</strong>
-          <em>
-            On expiry, start another run of the same length. Each pass is recorded as its own
-            session.
-          </em>
-        </span>
-      </label>
+      <div className="set-grid">
+        <div className="set-group">
+          <h2>Timer</h2>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={loop}
+              onChange={(event) => {
+                setLoop(event.target.checked)
+                void window.api.timer.setLoop(event.target.checked)
+              }}
+            />
+            <span>
+              <strong>Loop</strong>
+              <em>
+                On expiry, start another run of the same length. Each pass is recorded as its own
+                session.
+              </em>
+            </span>
+          </label>
 
-      <label className="field">
-        <span>End a paused session after</span>
-        <input
-          value={autoEnd}
-          onChange={(event) => {
-            const next = event.target.value
-            // Whole minutes only; empty is allowed so the field can be cleared.
-            if (!/^\d{0,4}$/.test(next)) return
-            setAutoEnd(next)
-            if (next !== '') void window.api.timer.setAutoEnd(Number(next))
-          }}
-          inputMode="numeric"
-        />
-        <em>
-          minutes. A backstop for a pause you forgot, not a limit on how long a break may be &mdash;
-          the session ends at the moment it was paused, so time away is never counted. Zero switches
-          it off.
-        </em>
-      </label>
+          <label className="field">
+            <span>End a paused session after</span>
+            <input
+              value={autoEnd}
+              onChange={(event) => {
+                const next = event.target.value
+                // Whole minutes only; empty is allowed so the field can be cleared.
+                if (!/^\d{0,4}$/.test(next)) return
+                setAutoEnd(next)
+                if (next !== '') void window.api.timer.setAutoEnd(Number(next))
+              }}
+              inputMode="numeric"
+            />
+            <em>
+              minutes. A backstop for a pause you forgot, not a limit on how long a break may be
+              &mdash; the session ends at the moment it was paused, so time away is never counted.
+              Zero switches it off.
+            </em>
+          </label>
+        </div>
 
-      <h2 className="spaced">Keyboard shortcuts</h2>
-      <p className="muted">
-        System-wide, so they work without leaving whatever you are writing in. Click a binding and
-        press the keys; Backspace clears it, Escape cancels.
-      </p>
-      {SHORTCUTS.map((entry) => (
-        <ShortcutField
-          key={entry.id}
-          label={entry.label}
-          hint={entry.hint}
-          value={shortcuts[entry.id] ?? ''}
-          failed={failures[entry.id] ?? false}
-          onChange={(accelerator) => changeShortcut(entry.id, accelerator)}
-        />
-      ))}
-      {Object.values(failures).some(Boolean) && (
-        <p className="notice">
-          A binding shown in red could not be registered &mdash; another application already owns
-          that combination. Pick a different one.
-        </p>
-      )}
+        <div className="set-group">
+          <h2>Keyboard shortcuts</h2>
+          <p className="muted">
+            System-wide, so they work without leaving whatever you are writing in. Click a binding
+            and press the keys; Backspace clears it, Escape cancels.
+          </p>
+          {SHORTCUTS.map((entry) => (
+            <ShortcutField
+              key={entry.id}
+              label={entry.label}
+              hint={entry.hint}
+              value={shortcuts[entry.id] ?? ''}
+              failed={failures[entry.id] ?? false}
+              onChange={(accelerator) => changeShortcut(entry.id, accelerator)}
+            />
+          ))}
+          {Object.values(failures).some(Boolean) && (
+            <p className="notice">
+              A binding shown in red could not be registered &mdash; another application already
+              owns that combination. Pick a different one.
+            </p>
+          )}
+        </div>
 
-      <h2 className="spaced">Accent color</h2>
-      <p className="muted">
-        Used for the ring, the progress fill and every control. Applies to the timer immediately.
-      </p>
-      <div className="swatches">
-        {ACCENTS.map((option) => (
-          <button
-            key={option.value}
-            className={`swatch-large${option.value === accent ? ' is-active' : ''}`}
-            style={{ background: option.value }}
-            onClick={() => chooseAccent(option.value)}
-            title={option.name}
-          >
-            <span>{option.name}</span>
-          </button>
-        ))}
+        <div className="set-group">
+          <h2>Accent color</h2>
+          <p className="muted">
+            Used for the ring, the progress fill and every control. Applies to the timer
+            immediately.
+          </p>
+          <div className="swatches">
+            {ACCENTS.map((option) => (
+              <button
+                key={option.value}
+                className={`swatch-large${option.value === accent ? ' is-active' : ''}`}
+                style={{ background: option.value }}
+                onClick={() => chooseAccent(option.value)}
+                title={option.name}
+              >
+                <span>{option.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      <h2 className="spaced">Backups</h2>
-      <Backups />
+      {/* Outside the grid, not spanning it.
+          
+          It wants the whole width - it is a directory path, a schedule and a
+          table of eight files - and `grid-column: 1 / -1` looked like the way
+          to say that. It is not: `auto-fit` only collapses tracks that are
+          **empty**, and a group spanning every track leaves none empty, so at
+          1900px the grid kept five 360px columns and put the three real groups
+          in the first three. The fix is for the wide thing not to be in the
+          grid at all, and then the two spare tracks collapse and the three
+          groups take a third each. */}
+      <div className="set-group set-group--wide">
+        <h2>Backups</h2>
+        <Backups />
+      </div>
     </section>
   )
 }
@@ -505,48 +548,156 @@ const PANELS: Record<PanelId, { label: string; full: boolean }> = {
 }
 
 /**
- * `window_` and `today` are passed in rather than read by each panel, because
- * the window belongs to the tab. A panel that resolved its own would be a
- * second definition of the period the figure row above it already names.
+ * Which windows a panel offers, where the full ladder does not suit it.
+ *
+ * Only the calendar narrows. Its grid is a year wide by construction, so
+ * "past week" draws one column of squares in a panel sized for fifty-two -
+ * technically correct and useless. Everything else keeps every option,
+ * including the panels where a short range will often be empty: time of day
+ * is thin because the app is new, and hiding the week option would hide the
+ * reason it is thin.
+ */
+const PANEL_RANGE_OPTIONS: Partial<Record<PanelId, readonly WindowId[]>> = {
+  calendar: ['1m', '8w', '1y', '2y', 'all']
+}
+
+/**
+ * The dates a target's range covers, or null for everything.
+ *
+ * `all` returns null rather than the range `windowRange` would give it,
+ * because those are not the same set: every window ends on the **last
+ * complete day**, which is right for an average and wrong for a calendar - it
+ * would leave today's square unfilled on a grid whose whole job is to show
+ * that today is filled. A bounded window keeps the complete-day rule, so the
+ * figures that compare two periods still compare two whole ones.
+ *
+ * Null is also what a window with no complete day yet resolves to, which
+ * shows everything rather than nothing. On a history this old it cannot
+ * happen; on a fresh install it is the difference between a first day that
+ * draws and one that reads as a broken panel.
+ */
+function spanOf(range: WindowId, today: string, firstDate: string | null): Range | null {
+  if (range === 'all') return null
+  return windowRange(range, today, firstDate)
+}
+
+/**
+ * One panel, with its own range already applied.
+ *
+ * The narrowing happens here rather than inside each component, so that a
+ * chart stays a thing that draws what it is handed. Two shapes of narrowing
+ * are needed and `shared/ranges.ts` explains why: an aggregate that still
+ * carries dates is filtered, and the three that had already been summed over
+ * the whole history are re-totalled from the per-day forms the main process
+ * now also sends.
+ *
+ * `hoursPerWeek` is the exception that takes the range itself. It does not
+ * want a filtered series - it buckets by day or by week depending on how long
+ * the range is, so it needs to know which window was chosen, not just which
+ * days survived it.
  */
 function panelFor(
   id: PanelId,
   data: Analytics,
   accent: string,
-  window_: WindowId,
-  today: string
+  today: string,
+  layout: Layout,
+  onRange: (target: RangeTargetId, next: WindowId) => void
 ): React.JSX.Element {
+  const range = rangeFor(layout, id)
+  const span = spanOf(range, today, data.firstDate)
+  const set = (next: WindowId): void => onRange(id, next)
+  const control = (
+    <RangePicker
+      value={range}
+      onChange={set}
+      label={PANELS[id].label}
+      options={PANEL_RANGE_OPTIONS[id]}
+    />
+  )
+
   switch (id) {
     case 'calendar':
-      return <CalendarHeatmap daily={data.daily} accent={accent} />
+      return <CalendarHeatmap daily={within(data.daily, span)} accent={accent} control={control} />
     case 'stats':
-      return <StatsTable data={data} today={today} window={window_} accent={accent} />
-    case 'hoursPerWeek':
-      return <HoursOverTime daily={data.daily} accent={accent} />
-    case 'projects':
-      return <ByProject byProject={data.byProject} accent={accent} />
-    case 'plannedRatio':
-      return <PlannedVsActual data={data.plannedVsActual} accent={accent} />
-    case 'rateTrend':
-      return <RateTrend ratesByUnit={data.ratesByUnit} units={data.units} accent={accent} />
-    case 'timeOfDay':
       return (
-        <TimeOfDayHeatmap
-          byHour={data.byHour}
-          timedSessions={data.timedSessions}
-          timedFirst={data.timedFirst}
-          timedLast={data.timedLast}
+        <StatsTable data={data} today={today} window={range} accent={accent} control={control} />
+      )
+    case 'hoursPerWeek':
+      return <HoursOverTime daily={data.daily} accent={accent} range={range} onRange={set} />
+    case 'projects':
+      return (
+        <ByProject
+          byProject={projectTotalsIn(data.projectDays, span)}
           accent={accent}
+          control={control}
         />
       )
+    case 'plannedRatio':
+      return (
+        <PlannedVsActual
+          data={plannedVsActualIn(data.plannedRuns, span)}
+          accent={accent}
+          control={control}
+        />
+      )
+    case 'rateTrend': {
+      const ranged: Record<string, (typeof data.ratesByUnit)[string]> = {}
+      for (const [unit, points] of Object.entries(data.ratesByUnit)) {
+        ranged[unit] = within(points, span)
+      }
+      /*
+       * A unit with nothing in the range drops out of the picker.
+       *
+       * Left in, it would be an option that selects an empty chart - and
+       * because the component falls back to the first unit in the list, a
+       * narrow range could open on a unit with no points while another unit
+       * had plenty. Rates are never comparable across units, so the picker is
+       * the only way to see the other one; it has to list the ones that are
+       * there.
+       */
+      const units = data.units.filter((unit) => (ranged[unit] ?? []).length > 0)
+      return <RateTrend ratesByUnit={ranged} units={units} accent={accent} control={control} />
+    }
+    case 'timeOfDay': {
+      /*
+       * The count and the span are taken from the same filtered rows as the
+       * grid, so the caption cannot name a period the heatmap is not drawn
+       * from - which is the fault this panel is most exposed to, since its
+       * whole caption exists to stop a thin chart being over-read.
+       */
+      const rows = within(data.hourDays, span)
+      const sessions = rows.reduce((total, row) => total + row.sessions, 0)
+      const dates = rows.map((row) => row.date).sort()
+      return (
+        <TimeOfDayHeatmap
+          byHour={hourTotalsIn(data.hourDays, span)}
+          timedSessions={sessions}
+          timedFirst={dates[0] ?? null}
+          timedLast={dates[dates.length - 1] ?? null}
+          accent={accent}
+          control={control}
+        />
+      )
+    }
     case 'pace':
-      return <PaceAccuracy pace={data.pace} accent={accent} />
+      return <PaceAccuracy pace={within(data.pace, span)} accent={accent} control={control} />
   }
 }
 
-/** Moves `moved` to sit where `target` currently is. */
+/**
+ * Moves `moved` to sit where `target` currently is.
+ *
+ * A drop onto a panel in a different section does nothing. Sections are a
+ * property of a panel rather than a second arrangement (see `SECTIONS`), so
+ * the alternative is not "the panel moves section" - it is "the flat order
+ * changes and the panel stays visibly where it was", which reads as the drag
+ * having failed. Refusing it means the drop target simply does not accept,
+ * which the cursor already says.
+ */
 function reorder(order: PanelId[], moved: PanelId, target: PanelId): PanelId[] {
   if (moved === target) return order
+  if (sectionOf(moved) !== sectionOf(target)) return order
   const next = order.filter((id) => id !== moved)
   const at = next.indexOf(target)
   if (at === -1) return order
@@ -584,6 +735,9 @@ function Slot({
       }}
       onDragOver={(event) => {
         if (!editing || dragging === null) return
+        // Not a valid target, so the drop is never accepted and the cursor
+        // says so rather than the drag silently doing nothing.
+        if (sectionOf(dragging) !== sectionOf(id)) return
         event.preventDefault()
         event.dataTransfer.dropEffect = 'move'
       }}
@@ -654,18 +808,22 @@ function LayoutBar({
 
   return (
     <div className={`an-bar${editing ? ' is-arranging' : ''}`}>
-      {/* Named for the verbs, not the noun. "Customise" is a settings word,
-          and the user asked for "customizable, moveable panels" and then said
-          they never got them - while the control was on screen the whole time.
-          A noun they have to open to understand is a noun they skip; the grip
-          says it before the words do. */}
+      {/* "Modify panels", at the user's request, replacing "Rearrange or hide
+          panels".
+
+          The long name was chosen deliberately - the verbs rather than a noun,
+          because the user had asked for movable panels and then reported never
+          getting them while the control was on screen the whole time. The
+          short name is theirs and it is the one that goes in, but the grip
+          glyph stays and matters more now: it is what still says the panels
+          can be dragged when the words no longer do. */}
       <button type="button" className="an-bar__toggle" onClick={() => onEditing(!editing)}>
         {editing ? (
           'Done'
         ) : (
           <>
             <Icon name="grip" />
-            Rearrange or hide panels
+            Modify panels
           </>
         )}
       </button>
@@ -769,7 +927,6 @@ function AnalyticsTab(): React.JSX.Element {
   const { layout, persists, update, reset } = useLayout()
   const [editing, setEditing] = useState(false)
   const [dragging, setDragging] = useState<PanelId | null>(null)
-  const [window_, setWindow] = useState<WindowId>('1w')
   /*
    * The fact is chosen where the history lands, not while rendering it.
    *
@@ -855,9 +1012,25 @@ function AnalyticsTab(): React.JSX.Element {
 
   const today = localToday()
 
-  // Every figure in this row is derived from one window, so the picker cannot
-  // move the average without moving the comparison beside it.
-  const range = windowRange(window_, today, data.firstDate)
+  const setRange = (target: RangeTargetId, next: WindowId): void => {
+    update((prev) => withRange(prev, target, next))
+  }
+
+  /*
+   * The two tiles that a range can move now carry one each.
+   *
+   * They used to share the tab's single `Averages over` picker, along with
+   * every panel below. The user rejected that - "it shouldn't be one central
+   * control" - so the average and the period comparison are set separately,
+   * and either can be read against a different length of history than the
+   * other. That is the point: "2.1 h a day this month" and "up 9% on last
+   * week" are two questions.
+   *
+   * The other two tiles deliberately have no control. See `STAT_RANGE_IDS`.
+   */
+  const averagesId = rangeFor(layout, 'averages')
+  const periodId = rangeFor(layout, 'period')
+  const range = windowRange(averagesId, today, data.firstDate)
   const average = range === null ? null : averagePerDay(data.daily, range)
   const base = baseline(data.daily, data.firstDate)
   /*
@@ -872,7 +1045,8 @@ function AnalyticsTab(): React.JSX.Element {
   const recentYear = windowRange('1y', today, data.firstDate)
   const above =
     recentYear === null ? null : aboveBaseline(averagePerDay(data.daily, recentYear).perDay, base)
-  const period = periodOverPeriod(data.daily, previousDay(today), range?.days ?? 0)
+  const periodRange = windowRange(periodId, today, data.firstDate)
+  const period = periodOverPeriod(data.daily, previousDay(today), periodRange?.days ?? 0)
 
   return (
     // The text scale lives here rather than on the panel grid, because the
@@ -921,35 +1095,20 @@ function AnalyticsTab(): React.JSX.Element {
       </header>
 
       {/*
-       * The stat row, rebuilt around one window control.
+       * The stat row, with a range on each tile that has one.
        *
-       * Four figures and a picker that moves two of them together. The window
-       * is shared with every other panel through `shared/windows.ts`, so
-       * "past 8 weeks" cannot mean one thing here and another in the chart
-       * below - which it would have, since that chart had its own ladder
-       * first.
+       * It was built around a single control and the user rejected that in
+       * those words. What the shared control was protecting is still true and
+       * now lives in `shared/windows.ts` alone: every one of these pickers
+       * reads the same ladder and resolves through the same `windowRange`, so
+       * "past 8 weeks" is the same eight weeks wherever it is chosen. Only the
+       * choice is local.
        *
        * What leads is still a figure that cannot report a loss. The average
-       * moves with the window and the baseline only grows; the comparison can
-       * fall, and it sits last, told fairly, as it did before.
+       * moves with its own picker and the baseline only grows; the comparison
+       * can fall, and it sits last, told fairly, as it did before.
        */}
-      <div className="an-window">
-        <label>
-          Averages over{' '}
-          <select
-            className="ac__unit"
-            value={window_}
-            onChange={(event) => setWindow(event.target.value as WindowId)}
-            aria-label="Window for the averages"
-          >
-            {WINDOWS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      <h3 className="an-section__title an-section__title--first">{SECTIONS[0].title}</h3>
 
       <div className="an-stats">
         <div className="an-stat an-stat--lead">
@@ -958,15 +1117,20 @@ function AnalyticsTab(): React.JSX.Element {
             {/* "over the all time" is not a sentence; the whole history gets
                 its own phrasing rather than a label that has to read after
                 "the" in every other panel too. */}
-            {windowDef(window_).days === null
+            {windowDef(averagesId).days === null
               ? 'a day, all time'
-              : `a day over the ${windowDef(window_).label}`}
+              : `a day over the ${windowDef(averagesId).label}`}
             {/* Every day counted, not only the ones worked. Dividing by worked
                 days answers "how long is a working day", which flatters a
                 fortnight off into nothing - settled in CLAUDE.md before this
                 control existed, and the control must not unsettle it. */}
             {average === null ? '' : ` · all ${average.days} days counted`}
           </span>
+          <RangePicker
+            value={averagesId}
+            onChange={(next) => setRange('averages', next)}
+            label="the daily average"
+          />
         </div>
 
         {/* Hidden rather than shown as nothing when the history is under a
@@ -1007,16 +1171,32 @@ function AnalyticsTab(): React.JSX.Element {
             <strong>&mdash;</strong>
             <span>
               {data.lastDate
-                ? `no sessions logged in the ${windowDef(window_).label}; the last was ${formatDate(data.lastDate)}`
+                ? `no sessions logged in the ${windowDef(periodId).label}; the last was ${formatDate(data.lastDate)}`
                 : 'no sessions logged yet'}
             </span>
+            <RangePicker
+              value={periodId}
+              onChange={(next) => setRange('period', next)}
+              label="the period comparison"
+            />
           </div>
         ) : (
           <div className="an-stat">
             <strong>{period.thisWeekPerDay.toFixed(2)} h</strong>
             <span>
-              a day worked{' '}
-              {windowDef(window_).days === null ? 'all time' : `in the ${windowDef(window_).label}`}
+              {/* "average daily hours worked", at the user's request, in place
+                  of "a day worked".
+
+                  The old phrasing leaned on the figure above it to supply the
+                  noun - "3.75 h" then "a day worked" - which reads as a
+                  sentence only if you take the two together in that order,
+                  and the tile beside it already says "a day" about a
+                  different number. Naming the quantity costs three words and
+                  makes the tile legible on its own. */}
+              average daily hours worked{' '}
+              {windowDef(periodId).days === null
+                ? 'all time'
+                : `in the ${windowDef(periodId).label}`}
               {/* `all` has nothing before it to compare against, so the clause
                   is dropped rather than rendered as a null percentage. */}
               {period.perDayChangePercent === null ? (
@@ -1030,33 +1210,58 @@ function AnalyticsTab(): React.JSX.Element {
                   </span>{' '}
                   {/* Named, because "on the one before" made the reader work
                       out what "one" was: "from the 2 weeks before". */}
-                  from the {windowDef(window_).label.replace(/^past /, '')} before
+                  from the {windowDef(periodId).label.replace(/^past /, '')} before
                 </>
               )}
             </span>
+            <RangePicker
+              value={periodId}
+              onChange={(next) => setRange('period', next)}
+              label="the period comparison"
+            />
           </div>
         )}
       </div>
 
       {/* Rows rather than one column: a chart that reads fine at half the
           width should not stretch a 220px plot across the whole panel. The
-          calendar leads because the user asked for it by name. */}
+          calendar leads because the user asked for it by name.
 
-      <div className={`an${editing ? ' is-arranging' : ''}`}>
-        {visiblePanels(layout).map((id) => (
-          <Slot
-            key={id}
-            id={id}
-            editing={editing}
-            dragging={dragging}
-            onDragging={setDragging}
-            layout={layout}
-            onChange={update}
-          >
-            {panelFor(id, data, accent, window_, today)}
-          </Slot>
-        ))}
-      </div>
+          One grid per section rather than one grid with headings in it. A
+          heading inside the grid would need a full-width cell and would still
+          be a grid item, so a half-width panel could pair with it; a grid each
+          also means a section's panels cannot drift across its own heading
+          when the order changes.
+
+          A section with everything in it hidden renders nothing at all, not an
+          empty heading. The headings are fixed, so one over a gap would be the
+          only part of the tab that reports something that is not there. */}
+
+      {SECTIONS.map((section) => {
+        if (section.panels.length === 0) return null
+        const ids = visiblePanels(layout).filter((id) => sectionOf(id) === section.id)
+        if (ids.length === 0) return null
+        return (
+          <div key={section.id}>
+            <h3 className="an-section__title">{section.title}</h3>
+            <div className={`an${editing ? ' is-arranging' : ''}`}>
+              {ids.map((id) => (
+                <Slot
+                  key={id}
+                  id={id}
+                  editing={editing}
+                  dragging={dragging}
+                  onDragging={setDragging}
+                  layout={layout}
+                  onChange={update}
+                >
+                  {panelFor(id, data, accent, today, layout, setRange)}
+                </Slot>
+              ))}
+            </div>
+          </div>
+        )
+      })}
     </section>
   )
 }

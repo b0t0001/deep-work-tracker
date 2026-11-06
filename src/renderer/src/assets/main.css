@@ -1037,15 +1037,51 @@ input {
   padding: 22px 24px 40px;
 }
 
-.panel {
-  max-width: 900px;
+/*
+ * The tabs take the window, and prose alone keeps a reading measure.
+ *
+ * This was 900px for most tabs and 1500px for the two with tables in them,
+ * which is the straightforward reading of "900px is a reading width": cap the
+ * panel, and a line of text cannot grow too long to follow. The user's report
+ * is what is wrong with it - "expanding the settings window should resize all
+ * the information on all the tabs. this doesn't happen right now" - and at
+ * 1900px it was three quarters of a screen of content with a quarter of empty
+ * grey beside it, on every tab, including the ones that are mostly tables and
+ * grids and have no lines to keep short.
+ *
+ * So the cap moves off the container and onto the thing that needed it. A
+ * paragraph still stops at a measure it can be read at; a table, a grid of
+ * swatches, a row of figures and eight charts get the whole width. The two
+ * cases the old rule conflated are a panel and a sentence.
+ *
+ * `.panel--wide` is kept as a class rather than deleted. It is on the Data and
+ * Analytics sections and means "this one is not prose", which is still true
+ * and still worth saying at the call site even though both now resolve to the
+ * same width.
+ */
+.panel,
+.panel--wide {
+  max-width: none;
 }
 
-/* 900px is a reading width, which is right for the prose-shaped tabs and
-   wrong for a nine-column table - it left the columns cramped and a third of
-   the window empty beside them. */
-.panel--wide {
-  max-width: 1500px;
+/*
+ * The measure, applied where the words are.
+ *
+ * 78 characters rather than a pixel width, so it tracks the font: the text
+ * scale control in Analytics moves every caption, and a 700px cap would mean
+ * a different number of words per line at each step. Direct children and the
+ * explanatory `em` under a field, which is where the long sentences on the
+ * Settings tab actually are - not a bare `p`, which would also catch a
+ * paragraph inside a panel that is laying something out in columns.
+ */
+.panel > p,
+.panel > .muted,
+.panel > .notice,
+.set-group > p,
+.set-group > .muted,
+.toggle em,
+.field em {
+  max-width: 78ch;
 }
 
 .panel h2 {
@@ -2257,6 +2293,12 @@ code {
   }
 }
 
+/* A third column was tried here and taken out again. Two sections hold
+   exactly two half-width panels, so a third track put a third of a row of
+   empty grid beside every one of them - trading a chart that was wide enough
+   already for a visible hole, which is the fault this was meant to fix. Two
+   columns at 1900px is a 940px chart and no dead cell. */
+
 /* ---------- arranging ---------- */
 
 /* A mode rather than permanent furniture: the tab is read far more often than
@@ -2354,13 +2396,24 @@ code {
   min-width: 0;
 }
 
-/* Beside the title, not pushed to the far edge. Right-aligned it is still at
-   the top but it is also as far from the heading as the row allows, which is
-   the same "somewhere the eye has stopped" problem one row up. Level with the
-   heading rather than with the block, so it reads as part of that line. */
+/* At the right end of the header row, at the user's request.
+
+   It was deliberately beside the title instead: pushed to the far edge it is
+   as far from the heading as the row allows, which is the same "somewhere the
+   eye has stopped" problem that moved it out from under the figures in the
+   first place. That argument was about a control nobody could find, and it has
+   been answered since by the grip glyph and the accent border - the entry
+   point is legible now wherever it sits, so where it sits is the user's call.
+
+   `margin-left: auto` rather than `justify-content: space-between` on the row,
+   because the row wraps: at a narrow width space-between would strand the
+   button on its own line against the right edge, while auto margins collapse
+   on a wrapped line and it simply sits left under the title. */
 .data-head--with-action .an-bar {
   flex: 0 0 auto;
   margin-top: 3px;
+  margin-left: auto;
+  justify-content: flex-end;
 }
 
 .an-bar {
@@ -2580,6 +2633,28 @@ code {
    panel: stretched to 1,300px the label and its two figures end up at opposite
    edges of the screen and the eye has to travel the whole way to compare them,
    which is the one thing this panel is for. */
+/* The table and its note side by side once there is room for both.
+
+   The table caps at 620px on purpose - a two-column numeric table stretched
+   across 1900px puts "Average hours a day" and "2.09" a hand's width apart,
+   and the point of this panel is reading a figure off a label. But the cap
+   was leaving 1,200px of empty panel beside it on a wide window, which is the
+   same complaint from the other direction. The note is the thing that was
+   under it, and it is prose, so it takes the rest of the row and keeps its own
+   measure. Below 1000px the flex line wraps and it is exactly what it was. */
+.an-stats-body {
+  display: flex;
+  gap: 28px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.an-stats-body > .an-panel__note {
+  flex: 1 1 320px;
+  max-width: 62ch;
+  margin-top: 0;
+}
+
 .an-stats-table {
   width: 100%;
   max-width: 620px;
@@ -2664,19 +2739,58 @@ code {
 /* Four identical grey boxes said four equally important things. The week just
    gone is the one a reader opens the tab for, so it leads and takes the
    accent; the rest support it. */
-/* The window control for the figure row. Its own line above the tiles rather
-   than inside one of them: it moves two of the four, so belonging to any
-   single tile would misdescribe what it does. */
-.an-window {
-  margin-bottom: 10px;
+/* The central window control used to live here, on its own line above the
+   tiles, because it moved two of the four and belonging to any single tile
+   would have misdescribed what it did. The user asked for the opposite - a
+   control per panel - so the rules it needed are gone and `.an-range` in
+   `RangePicker.tsx` replaces them. */
+
+/* ---------- Analytics: section headings ---------- */
+
+/* Quieter than `.panel h3` and tied to the row beneath it rather than
+   floating between two: a heading with equal space above and below belongs to
+   neither of the things it sits between. Uppercased and tracked out because
+   it has to be distinguishable from a panel title at a glance - both are small
+   and bold, and at the same treatment the eye reads eight headings instead of
+   four headings and eight panels. */
+.an-section__title {
+  margin: 26px 0 10px;
+  font-size: 11px;
+  font-weight: 620;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--text-dim);
-  font-size: 11.5px;
 }
 
-.an-window label {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
+/* The first one introduces the figure row rather than a grid of panels, and
+   it comes straight after the tab header, which already has space under it. */
+.an-section__title--first {
+  margin-top: 14px;
+}
+
+/* A tile's range sits in its top right corner, out of the reading order of
+   the figure and its caption. Absolute rather than a third flex child: the
+   caption wraps to two or three lines depending on the window, so a control
+   in the flow would sit at a different height on every tile. */
+.an-stat {
+  position: relative;
+}
+
+.an-stat .an-range {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+/* The caption must not run under the control. 56px clears "Past 2 years",
+   which is the longest option.
+
+   Direct children only, and `.an-range` excluded. The caption contains an
+   inline span of its own - the coloured "up 9%" - so the loose descendant
+   selector put 56px of padding into the middle of a sentence. */
+.an-stat > strong,
+.an-stat > span:not(.an-range) {
+  padding-right: 56px;
 }
 
 /* Even columns now the tiles are peers. The old 1.35fr gave the lead figure
@@ -2840,4 +2954,90 @@ code {
 .ac .recharts-label,
 .ac .recharts-text.recharts-label {
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- the box that appeared when you clicked a chart ---------- */
+
+/*
+ * "why does a yellow box appear when i click on something?? remove this"
+ *
+ * It is Chromium's own focus ring, and nothing in this app painted it.
+ * Measured in a real window with a real mouse click through CDP, because a
+ * scripted `el.click()` does not move focus and `el.focus()` in an unfocused
+ * window does not match `:focus` - two earlier probes reported no ring for
+ * exactly those reasons and nearly closed this as unreproducible:
+ *
+ *   focused element  svg.recharts-surface, tabindex="0", role="application"
+ *   computed outline auto 4.8px rgb(229, 151, 0)
+ *   :focus true, :focus-visible false
+ *   author rules matching it  NONE
+ *
+ * Two things follow. First, the amber is `-webkit-focus-ring-color`, which on
+ * Windows is the system accent - so it is not the app's accent, it does not
+ * move when the accent is changed, and it will be a different colour on
+ * another machine. Looking for the rule in this stylesheet was never going to
+ * find it. Second, Recharts 3 makes the chart surface keyboard-focusable, so
+ * every chart in the tab is a focusable element the size of the panel, and
+ * clicking anywhere in one focuses it.
+ *
+ * `:focus:not(:focus-visible)` is the fix and it is the narrow one: it removes
+ * the ring for a pointer and leaves it for Tab, which is what the ring is for.
+ * Verified to match the element above - `el.matches()` returned true - which
+ * is worth checking rather than assuming, since the ring painted while
+ * `:focus-visible` reported false, and a suppressor keyed on the pseudo-class
+ * the engine disagrees with would have done nothing.
+ *
+ * Scoped to the dashboard. The timer window is filmed and would want this even
+ * more, but nothing there is a focusable non-control, so there is nothing to
+ * suppress and a rule reaching into it would be untested breadth.
+ */
+.dashboard :focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Kept, so the charts are still navigable by keyboard - and in the app's own
+   colour rather than the machine's. Declared after the rule above because the
+   two have equal specificity and this one has to win when both match. */
+.dashboard .recharts-surface:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- Settings: columns, not one tall strip ---------- */
+
+/*
+ * One column at the width the dashboard opens at, more as the window grows.
+ *
+ * `auto-fit` with a minimum rather than a breakpoint ladder: the number of
+ * columns then comes from the space actually available, so it is right at a
+ * size nobody tested as well as at the two that were. 340px is the width the
+ * widest control here needs - a key binding field and its label - so a column
+ * is never narrower than its contents.
+ *
+ * `align-items: start` because the groups are different heights and a stretched
+ * one would put its border or background in the wrong place; `start` lets each
+ * end where its content does.
+ */
+.set-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 4px 36px;
+  align-items: start;
+}
+
+/* The first heading in a group needs no top margin - the grid gap is the
+   separation, and `.panel h2` carries 26px for the single-column layout this
+   replaces. */
+.set-group > h2:first-child {
+  margin-top: 0;
+}
+
+.set-group--wide {
+  grid-column: 1 / -1;
+}
+
+/* Breathing room above the one that spans the row, since it has no column
+   beside it to line up with. */
+.set-group--wide > h2:first-child {
+  margin-top: 22px;
 }

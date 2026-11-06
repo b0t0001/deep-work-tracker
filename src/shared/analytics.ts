@@ -8,6 +8,8 @@
  * streaks, week-over-week, and grouping consecutive runs into sittings.
  */
 
+import type { HourDay, PlannedRun, ProjectDay } from './ranges'
+
 /** One calendar day. `hours` is running time, never wall-clock span. */
 export interface DayTotal {
   /** Local `YYYY-MM-DD`. */
@@ -151,6 +153,29 @@ export interface Analytics {
    * across units.
    */
   pace: PacePoint[]
+  /**
+   * The three aggregates above, sent again grouped one level finer - by day.
+   *
+   * Every panel carries its own range control, and `byProject`, `byHour` and
+   * `plannedVsActual` are the only figures here that have already thrown their
+   * dates away: `SUM(hours) GROUP BY project` over the whole history has no
+   * "past week" hiding inside it, so a renderer holding only the total cannot
+   * narrow it. These carry the date, and `shared/ranges.ts` re-totals them for
+   * whatever range a panel is set to.
+   *
+   * The aggregate forms are kept rather than replaced because other things
+   * read them - the fun facts, the planned-length fit - and because they are
+   * the all-time answer, which is what most panels open on.
+   *
+   * Grouped by day rather than sent per session: the finest grain any range
+   * control can ask for is a date, so a row per session would be more data for
+   * no more resolution. `plannedRuns` is the exception and has to be per run -
+   * a bucket's `actualMinutes` is a mean, and a mean cannot be re-averaged
+   * without the count it was taken over.
+   */
+  projectDays: ProjectDay[]
+  hourDays: HourDay[]
+  plannedRuns: PlannedRun[]
 }
 
 export interface Streaks {

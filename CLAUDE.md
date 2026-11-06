@@ -632,7 +632,7 @@ screenshotting the real dashboard rather than reading the markup:
 | Symptom | Cause |
 | --- | --- |
 | Every row twice as tall as it needs to be | `2026-02-20` wrapping; the date column needs `nowrap` |
-| Table cramped beside a third of an empty window | `.panel` caps at 900px, a reading width; the Data tab opts into `.panel--wide` |
+| Table cramped beside a third of an empty window | `.panel` capped at 900px, a reading width; the Data tab opted into `.panel--wide` at 1500px. Both caps are gone now — see **Width belongs to prose, not to panels** |
 | A dead gap between the numeric columns | they were absorbing the spare width; give it to Task with `width: 100%` |
 
 Giving Task the slack then squeezes the numeric columns into wrapping
@@ -658,6 +658,104 @@ The button also sat below the full projects table, which at 66 projects is a
 scroll long enough that choosing a file looks like the whole interaction. Any
 destructive or long-running action in the dashboard needs both: a visible
 trigger and a visible failure.
+
+### The Analytics tab
+
+**Every panel carries its own range, and there is no central one.** There was
+one `Averages over` picker at the top of the tab, shared by the figure row and
+every panel below it, on the argument that one definition of "the past 8
+weeks" cannot disagree with itself. The user rejected it in those terms:
+*"you're misunderstanding the spec. every single PANEL needs to have a
+timescale control dropdown somewhere that will change how the data is viewed!
+it shouldn't be one central control"*. They are right that two things were
+conflated. What the shared picker was protecting is that the same words cover
+the same days everywhere, and that still holds — every control reads `WINDOWS`
+and resolves through `windowRange` in `shared/windows.ts`. Only the *choice* is
+local.
+
+- **A choice is stored per target, sparsely**, in the same `app_settings` row
+  as the layout (`Layout.ranges`). Sparse, so a target nobody has touched
+  follows its default if the default ever changes — the same argument as
+  appending an unknown panel rather than treating a stored order as the
+  complete list.
+- **Two tiles in the figure row deliberately have none.** The baseline tile
+  compares the first year against the last and both ends have to be fixed for
+  that to mean anything; wired to a control it read +321% on one setting and
+  +295% on another, the same claim with two numbers. The fun fact is drawn
+  from the whole history by construction. A dropdown that cannot change the
+  figure beside it is worse than no dropdown.
+- **Narrowing has two shapes, and `shared/ranges.ts` exists because of it.**
+  An aggregate that still carries dates — `daily`, `ratesByUnit`, `pace` — is
+  filtered in the renderer. Three others had already thrown their dates away:
+  `SUM(hours) GROUP BY project` over the whole history has no "past week"
+  hiding inside it. So the main process sends those three again grouped by day
+  (`projectDays`, `hourDays`, `plannedRuns`) and they are re-totalled per
+  range. A panel must not have to know which shape it was handed.
+- **`bucketMinutes` is shared with the main process** for the same reason: the
+  renderer re-buckets the planned-length chart per range, and two copies of
+  the thresholds would drift — with the drift looking like the range control
+  changing the shape of the chart.
+- **`all` means no filter, not `windowRange('all')`.** Every window ends on the
+  **last complete day**, which is right for an average and wrong for a
+  calendar — it would leave today's square unfilled on a grid whose whole job
+  is to show that today is filled.
+
+**Panels sit in named sections: At a glance, Hours and consistency, Habits,
+Projects and output.** A section is a property of a panel, like its width, not
+a second arrangement the user maintains — otherwise a heading describes
+whatever happens to be under it and stops being worth reading. So a drag
+across a section boundary is refused rather than silently reordering the flat
+list. A section with everything in it hidden renders nothing, not an empty
+heading.
+
+**Width belongs to prose, not to panels.** `.panel` capped at 900px and
+`.panel--wide` at 1500px, which reads as sensible — cap the container and no
+line of text can grow too long to follow. The user's report is what is wrong
+with it: *"expanding the settings window should resize all the information on
+all the tabs. this doesn't happen right now"*. At 1900px every tab was three
+quarters of a screen of content with a quarter of empty grey beside it,
+including the tabs that are mostly tables and grids and have no lines to keep
+short. The cap now sits on paragraphs (`78ch`, so it tracks the font and
+survives the text-size control) and the panels take the window.
+
+- **Settings lays its groups out in a responsive grid**, because lifting the
+  cap alone makes that tab worse: a toggle and three key bindings stretched
+  across 1900px are short controls with a metre of empty row each.
+- **`auto-fit` only collapses tracks that are *empty*.** Backups was put in the
+  grid with `grid-column: 1 / -1`, which leaves no track empty, so at 1900px
+  the grid kept five 360px columns and filled the first three. The wide thing
+  has to be outside the grid, not spanning it.
+- **Three columns of charts was tried and removed.** Two sections hold exactly
+  two half-width panels, so a third track put a third of a row of empty grid
+  beside each of them — trading a chart that was already wide enough for a
+  visible hole.
+
+**The yellow box on clicking a chart was Chromium's, not the app's.** *"why
+does a yellow box appear when i click on something?? remove this"*. Nothing in
+`main.css` painted it. Measured in a real window with a real mouse click
+through CDP — a scripted `el.click()` does not move focus, and `el.focus()` in
+an unfocused window does not match `:focus`, so two earlier probes reported no
+ring at all and nearly closed it as unreproducible:
+
+| | |
+| --- | --- |
+| focused element | `svg.recharts-surface`, `tabindex="0"`, `role="application"` |
+| computed outline | `auto 4.8px rgb(229, 151, 0)` |
+| pseudo-classes | `:focus` true, `:focus-visible` **false** |
+| author rules matching | none |
+
+The amber is `-webkit-focus-ring-color`, which on Windows is the **system**
+accent — so it is not the app's accent, it does not move when the accent is
+changed, and it is a different colour on another machine. Looking for the rule
+in this stylesheet was never going to find it. Recharts 3 makes the chart
+surface keyboard-focusable, so every chart is a focusable element the size of
+its panel.
+
+`.dashboard :focus:not(:focus-visible) { outline: none }` is the fix: gone for
+a pointer, kept for Tab. Verify the suppressor **matches** rather than assuming
+it — the ring painted while `:focus-visible` reported false, and a rule keyed
+on a pseudo-class the engine disagrees with would have done nothing. After the
+fix the same click computes `none`.
 
 ### Automatic backups
 

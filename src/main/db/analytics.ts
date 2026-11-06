@@ -8,6 +8,7 @@ import {
   type PlannedVsActual,
   type RatePoint
 } from '../../shared/analytics'
+import { bucketMinutes, type HourDay, type PlannedRun, type ProjectDay } from '../../shared/ranges'
 /**
  * Every figure the Analytics tab shows, aggregated in SQL.
  *
@@ -34,18 +35,16 @@ const EVENT_THRESHOLD_S = 3 * 60 * 60
 const MIN_SESSIONS_FOR_A_UNIT = 10
 /** Enough to cover questions, words, slides, pages and the rest of the real tail. */
 const MAX_UNITS = 12
-/**
- * Durations are grouped so the chart has bars rather than a smear.
+/*
+ * `bucketMinutes` used to live here. It moved to `shared/ranges.ts` when every
+ * panel got its own range: the renderer has to re-bucket the planned-length
+ * chart for whatever range it is set to, and two copies of the thresholds
+ * would drift - with the drift showing up as the range control appearing to
+ * change the shape of the chart.
  *
  * 97% of runs were set to a multiple of five minutes, so the raw values are
- * already clustered; this only tidies the stragglers.
+ * already clustered; the bucketing only tidies the stragglers.
  */
-function bucketMinutes(seconds: number): number {
-  const minutes = seconds / 60
-  if (minutes <= 15) return Math.max(5, Math.round(minutes / 5) * 5)
-  if (minutes <= 60) return Math.round(minutes / 15) * 15
-  return Math.round(minutes / 30) * 30
-}
 export function analytics(): Analytics {
   const db = openDatabase()
   const span = db
@@ -82,7 +81,10 @@ export function analytics(): Analytics {
     pace: [],
     unitTotals: [],
     longestSession: null,
-    editingHours: 0
+    editingHours: 0,
+    projectDays: [],
+    hourDays: [],
+    plannedRuns: []
   }
   if (span.first === null || span.last === null || Number(span.sessions) === 0) return empty
   const rawDaily = (
@@ -114,6 +116,36 @@ export function analytics(): Analytics {
       )
       .all() as Array<{ name: string; hours: number; sessions: number }>
   ).map((row) => ({ name: row.name, hours: Number(row.hours), sessions: Number(row.sessions) }))
+  /*
+   * The same totals grouped by day as well, so a panel can re-total them over
+   * its own range. See `Analytics.projectDays`: a total that has thrown its
+   * dates away cannot be narrowed in the renderer, and this is the finest
+   * grain any range control can ask for.
+   *
+   * Rows with no `session_date` are left out rather than given one. A date
+   * filter must not guess - `CLAUDE.md` settles the same question for the Data
+   * tab - and a row with no date cannot belong to a range. They stay in
+   * `byProject`, which is the all-time figure and counts everything.
+   */
+  const projectDays: ProjectDay[] = (
+    db
+      .prepare(
+        `SELECT s.session_date AS date,
+                COALESCE(p.name, 'Unlabeled') AS name,
+                SUM(s.running_duration_s) / 3600.0 AS hours,
+                COUNT(*) AS sessions
+           FROM ${COUNTED} s LEFT JOIN projects p ON p.id = s.project_id
+          WHERE s.session_date IS NOT NULL
+          GROUP BY s.session_date, COALESCE(p.name, 'Unlabeled')
+          ORDER BY s.session_date`
+      )
+      .all() as Array<{ date: string; name: string; hours: number; sessions: number }>
+  ).map((row) => ({
+    date: row.date,
+    name: row.name,
+    hours: Number(row.hours),
+    sessions: Number(row.sessions)
+  }))
   /**
    * Time of day can only ever describe app-recorded rows.
    *
@@ -141,6 +173,30 @@ export function analytics(): Analytics {
       sessions: found ? Number(found.sessions) : 0
     }
   })
+  // By day as well, for the panel's own range control. The same `source` and
+  // `started_at` conditions, so a ranged reading can never include a row the
+  // all-time one excludes.
+  const hourDays: HourDay[] = (
+    db
+      .prepare(
+        `SELECT session_date AS date,
+                CAST(strftime('%H', started_at, 'localtime') AS INTEGER) AS hour,
+                SUM(running_duration_s) / 3600.0 AS hours,
+                COUNT(*) AS sessions
+           FROM ${COUNTED} AS sessions
+          WHERE source = 'app' AND started_at IS NOT NULL AND session_date IS NOT NULL
+          GROUP BY session_date, hour
+          ORDER BY session_date`
+      )
+      .all() as Array<{ date: string; hour: number | null; hours: number; sessions: number }>
+  )
+    .filter((row) => row.hour !== null)
+    .map((row) => ({
+      date: row.date,
+      hour: Number(row.hour),
+      hours: Number(row.hours),
+      sessions: Number(row.sessions)
+    }))
   // Count and span come from one statement so they cannot disagree about which
   // rows the time-of-day chart is drawn from. `session_date` rather than
   // `started_at` because it is the local calendar date, and a session at 11pm
@@ -176,7 +232,7 @@ export function analytics(): Analytics {
    */
   const plannedRows = db
     .prepare(
-      `SELECT planned_duration_s AS planned, running_duration_s AS actual
+      `SELECT session_date AS date, planned_duration_s AS planned, running_duration_s AS actual
          FROM ${COUNTED} AS sessions
         WHERE planned_duration_s > 0 AND running_duration_s > 0
           AND source <> 'manual'
@@ -184,7 +240,18 @@ export function analytics(): Analytics {
                    AND planned_duration_s > ${EVENT_THRESHOLD_S}
                    AND running_duration_s = planned_duration_s)`
     )
-    .all() as Array<{ planned: number; actual: number }>
+    .all() as Array<{ date: string | null; planned: number; actual: number }>
+  /*
+   * The runs themselves, for the panel's range control, taken from the rows
+   * this chart has already decided it may count rather than from a second
+   * query. The exclusions above are subtle - events typed in with a 0:00:00
+   * end, manual rows whose planned equals their actual - and a separate
+   * statement would be a second place for them to be stated and a second
+   * place to get them wrong.
+   */
+  const plannedRuns: PlannedRun[] = plannedRows
+    .filter((row): row is { date: string; planned: number; actual: number } => row.date !== null)
+    .map((row) => ({ date: row.date, planned: Number(row.planned), actual: Number(row.actual) }))
   const buckets = new Map<number, { sessions: number; actualSeconds: number }>()
   for (const row of plannedRows) {
     const key = bucketMinutes(Number(row.planned))
@@ -352,6 +419,9 @@ export function analytics(): Analytics {
     pace,
     unitTotals,
     longestSession,
-    editingHours
+    editingHours,
+    projectDays,
+    hourDays,
+    plannedRuns
   }
 }
