@@ -61,6 +61,45 @@ if (!existsSync(realDb)) {
   die(`No database at ${realDb}. Nothing to preview.`)
 }
 
+/**
+ * Retries a read of the real database before giving up on it.
+ *
+ * On 2026-11-05 the first read failed with `database disk image is malformed`
+ * 28 seconds after the installed app had quit, then succeeded on byte-identical
+ * files every time after - five in a row on the live file, and on copies. The
+ * file was never damaged; the read landed while the closing app was still
+ * letting go of it. Printed as a crash, though, a transient read error names
+ * the user's real history as corrupt, which is the one thing this command must
+ * never appear to do. So it is retried, and if it still fails it is reported as
+ * what it is: a read that failed, against a file this command never writes.
+ */
+const ATTEMPTS = 4
+const RETRY_MS = 1500
+
+function pause(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+function readReal<T>(what: string, read: () => T): T {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return read()
+    } catch (error) {
+      if (attempt >= ATTEMPTS) {
+        die(
+          `Could not ${what} after ${ATTEMPTS} tries: ${String(error)}\n\n` +
+            'Nothing was written to your real history: this command only ever opens it ' +
+            'read-only. If the installed app just closed, wait a minute and run it again. ' +
+            'If it keeps failing, open the installed app - it checks the database on ' +
+            'startup and will say if the file itself is damaged.'
+        )
+      }
+      console.log(`  (could not ${what}, retrying: ${String(error)})`)
+      pause(RETRY_MS)
+    }
+  }
+}
+
 /** Counted before and after, so a torn or partial snapshot cannot pass. */
 function sessionCount(file: string): number {
   const db = new DatabaseSync(file, { readOnly: true })
@@ -82,6 +121,21 @@ function integrity(file: string): string {
   }
 }
 
+/**
+ * What "nothing wrote to it" is checked against.
+ *
+ * Opening a WAL database creates an empty `-wal` beside it if none is there -
+ * even read-only - so the `-wal` appearing at 0 bytes is this command's own
+ * open, not a write. Comparing existence would refuse every run made after the
+ * installed app had closed cleanly, which is exactly when it deletes its `-wal`.
+ */
+function walState(): { mtimeMs: number; size: number } | null {
+  const wal = `${realDb}-wal`
+  if (!existsSync(wal)) return null
+  const s = statSync(wal)
+  return { mtimeMs: s.mtimeMs, size: s.size }
+}
+
 console.log('')
 console.log(`source  ${realDb}`)
 console.log(`preview ${previewProfile}`)
@@ -89,14 +143,18 @@ console.log(`preview ${previewProfile}`)
 // Recorded so the run can prove it did not touch the original. mtime rather
 // than a hash because the claim being made is "nothing wrote to it", and a
 // write that happened to produce identical bytes would still be a write.
-const before = {
-  db: statSync(realDb).mtimeMs,
-  wal: existsSync(`${realDb}-wal`) ? statSync(`${realDb}-wal`).mtimeMs : null
-}
+const before = { db: statSync(realDb).mtimeMs, wal: walState() }
 
-const sourceRows = sessionCount(realDb)
+const sourceRows = readReal('count the sessions in the real database', () => sessionCount(realDb))
+// A failed check is retried like a failed read: copying from a file that does
+// not pass is never the right next step, and one bad reading is not proof.
+const sourceCheck = readReal('check the real database', () => {
+  const result = integrity(realDb)
+  if (result !== 'ok') throw new Error(`quick_check reported: ${result}`)
+  return result
+})
 console.log(
-  `\n${sourceRows.toLocaleString()} sessions in the real profile, quick_check ${integrity(realDb)}`
+  `\n${sourceRows.toLocaleString()} sessions in the real profile, quick_check ${sourceCheck}`
 )
 
 mkdirSync(previewProfile, { recursive: true })
@@ -106,21 +164,20 @@ mkdirSync(previewProfile, { recursive: true })
 const staging = join(previewProfile, `snapshot-${process.pid}.db`)
 rmSync(staging, { force: true })
 
-{
+// The path is a SQL string literal here, so a quote in it would break out.
+// APPDATA containing a single quote is far-fetched; being wrong about that
+// silently would not be.
+if (staging.includes("'"))
+  die(`Refusing to build a SQL literal from a path with a quote: ${staging}`)
+readReal('snapshot the real database', () => {
+  rmSync(staging, { force: true })
   const db = new DatabaseSync(realDb, { readOnly: true })
   try {
-    // The path is a SQL string literal here, so a quote in it would break out.
-    // APPDATA containing a single quote is far-fetched; being wrong about that
-    // silently would not be.
-    if (staging.includes("'"))
-      die(`Refusing to build a SQL literal from a path with a quote: ${staging}`)
     db.exec(`VACUUM INTO '${staging.replace(/\\/g, '/')}'`)
-  } catch (error) {
-    die(`Could not snapshot the database: ${String(error)}`)
   } finally {
     db.close()
   }
-}
+})
 
 const snapshotRows = sessionCount(staging)
 const snapshotOk = integrity(staging)
@@ -155,16 +212,26 @@ writeFileSync(
   'utf8'
 )
 
-const after = {
-  db: statSync(realDb).mtimeMs,
-  wal: existsSync(`${realDb}-wal`) ? statSync(`${realDb}-wal`).mtimeMs : null
-}
-const untouched = before.db === after.db && before.wal === after.wal
+const after = { db: statSync(realDb).mtimeMs, wal: walState() }
+const walUntouched =
+  before.wal === null
+    ? after.wal === null || after.wal.size === 0
+    : after.wal !== null &&
+      after.wal.mtimeMs === before.wal.mtimeMs &&
+      after.wal.size === before.wal.size
+const untouched = before.db === after.db && walUntouched
 console.log(`real profile ${untouched ? 'untouched' : 'CHANGED'} (.db and -wal mtimes compared)`)
 if (!untouched) {
   die(
     'The real database changed while snapshotting it. Refusing to go on; check what is writing to it.'
   )
+}
+
+// For checking this script against a stand-in profile without rebuilding the
+// app or opening a window: point APPDATA at a folder holding a copy.
+if (process.argv.includes('--snapshot-only')) {
+  console.log('snapshot only: not building or launching')
+  process.exit(0)
 }
 
 console.log('\nbuilding...')
