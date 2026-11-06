@@ -1,5 +1,6 @@
 /**
- * Finds axis labels that are cut off, at every timescale every panel offers.
+ * Finds axis labels that are cut off **or overlapping**, at every timescale
+ * every panel offers.
  *
  * Run:
  *   npm run build
@@ -85,6 +86,9 @@ import { analytics } from '../src/main/db/analytics'
  * check cry wolf until nobody ran it.
  */
 const SLACK = 1
+
+/** Two value labels need this much clear air between them to read as two. */
+const MIN_LABEL_GAP = 4
 
 interface Clip {
   panel: string
@@ -215,6 +219,44 @@ app.whenReady().then(async () => {
               ];
               for (const [side, over] of sides) {
                 if (over > ${SLACK}) out.push({ side, over: Math.round(over * 10) / 10, text: content });
+              }
+            }
+
+            /*
+             * And labels that run into each other, which is a different
+             * fault with the same cause and is invisible to the edge test.
+             * "numbers still don't display on this chart" was answered by
+             * writing a value on every bar; a value on every bar is only an
+             * answer if they can all be read, and two that overlap are two
+             * that cannot.
+             *
+             * Only the value labels, found by their own class - axis ticks
+             * are thinned by Recharts on purpose and a date landing near
+             * another date is not the same problem. Compared pairwise along
+             * a row, after sorting by x, so a wrapped label on the row below
+             * is not mistaken for a collision.
+             */
+            const values = [...svg.querySelectorAll('.ac__value')]
+              .map((node) => ({ text: (node.textContent || '').trim(), r: node.getBoundingClientRect() }))
+              .filter((one) => one.text !== '' && one.r.width > 0)
+              .sort((a, b) => a.r.left - b.r.left);
+            for (let i = 1; i < values.length; i += 1) {
+              const before = values[i - 1];
+              const here = values[i];
+              const sameRow = Math.abs(before.r.top - here.r.top) < before.r.height * 0.6;
+              /*
+               * A *gap* is required, not merely the absence of overlap.
+               * All time once left 0.8px between two numbers: they did not
+               * overlap, and they read as one number. MIN_LABEL_GAP is what
+               * turns "they do not touch" into "they can be told apart".
+               */
+              const over = before.r.right + ${MIN_LABEL_GAP} - here.r.left;
+              if (sameRow && over > ${SLACK}) {
+                out.push({
+                  side: 'overlap',
+                  over: Math.round(over * 10) / 10,
+                  text: before.text + ' / ' + here.text
+                });
               }
             }
           }

@@ -16,7 +16,8 @@
  */
 import { previousDay, type DayTotal } from './analytics'
 
-export type WindowId = '1w' | '2w' | '1m' | '8w' | '3m' | '1y' | '2y' | 'all'
+export type WindowId =
+  '1w' | '2w' | '4w' | '1m' | '60d' | '8w' | '3m' | '6m' | '1y' | '2y' | 'all' | 'custom'
 
 export interface WindowDef {
   id: WindowId
@@ -27,34 +28,104 @@ export interface WindowDef {
 }
 
 /**
- * The user's list for the average tile, plus two weeks from the hours chart.
+ * Every dropdown's list, in the user's own order.
  *
- * **The labels say the duration, not the calendar unit.** `1m` is thirty days
- * rather than the calendar month, so that it covers the same length whatever
- * day it is opened on - a calendar month read on the 2nd would be two days
- * long and always look like a collapse. It used to be labelled "past month",
- * which quietly implied the other thing; it says "past 30 days" now, and `1y`
- * says "past 12 months" for the same reason. The ids are untouched, so no
- * stored choice moves.
+ * *"every timescale dropdown should have the same presets. go with past week,
+ * 2 weeks, 4 weeks, 30 days, 60 days 8 weeks, 90 days, 6 months, 12 months,
+ * 24 months, all time, and then a custom field where i can insert anything"*.
+ *
+ * Panels used to narrow this list - the calendar dropped the two shortest
+ * windows, the comparison box offered five, the baseline tile four - each for
+ * a defensible local reason. Together they meant no two dropdowns looked
+ * alike, and the user noticed before anyone else did. The rule now is that
+ * **every dropdown shows every option**; where one genuinely cannot apply it
+ * is drawn disabled with the reason as its tooltip, so the list is still the
+ * same list and the exception is visible rather than silently missing.
+ *
+ * **The order is theirs and is deliberately not monotonic.** 60 days sits
+ * before 8 weeks although 56 is shorter, and 30 days after 4 weeks although
+ * 30 is longer. Those pairs are near-duplicates that mean different things to
+ * the person choosing - a month versus four weeks of work - and sorting them
+ * by length would scatter the pairs. Do not "fix" the order.
+ *
+ * **How a month is defined, since the list now names months and days
+ * separately.** A month-denominated window is a twelfth of a 365-day year,
+ * rounded: 6 months is 183 days, 12 months is 365, 24 months is 730. That
+ * keeps `1y` at exactly the 365 it has always been, so the baseline tile's
+ * figures and every stored choice are unchanged. `1m` is **not** a month
+ * window - it is the 30-day one, which is why the list can carry "past 4
+ * weeks" (28) and "past 30 days" (30) as separate entries without either
+ * being a rounding of the other. `periodStats` separately buckets by
+ * 30-day months when it divides a range into whole months; that is a
+ * different question and is documented there.
+ *
+ * Ids are unchanged for every window that already existed, so a stored
+ * layout needs no migration.
  */
 export const WINDOWS: readonly WindowDef[] = [
   { id: '1w', label: 'past week', days: 7 },
   { id: '2w', label: 'past 2 weeks', days: 14 },
+  { id: '4w', label: 'past 4 weeks', days: 28 },
   { id: '1m', label: 'past 30 days', days: 30 },
+  { id: '60d', label: 'past 60 days', days: 60 },
   { id: '8w', label: 'past 8 weeks', days: 56 },
-  // Added for the comparison box, which the user asked to be able to set to
-  // 90 days. It joins the shared ladder rather than being a fourth private
-  // list - a quarter is a sensible thing to ask any panel for, and the whole
-  // argument of this file is that "past 90 days" must cover the same 90 days
-  // wherever it is chosen.
   { id: '3m', label: 'past 90 days', days: 90 },
+  { id: '6m', label: 'past 6 months', days: 183 },
   { id: '1y', label: 'past 12 months', days: 365 },
-  { id: '2y', label: 'past 2 years', days: 730 },
-  { id: 'all', label: 'all time', days: null }
+  { id: '2y', label: 'past 24 months', days: 730 },
+  { id: 'all', label: 'all time', days: null },
+  /**
+   * The typed span. `days` is null here only because the list is static -
+   * the real length comes from `customDays` on the layout and is applied by
+   * `windowDefFor`, never read from this entry. Anything resolving a window
+   * without a custom span in hand will treat it as all time, which is the
+   * safe direction: it shows more than was asked for rather than silently
+   * showing a week.
+   */
+  { id: 'custom', label: 'custom', days: null }
 ]
 
+/** The id the custom entry carries, so callers need not spell it. */
+export const CUSTOM_WINDOW: WindowId = 'custom'
+
 export function windowDef(id: WindowId): WindowDef {
-  return WINDOWS.find((w) => w.id === id) ?? WINDOWS[WINDOWS.length - 1]
+  // The fallback is "all time" rather than the last entry: `custom` is last
+  // now, and falling back to a window whose length lives somewhere else
+  // would resolve an unknown id to a span nobody chose.
+  return WINDOWS.find((w) => w.id === id) ?? { id: 'all', label: 'all time', days: null }
+}
+
+/**
+ * The window a target is actually showing, with a typed span applied.
+ *
+ * Everything that needs a length or a label goes through this rather than
+ * `windowDef`, because for `custom` the length is not in `WINDOWS` - it is
+ * whatever the user typed, stored per target. A custom window with no span
+ * yet reads as all time, so a half-typed entry shows more than was asked for
+ * rather than a week nobody chose.
+ */
+export function windowDefFor(id: WindowId, customDays: number | null): WindowDef {
+  if (id !== 'custom') return windowDef(id)
+  if (customDays === null || !Number.isFinite(customDays) || customDays < 1) {
+    return { id: 'custom', label: 'all time', days: null }
+  }
+  const days = Math.round(customDays)
+  return { id: 'custom', label: `past ${describeSpan(days)}`, days }
+}
+
+/**
+ * `45 days` back from a day count, for a label.
+ *
+ * Says it in the unit the span divides into cleanly, so someone who typed
+ * "3 weeks" reads "past 3 weeks" back rather than "past 21 days". Exact
+ * divisions only - 20 days is 20 days, not "2.9 weeks".
+ */
+export function describeSpan(days: number): string {
+  const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
+  if (days % 365 === 0) return plural(days / 365, 'year')
+  if (days % 30 === 0 && days >= 60) return plural(days / 30, 'month')
+  if (days % 7 === 0) return plural(days / 7, 'week')
+  return plural(days, 'day')
 }
 
 const DAY_MS = 86_400_000
@@ -84,11 +155,22 @@ export interface Range {
  * day to measure yet.
  */
 export function windowRange(id: WindowId, today: string, firstDate: string | null): Range | null {
+  return rangeOf(windowDef(id), today, firstDate)
+}
+
+/**
+ * The same, from a resolved definition rather than an id.
+ *
+ * A custom window's length is not in `WINDOWS` - it is whatever the user
+ * typed - so `windowDefFor` resolves it first and this takes the result.
+ * Everything else goes through `windowRange`, which is this with the lookup
+ * in front, so the two cannot define a window differently.
+ */
+export function rangeOf(def: WindowDef, today: string, firstDate: string | null): Range | null {
   if (firstDate === null) return null
   const end = dayNumber(previousDay(today))
   const first = dayNumber(firstDate)
   if (end < first) return null
-  const def = windowDef(id)
   const start = def.days === null ? first : Math.max(first, end - def.days + 1)
   return { from: dateOf(start), to: dateOf(end), days: end - start + 1 }
 }

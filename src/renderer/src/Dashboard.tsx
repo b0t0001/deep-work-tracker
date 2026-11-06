@@ -8,21 +8,24 @@ import {
   aboveBaseline,
   averagePerDay,
   baseline,
-  windowDef,
-  windowRange,
+  rangeOf,
+  windowDefFor,
   type Range,
   type WindowId
 } from '@shared/windows'
 import { formatDate, formatDateRange, formatDateTime } from '@shared/dates'
 import { rankProjects } from '@shared/projects'
 import { listOf, missingForEdit, missingForNewSession } from '@shared/sessionForm'
+import { parseSpan } from '@shared/span'
 import {
   MAX_FONT_SCALE,
   MIN_FONT_SCALE,
   SECTIONS,
+  customTextFor,
   rangeFor,
   sectionOf,
   visiblePanels,
+  withCustomRange,
   withRange,
   type Layout,
   type PanelId,
@@ -608,28 +611,23 @@ const PANELS: Record<PanelId, { label: string; full: boolean }> = {
 }
 
 /**
- * Which windows a panel offers, where the full ladder does not suit it.
+ * The only option any panel cannot answer, and why.
  *
- * Only the calendar narrows. Its grid is a year wide by construction, so
- * "past week" draws one column of squares in a panel sized for fifty-two -
- * technically correct and useless. Everything else keeps every option,
- * including the panels where a short range will often be empty: time of day
- * is thin because the app is new, and hiding the week option would hide the
- * reason it is thin.
+ * Every dropdown now shows every window - *"every timescale dropdown should
+ * have the same presets"* - so the previous two lists of allowed options are
+ * gone. What replaces them is this: where an option genuinely cannot apply,
+ * it is still listed, still in the same place, and drawn disabled with the
+ * reason as its tooltip. An option that is missing looks like a different
+ * control; one that is greyed out with a sentence attached is information.
+ *
+ * Exactly one case survives the change. The calendar used to drop the two
+ * shortest windows because its grid stretched to fill the panel and a
+ * one-column week was absurd; the heatmap's cell cap fixed that at the root,
+ * so it offers everything again.
  */
-const PANEL_RANGE_OPTIONS: Partial<Record<PanelId, readonly WindowId[]>> = {
-  calendar: ['1m', '8w', '1y', '2y', 'all']
+const BASELINE_DISABLED: Partial<Record<WindowId, string>> = {
+  all: 'All time contains the first year, so this would compare the history with itself'
 }
-
-/**
- * What the baseline tile may be compared against.
- *
- * No "all time": it contains the first year, so the tile would be comparing
- * the history partly against itself and the percentage would fall as the
- * history grew, which reads as getting worse. No "2 years" for a weaker
- * version of the same reason on a short history.
- */
-const BASELINE_WINDOWS: readonly WindowId[] = ['1w', '1m', '3m', '1y']
 
 /**
  * The dates a target's range covers, or null for everything.
@@ -646,9 +644,15 @@ const BASELINE_WINDOWS: readonly WindowId[] = ['1w', '1m', '3m', '1y']
  * happen; on a fresh install it is the difference between a first day that
  * draws and one that reads as a broken panel.
  */
-function spanOf(range: WindowId, today: string, firstDate: string | null): Range | null {
-  if (range === 'all') return null
-  return windowRange(range, today, firstDate)
+function spanOf(
+  range: WindowId,
+  today: string,
+  firstDate: string | null,
+  customDays: number | null = null
+): Range | null {
+  const def = windowDefFor(range, customDays)
+  if (def.days === null) return null
+  return rangeOf(def, today, firstDate)
 }
 
 /**
@@ -672,17 +676,20 @@ function panelFor(
   accent: string,
   today: string,
   layout: Layout,
-  onRange: (target: RangeTargetId, next: WindowId) => void
+  onRange: (target: RangeTargetId, next: WindowId) => void,
+  onCustom: (target: RangeTargetId, next: string) => void
 ): React.JSX.Element {
   const range = rangeFor(layout, id)
-  const span = spanOf(range, today, data.firstDate)
+  const customDays = parseSpan(customTextFor(layout, id)).days
+  const span = spanOf(range, today, data.firstDate, customDays)
   const set = (next: WindowId): void => onRange(id, next)
   const control = (
     <RangePicker
       value={range}
       onChange={set}
       label={PANELS[id].label}
-      options={PANEL_RANGE_OPTIONS[id]}
+      customText={customTextFor(layout, id)}
+      onCustomText={(next) => onCustom(id, next)}
     />
   )
 
@@ -690,7 +697,15 @@ function panelFor(
     case 'calendar':
       return <CalendarHeatmap daily={within(data.daily, span)} accent={accent} control={control} />
     case 'hoursPerWeek':
-      return <HoursOverTime daily={data.daily} accent={accent} range={range} onRange={set} />
+      return (
+        <HoursOverTime
+          daily={data.daily}
+          accent={accent}
+          range={range}
+          customDays={customDays}
+          control={control}
+        />
+      )
     case 'projects':
       return (
         <ByProject
@@ -1101,6 +1116,10 @@ function AnalyticsTab(): React.JSX.Element {
     update((prev) => withRange(prev, target, next))
   }
 
+  const setCustom = (target: RangeTargetId, next: string): void => {
+    update((prev) => withCustomRange(prev, target, next))
+  }
+
   /*
    * What is left of the figure row's own arithmetic.
    *
@@ -1137,7 +1156,8 @@ function AnalyticsTab(): React.JSX.Element {
    * year, so the comparison would be partly against itself.
    */
   const baselineRange = rangeFor(layout, 'baseline')
-  const recent = windowRange(baselineRange, today, data.firstDate)
+  const baselineDef = windowDefFor(baselineRange, parseSpan(customTextFor(layout, 'baseline')).days)
+  const recent = rangeOf(baselineDef, today, data.firstDate)
   const recentPerDay = recent === null ? null : averagePerDay(data.daily, recent).perDay
   const above = recentPerDay === null ? null : aboveBaseline(recentPerDay, base)
 
@@ -1151,7 +1171,12 @@ function AnalyticsTab(): React.JSX.Element {
    * also reshuffle which fact you are looking at.
    */
   const factRange = rangeFor(layout, 'fact')
-  const factSpan = spanOf(factRange, today, data.firstDate)
+  const factSpan = spanOf(
+    factRange,
+    today,
+    data.firstDate,
+    parseSpan(customTextFor(layout, 'fact')).days
+  )
   const everyFact = buildFacts({
     ...data,
     unitTotals: unitTotalsIn(data.unitDays, factSpan)
@@ -1241,6 +1266,10 @@ function AnalyticsTab(): React.JSX.Element {
           firstDate={data.firstDate}
           choice={layout.compare}
           onChoice={(next) => update((prev) => ({ ...prev, compare: next }))}
+          customText={layout.compare.custom}
+          onCustomText={(next) =>
+            update((prev) => ({ ...prev, compare: { ...prev.compare, custom: next } }))
+          }
         />
 
         {/* Hidden rather than shown as nothing when the history is under a
@@ -1260,13 +1289,15 @@ function AnalyticsTab(): React.JSX.Element {
               against your first year &middot; {base?.perDay.toFixed(2)} h a day then,{' '}
               {recentPerDay === null
                 ? ''
-                : `${recentPerDay.toFixed(2)} h a day over the ${windowDef(baselineRange).label}`}
+                : `${recentPerDay.toFixed(2)} h a day over the ${baselineDef.label}`}
             </span>
             <RangePicker
               value={baselineRange}
               onChange={(next) => setRange('baseline', next)}
               label="the window compared with your first year"
-              options={BASELINE_WINDOWS}
+              disabled={BASELINE_DISABLED}
+              customText={customTextFor(layout, 'baseline')}
+              onCustomText={(next) => setCustom('baseline', next)}
             />
           </div>
         )}
@@ -1282,6 +1313,8 @@ function AnalyticsTab(): React.JSX.Element {
               value={factRange}
               onChange={(next) => setRange('fact', next)}
               label="the fun fact"
+              customText={customTextFor(layout, 'fact')}
+              onCustomText={(next) => setCustom('fact', next)}
             />
           </div>
         )}
@@ -1319,7 +1352,7 @@ function AnalyticsTab(): React.JSX.Element {
                   layout={layout}
                   onChange={update}
                 >
-                  {panelFor(id, data, accent, today, layout, setRange)}
+                  {panelFor(id, data, accent, today, layout, setRange, setCustom)}
                 </Slot>
               ))}
             </div>

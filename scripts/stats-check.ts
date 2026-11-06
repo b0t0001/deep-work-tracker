@@ -52,13 +52,20 @@ const day = (date: string, hours: number): DayTotal => ({ date, hours, sessions:
 console.log('--- windows ---')
 eq('ids are unique', new Set(WINDOWS.map((w) => w.id)).size, WINDOWS.length)
 eq(
-  'the user list is all there',
+  'the user list is all there, in the order they gave it',
   WINDOWS.map((w) => w.id),
-  // '3m' joined the ladder when the comparison box needed 90 days. It is in
-  // the shared list rather than a private one so that "past 90 days" covers
-  // the same 90 days wherever it is chosen.
-  ['1w', '2w', '1m', '8w', '3m', '1y', '2y', 'all']
+  // Their list, verbatim and deliberately not monotonic: 60 days before 8
+  // weeks, 30 days after 4 weeks. Those pairs are near-duplicates that mean
+  // different things to the person choosing, and sorting by length would
+  // scatter them. `custom` is last and carries no length of its own.
+  ['1w', '2w', '4w', '1m', '60d', '8w', '3m', '6m', '1y', '2y', 'all', 'custom']
 )
+eq(
+  'a month window is a twelfth of a 365-day year',
+  [windowDef('6m').days, windowDef('1y').days, windowDef('2y').days],
+  [183, 365, 730]
+)
+eq('and the 30-day window is a day window, not a rounded month', windowDef('1m').days, 30)
 eq('8 weeks is 56 days, not two calendar months', windowDef('8w').days, 56)
 
 eq('a week ends yesterday, never today', windowRange('1w', '2026-11-05', '2023-03-27'), {

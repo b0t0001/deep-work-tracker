@@ -800,6 +800,144 @@ const SHOTS: Shot[] = [
     note: 'The calendar at alltime, 1900px wide. A day square is the same size at every range.'
   },
   {
+    id: 'custom-range-1150',
+    width: 1150,
+    height: 1100,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const setSel = (sel, v) => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, v);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const setText = (input, v) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, v);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const panel = (title) => [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.querySelector('.an-panel__title') &&
+          el.querySelector('.an-panel__title').childNodes[0].textContent.trim().startsWith(title));
+
+      // Hours per X on a typed span, and the project chart on another, so
+      // two panels show the field at once and neither affects the other.
+      const hours = panel('Hours per');
+      setSel(hours.querySelector('.an-range select'), 'custom');
+      await wait(400);
+      setText(hours.querySelector('.an-range input'), '45 days');
+      await wait(900);
+      const projects = panel('Hours by project');
+      setSel(projects.querySelector('.an-range select'), 'custom');
+      await wait(400);
+      setText(projects.querySelector('.an-range input'), '3 weeks');
+      await wait(900);
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      await wait(400);
+    `,
+    note: 'Two panels on typed spans at once: 45 days and 3 weeks.'
+  },
+  {
+    id: 'custom-bad-1150',
+    width: 1150,
+    height: 700,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const setSel = (sel, v) => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, v);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const setText = (input, v) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, v);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const panel = (title) => [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.querySelector('.an-panel__title') &&
+          el.querySelector('.an-panel__title').childNodes[0].textContent.trim().startsWith(title));
+
+      const hours = panel('Hours per');
+      setSel(hours.querySelector('.an-range select'), 'custom');
+      await wait(400);
+      setText(hours.querySelector('.an-range input'), 'about three weeks');
+      await wait(700);
+      for (const slot of document.querySelectorAll('.an-slot')) {
+        if (!slot.contains(hours)) slot.style.display = 'none';
+      }
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      document.querySelector('.an-stats').style.display = 'none';
+      await wait(500);
+    `,
+    note: 'An unreadable span says so in the panel, in red. No dialog.'
+  },
+  {
+    id: 'custom-range-1900',
+    width: 1900,
+    height: 1100,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const setSel = (sel, v) => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, v);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const setText = (input, v) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, v);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const panel = (title) => [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.querySelector('.an-panel__title') &&
+          el.querySelector('.an-panel__title').childNodes[0].textContent.trim().startsWith(title));
+
+      // Hours per X on a typed span, and the project chart on another, so
+      // two panels show the field at once and neither affects the other.
+      const hours = panel('Hours per');
+      setSel(hours.querySelector('.an-range select'), 'custom');
+      await wait(400);
+      setText(hours.querySelector('.an-range input'), '45 days');
+      await wait(900);
+      const projects = panel('Hours by project');
+      setSel(projects.querySelector('.an-range select'), 'custom');
+      await wait(400);
+      setText(projects.querySelector('.an-range input'), '3 weeks');
+      await wait(900);
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      await wait(400);
+    `,
+    note: 'Two panels on typed spans at once: 45 days and 3 weeks.'
+  },
+  {
+    id: 'custom-bad-1900',
+    width: 1900,
+    height: 700,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const setSel = (sel, v) => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, v);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const setText = (input, v) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, v);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const panel = (title) => [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.querySelector('.an-panel__title') &&
+          el.querySelector('.an-panel__title').childNodes[0].textContent.trim().startsWith(title));
+
+      const hours = panel('Hours per');
+      setSel(hours.querySelector('.an-range select'), 'custom');
+      await wait(400);
+      setText(hours.querySelector('.an-range input'), 'about three weeks');
+      await wait(700);
+      for (const slot of document.querySelectorAll('.an-slot')) {
+        if (!slot.contains(hours)) slot.style.display = 'none';
+      }
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      document.querySelector('.an-stats').style.display = 'none';
+      await wait(500);
+    `,
+    note: 'An unreadable span says so in the panel, in red. No dialog.'
+  },
+  {
     id: 'dash-analytics-tall',
     width: 1280,
     // Tall enough that the whole tab fits with nothing scrolled away. The

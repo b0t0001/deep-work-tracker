@@ -936,6 +936,64 @@ not from guesses about what the words might mean. That is where `components`
   hours and the longest session ever cannot follow a range control, so they
   drop out rather than answering "past month" with a figure since 2023.
 
+**Every dropdown offers the same presets, and one of them is Custom.**
+*"every timescale dropdown should have the same presets... and then a custom
+field where i can insert anything"*. Panels used to narrow the list for
+defensible local reasons - the calendar dropped the shortest windows, the
+comparison box offered five of eight, the baseline tile four - and together
+those meant no two dropdowns looked alike. The list now lives once in
+`shared/windows.ts` and every picker renders all of it.
+
+- **The order is the user's and is deliberately not monotonic.** 60 days sits
+  before 8 weeks although 56 is shorter, and 30 days after 4 weeks although
+  30 is longer. Those pairs mean different things to the person choosing - a
+  month versus four weeks of work - and sorting by length would scatter them.
+- **A month is a twelfth of a 365-day year**: 6 months is 183 days, 12 months
+  365, 24 months 730. That keeps `1y` at the 365 it has always been, so the
+  baseline figures and every stored id are unchanged. `1m` is **not** a month
+  window - it is the 30-day one, which is why "past 4 weeks" (28) and "past
+  30 days" (30) can both be in the list. `shared/span.ts` separately treats a
+  *typed* month as 30 days, because someone who types "10 months" expects 300.
+- **An option that cannot apply is disabled with its reason, never removed.**
+  A list that changes length as you use it is a list you cannot learn. Two
+  cases exist: All time on the baseline tile (it contains the first year), and
+  a grain longer than the comparison box's period.
+- **Custom stores the text, not the parsed days**, so "3 weeks" reads back as
+  "3 weeks". It is parsed on every read; a span that stops parsing degrades to
+  all time with the reason shown, rather than to a number nobody can account
+  for. A half-typed span resolving to all time is the safe direction - it
+  shows more than was asked for rather than a week nobody chose.
+- **An unreadable span says so in the panel, in red, beside the field.** No
+  dialog: see "The app speaks for itself". An empty field is not an error -
+  it is a box nobody has finished typing in.
+
+**Every bar carries its number, which is what decides the grain.** *"numbers
+still don't display on this chart"* - at past 8 weeks the hours chart drew 56
+daily points and labelled exactly one, the peak, because 56 labels would have
+collided. The user had already said a chart whose data points they cannot read
+tells them nothing, so the answer is not to thin labels harder: it is to draw
+fewer, bigger buckets. It is bars rather than an area for the same reason an
+area could not be fixed - an area has points, not slots, and there is nowhere
+for a label to sit that is unambiguously one day's.
+
+`grainFor` walks day → week → month → quarter and takes the first whose bucket
+count fits `MAX_BARS` (32, which is 34px a bar at 1,150px against a label of
+12-31px). Choosing by count rather than by day thresholds means a custom span
+of any length lands somewhere sensible without a rule being written for it,
+and the condition tests the thing being guaranteed.
+
+The threshold was found by measuring. Fixed day thresholds put all time on 45
+monthly bars with **0.8px** between the closest pair of labels - which passes
+an overlap test and still reads as one number. `axis-clip-check.ts` now
+requires a 4px *gap* between value labels rather than merely the absence of
+overlap, and sweeps 336 states. With the count rule, all time is 15 quarterly
+bars and the tightest gap anywhere is 18.1px, at 30 days.
+
+The grain is named in the title ("Hours per week", "Hours per quarter")
+because a bar's value means a different thing at each one. A zero bar is
+labelled `0` rather than left blank: an unlabelled bar among labelled ones is
+exactly the ambiguity the panel exists to remove.
+
 **The calendar grid's zoom is bounded, and a day is always the same size.**
 The grid is an svg with a viewBox and `width: 100%`, which is what makes it
 the first thing you see at 12 months - and, unbounded, what made a 30-day
