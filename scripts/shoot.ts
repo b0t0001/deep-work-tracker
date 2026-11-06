@@ -266,6 +266,58 @@ const SHOTS: Shot[] = [
     note: 'Data, against the full 2,363-session history.'
   },
   {
+    id: 'dash-add-session',
+    width: 1150,
+    height: 700,
+    route: '/dashboard',
+    // Filled the way the user filled it when the form was reported broken:
+    // the long Unit value is what ran off the card.
+    drive: `
+      click('.tabs .tab:nth-child(2)'); await wait(1500);
+      [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add session').click();
+      await wait(300);
+      const fill = (label, value) => {
+        const field = [...document.querySelectorAll('.editor .field')].find((f) => f.querySelector('span')?.textContent === label);
+        const input = field.querySelector('input');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      fill('Task', 'Study for MATH 1410'); fill('Planned', '1:30:00'); fill('Actual', '1:20:15');
+      fill('Quantity', '4'); fill('Unit', 'questions');
+      const project = [...document.querySelectorAll('.editor input')].find((i) => i.getAttribute('aria-label') === 'Project');
+      project.focus();
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(project, 'h'); project.dispatchEvent(new Event('input', { bubbles: true }));
+      await wait(300);
+    `,
+    note: 'Add session, filled as reported, with the project suggestions open.'
+  },
+  {
+    id: 'dash-add-session-narrow',
+    width: 640,
+    height: 700,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(2)'); await wait(1500);
+      [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add session').click();
+      await wait(300);
+    `,
+    note: 'Add session in a narrow dashboard: one column.'
+  },
+  {
+    id: 'dash-edit-session',
+    width: 1150,
+    height: 700,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(2)'); await wait(1500);
+      document.querySelector('.row-actions button').click();
+      await wait(300);
+    `,
+    note: 'Editing an existing row: project filled in, and the Source choice.'
+  },
+  {
     id: 'dash-analytics',
     width: 940,
     height: 660,

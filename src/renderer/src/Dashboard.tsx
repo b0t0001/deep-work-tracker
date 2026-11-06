@@ -14,6 +14,7 @@ import {
   type WindowId
 } from '@shared/windows'
 import { formatDate, formatDateRange, formatDateTime } from '@shared/dates'
+import { rankProjects } from '@shared/projects'
 import {
   MAX_FONT_SCALE,
   MIN_FONT_SCALE,
@@ -1077,13 +1078,28 @@ const EMPTY_HISTORY: HistoryState = {
 /** What the form edits. Timing is typed as a duration, not as raw seconds. */
 interface FormState {
   session_date: string
+  project: string
   task: string
   planned: string
   actual: string
   work_quantity: string
   work_unit: string
   notes: string
+  /** Only offered when editing; a new row's source is decided by main. */
+  source: string
 }
+
+/**
+ * Every value `source` may hold, in plain words. Offered so a row marked
+ * wrongly can be corrected - every field of every session is editable, and
+ * this one decides whether analytics count the row at all.
+ */
+const SOURCE_CHOICES: Array<{ value: string; label: string }> = [
+  { value: 'app', label: 'Timed' },
+  { value: 'manual', label: 'Manual' },
+  { value: 'import', label: 'Imported' },
+  { value: 'test', label: 'Test (not counted)' }
+]
 
 function toForm(row: SessionRow | null): FormState {
   const today = new Date()
@@ -1092,12 +1108,14 @@ function toForm(row: SessionRow | null): FormState {
     session_date:
       row?.session_date ??
       `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`,
+    project: row?.project_name ?? '',
     task: row?.task ?? '',
     planned: row ? formatDurationInput(row.planned_duration_s * 1000) : '',
     actual: row ? formatDurationInput(row.running_duration_s * 1000) : '',
     work_quantity: row?.work_quantity == null ? '' : String(row.work_quantity),
     work_unit: row?.work_unit ?? '',
-    notes: row?.notes ?? ''
+    notes: row?.notes ?? '',
+    source: row?.source ?? 'manual'
   }
 }
 
@@ -1111,14 +1129,32 @@ function SessionForm({
   onCancel: () => void
 }): React.JSX.Element {
   const [form, setForm] = useState<FormState>(() => toForm(row))
+  const [projectNames, setProjectNames] = useState<string[]>([])
+  const [projectOpen, setProjectOpen] = useState(false)
+  const [highlight, setHighlight] = useState(0)
+
+  useEffect(() => {
+    window.api.timer
+      .projectNames()
+      .then(setProjectNames)
+      .catch(() => setProjectNames([]))
+  }, [])
 
   const plannedMs = parseDurationMs(form.planned)
   const actualMs = parseDurationMs(form.actual)
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(form.session_date)
   const canSave = validDate && actualMs !== null
+  // The same ranking the timer's project field uses, so `hw`, `HW 2` and a
+  // typo offer the same project here as they do there.
+  const matches = rankProjects(form.project, projectNames, 4)
 
   function set<K extends keyof FormState>(key: K, value: string): void {
-    setForm({ ...form, [key]: value })
+    setForm((current) => ({ ...current, [key]: value }))
+  }
+
+  function chooseProject(name: string): void {
+    set('project', name)
+    setProjectOpen(false)
   }
 
   return (
@@ -1127,14 +1163,84 @@ function SessionForm({
       <p className="muted">
         {row
           ? 'Changes apply to the row in place, and can be undone.'
-          : 'For work that was not timed — a meeting entered afterwards. Recorded as a manual session, which time-of-day analytics will treat as approximate.'}
+          : 'For work that was not timed, such as a meeting entered afterwards. Saved as a manual session; time-of-day charts leave it out, since its times are from memory.'}
       </p>
 
+      {/* Two fixed columns rather than auto-fit. Auto-fit packed four
+          label-and-field pairs onto one line and each field kept the
+          browser's default width, so every label sat inside the field to its
+          left and Unit ran off the card. Pairs that belong together - planned
+          with actual, quantity with unit - share a line. */}
       <div className="editor__grid">
         <label className="field field--inline">
           <span>Date</span>
-          <input value={form.session_date} onChange={(e) => set('session_date', e.target.value)} />
+          {/* The same native picker as the filters: it shows MM/DD/YYYY and
+              stores the ISO date, which is what the column holds. */}
+          <input
+            type="date"
+            value={form.session_date}
+            onChange={(e) => set('session_date', e.target.value)}
+          />
         </label>
+        <div className="field field--inline">
+          <span>Project</span>
+          <span className="project-box">
+            <input
+              value={form.project}
+              placeholder="HW"
+              autoComplete="off"
+              spellCheck={false}
+              aria-label="Project"
+              onChange={(e) => {
+                set('project', e.target.value)
+                setProjectOpen(true)
+                setHighlight(0)
+              }}
+              onFocus={(e) => {
+                e.currentTarget.select()
+                setProjectOpen(true)
+                setHighlight(0)
+              }}
+              // Deferred so a mousedown on a suggestion lands before the list
+              // closes under it.
+              onBlur={() => window.setTimeout(() => setProjectOpen(false), 120)}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setProjectOpen(true)
+                  setHighlight((h) => Math.min(h + 1, matches.length - 1))
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setHighlight((h) => Math.max(h - 1, 0))
+                } else if (e.key === 'Escape') {
+                  setProjectOpen(false)
+                } else if (e.key === 'Enter' && projectOpen && matches[highlight]) {
+                  e.preventDefault()
+                  chooseProject(matches[highlight].name)
+                }
+              }}
+            />
+            {projectOpen && matches.length > 0 && (
+              <ul className="project-menu project-menu--form">
+                {matches.map((match, index) => (
+                  <li key={match.name}>
+                    <button
+                      type="button"
+                      className={index === highlight ? 'is-active' : ''}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        chooseProject(match.name)
+                      }}
+                      onMouseEnter={() => setHighlight(index)}
+                    >
+                      {match.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </span>
+        </div>
         <label className="field field--inline field--wide">
           <span>Task</span>
           <input value={form.task} onChange={(e) => set('task', e.target.value)} />
@@ -1160,6 +1266,7 @@ function SessionForm({
           <input
             value={form.work_quantity}
             placeholder="340"
+            inputMode="decimal"
             onChange={(e) => {
               if (/^\d{0,7}(\.\d{0,2})?$/.test(e.target.value)) set('work_quantity', e.target.value)
             }}
@@ -1170,13 +1277,25 @@ function SessionForm({
           <input
             value={form.work_unit}
             placeholder="words"
-            onChange={(e) => set('work_unit', e.target.value.replace(/\d/g, ''))}
+            onChange={(e) => set('work_unit', e.target.value.replace(/[0-9]/g, ''))}
           />
         </label>
         <label className="field field--inline field--wide">
           <span>Notes</span>
           <input value={form.notes} onChange={(e) => set('notes', e.target.value)} />
         </label>
+        {row && (
+          <label className="field field--inline">
+            <span>Source</span>
+            <select value={form.source} onChange={(e) => set('source', e.target.value)}>
+              {SOURCE_CHOICES.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       <div className="row">
@@ -1186,6 +1305,9 @@ function SessionForm({
           onClick={() =>
             onSave({
               session_date: form.session_date,
+              // Sent as the typed name; main resolves it against the existing
+              // projects, so it never starts a duplicate of one.
+              project: form.project.trim() === '' ? null : form.project.trim(),
               task: form.task.trim() === '' ? null : form.task.trim(),
               // Planned falls back to actual: a session entered from memory was
               // never planned, and a null there would break duration maths.
@@ -1194,7 +1316,7 @@ function SessionForm({
               work_quantity: form.work_quantity === '' ? null : Number(form.work_quantity),
               work_unit: form.work_unit.trim() === '' ? null : form.work_unit.trim(),
               notes: form.notes.trim() === '' ? null : form.notes.trim(),
-              ...(row ? {} : { source: 'manual' })
+              ...(row ? { source: form.source } : {})
             })
           }
         >

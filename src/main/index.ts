@@ -19,6 +19,7 @@ import { TimerEngine, type PaceConfig, type PaceEvent } from './timer'
 import { closeDatabase, healthCheck, openDatabase } from './db'
 import {
   deleteSession,
+  withProject,
   listProjects,
   allProjectNames,
   lastProjectName,
@@ -31,7 +32,8 @@ import {
 import { importRows, importedSessionCount } from './db/import'
 import { analytics } from './db/analytics'
 import { createSession, historyState, redo, removeSession, undo, updateSession } from './db/history'
-import type { SessionPatch, SessionQuery } from './db/sessions'
+import type { FormPatch, SessionQuery } from './db/sessions'
+
 import { readImportRows, summarize } from './import/csv'
 import {
   backupDirectory,
@@ -553,11 +555,11 @@ function registerIpc(): void {
 
   // Edits from the Data tab go through the history module rather than the
   // repository, so every one of them is undoable by construction.
-  ipcMain.handle('sessions:create', (_event, patch: SessionPatch) =>
-    createSession(patch, 'add session')
+  ipcMain.handle('sessions:create', (_event, patch: FormPatch) =>
+    createSession(withProject(patch), 'add session')
   )
-  ipcMain.handle('sessions:update', (_event, id: number, patch: SessionPatch) =>
-    updateSession(id, patch, 'edit session')
+  ipcMain.handle('sessions:update', (_event, id: number, patch: FormPatch) =>
+    updateSession(id, withProject(patch), 'edit session')
   )
   ipcMain.handle('sessions:remove', (_event, id: number) => removeSession(id, 'delete session'))
   ipcMain.handle('history:state', () => historyState())

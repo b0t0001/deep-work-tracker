@@ -2097,16 +2097,64 @@ code {
   margin: 0 0 4px;
 }
 
+/* Two fixed columns. `auto-fit` at 190px put four label-and-field pairs on
+   one line, and each input kept the browser's intrinsic width (~170px) in a
+   cell narrower than that, so every label landed inside the field to its left
+   and Unit ran past the card's edge. Fields now fill their cell and may shrink
+   below their intrinsic width, which is what `min-width: 0` permits. */
 .editor__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 12px 18px;
-  margin-bottom: 4px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+  margin-bottom: 14px;
 }
 
 .editor .field--inline {
-  grid-template-columns: 76px 1fr;
+  grid-template-columns: 76px minmax(0, 1fr);
   margin-bottom: 0;
+}
+
+.editor .field input,
+.editor .field select,
+.editor .project-box {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.editor .field select {
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+/* The native calendar glyph is painted for a light page otherwise - black on
+   near-black, as the filter row found. */
+.editor .field input[type='date'] {
+  color-scheme: dark;
+}
+
+/* The timer's menu centres under a centred field; here the field is
+   left-aligned, so the list hangs from its left edge at the field's width. */
+.project-menu--form {
+  left: 0;
+  width: 100%;
+  max-width: none;
+  transform: none;
+}
+
+.project-menu--form button {
+  font-size: 13px;
+}
+
+@media (max-width: 560px) {
+  .editor__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .editor .field--wide {

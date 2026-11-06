@@ -48,6 +48,24 @@ export const SESSION_COLUMNS = [
 export type SessionPatch = Partial<Omit<SessionRow, 'id'>>
 
 /**
+ * What the Data tab's form sends: a session patch, plus the project as the
+ * name the user typed.
+ *
+ * The name is resolved here, at write time, through `findOrCreateProject` -
+ * the same path the timer uses - so `hw` typed in the form files under `HW`
+ * rather than starting a second project, and a name only becomes a row when a
+ * session is actually saved under it. `null` clears the project; a missing key
+ * leaves it alone.
+ */
+export type FormPatch = SessionPatch & { project?: string | null }
+
+export function withProject(patch: FormPatch): SessionPatch {
+  const { project, ...rest } = patch
+  if (project === undefined) return rest
+  return { ...rest, project_id: project === null ? null : findOrCreateProject(project) }
+}
+
+/**
  * What a newly written row says about where it came from.
  *
  * An unpackaged build - `npm run dev`, the shoot harness, every script that
