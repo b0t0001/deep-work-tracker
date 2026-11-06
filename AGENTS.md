@@ -649,8 +649,19 @@ Analytics tab:
    `calendarDays`, plus `streaks()` and `weekOverWeek()` with today's local
    date. Averages run over calendar days in range, not active days.
 4. Then the four charts and two heatmaps.
-5. The Analytics tab needs `.panel--wide`, as the Data tab does - `.panel` caps
-   at 900px, a reading width, and the charts are cramped inside it.
+5. Width: `.panel` used to cap at 900px and `.panel--wide` at 1500px. Both
+   caps are gone - the user asked for every tab to use the window, and the
+   reading measure now sits on paragraphs instead. See **The Analytics tab**
+   in `CLAUDE.md`.
+6. Every panel carries its own range control and there is no central one.
+   `scripts/ranges-check.ts` is the check that matters for it: the renderer
+   re-totals three aggregates that SQL also totals, and the real-data half
+   asserts the two agree to the penny. Run it with a **copy** of a database:
+
+   ```
+   DWT_USERDATA=<tmp> npx esbuild scripts/ranges-check.ts --bundle      --platform=node --format=esm --alias:electron=./scripts/electron-stub.ts      --external:node:sqlite --outfile=<tmp>/r.mjs
+   DWT_USERDATA=<tmp> node <tmp>/r.mjs --db <copy-of-deepwork.db>
+   ```
 
 **Then screenshot it against the real database.** The harness is
 `scripts/shoot.ts`, and `CLAUDE.md` documents the pattern. This is not

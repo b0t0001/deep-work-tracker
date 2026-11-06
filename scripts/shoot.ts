@@ -369,6 +369,68 @@ const SHOTS: Shot[] = [
     `,
     note: 'Data filtered to Unlabeled: the two rows with no project, named rather than blank.'
   },
+  /*
+   * The same four tabs at two widths, which is the only way to see item 29's
+   * complaint: "expanding the settings window should resize all the
+   * information on all the tabs. this doesn't happen right now". 1150 is the
+   * width the user works at and 1900 is a full screen - at 1900 the old
+   * `.panel` cap left a quarter of the window empty on every tab, and no
+   * single-width shot shows that, because each one looks fine on its own.
+   */
+  {
+    id: 'wide-settings-1150',
+    width: 1150,
+    height: 1000,
+    route: '/dashboard',
+    note: 'Settings at the width the user works at: two columns.'
+  },
+  {
+    id: 'wide-settings-1900',
+    width: 1900,
+    height: 1000,
+    route: '/dashboard',
+    note: 'Settings at full screen. The groups take the width instead of a 900px strip.'
+  },
+  {
+    id: 'wide-data-1900',
+    width: 1900,
+    height: 900,
+    route: '/dashboard',
+    drive: `click('.tabs .tab:nth-child(2)'); await wait(2500);`,
+    note: 'Data at full screen: the table spans the window rather than stopping at 1500px.'
+  },
+  {
+    id: 'wide-import-1900',
+    width: 1900,
+    height: 900,
+    route: '/dashboard',
+    drive: `click('.tabs .tab:nth-child(4)'); await wait(600);`,
+    note: 'Import at full screen, with the prose still at a reading measure.'
+  },
+  {
+    id: 'wide-analytics-1150',
+    width: 1150,
+    height: 3000,
+    route: '/dashboard',
+    drive: `click('.tabs .tab:nth-child(3)'); await wait(2800);`,
+    note: 'The whole Analytics tab at 1150: four section headings, a range on every panel.'
+  },
+  {
+    id: 'wide-analytics-1900',
+    width: 1900,
+    height: 2600,
+    route: '/dashboard',
+    drive: `click('.tabs .tab:nth-child(3)'); await wait(2800);`,
+    note: 'Analytics at full screen: three columns of half-width panels.'
+  },
+  {
+    id: 'wide-analytics-head-1900',
+    width: 1900,
+    height: 620,
+    route: '/dashboard',
+    drive: `click('.tabs .tab:nth-child(3)'); await wait(2800);`,
+    note: 'The header and the figure row: Modify panels at the right edge, a range on two tiles.'
+  },
   {
     id: 'dash-analytics-tall',
     width: 1280,
@@ -414,6 +476,14 @@ function registerHandlers(): void {
     // database.
     'analytics:get': () => (failAnalytics ? null : analytics()),
     'backup:status': () => backupStatus(),
+    // Both were missing and both rejected on every dashboard shot. Harmless -
+    // each is caught in the renderer by design - but a harness that prints two
+    // stack traces per run teaches you to ignore its output, which is the one
+    // thing a screenshot harness must not do. `app:preview` says this is not
+    // the preview profile; `layout:get` says nothing is stored, so the shots
+    // show the default arrangement.
+    'app:preview': () => null,
+    'layout:get': () => null,
     'import:existingCount': () => 2363,
     'shortcuts:get': () => ({
       pause: 'CommandOrControl+Shift+Space',
@@ -493,6 +563,12 @@ function registerHandlers(): void {
   for (const channel of inert) {
     ipcMain.handle(channel, () => null)
   }
+
+  // Echoed rather than inert. `useLayout` adopts whatever the write returns, so
+  // answering null would snap the tab back to the default layout the moment a
+  // drive script changed a range or dragged a panel - a shot of the thing not
+  // working, taken deliberately.
+  ipcMain.handle('layout:set', (_event, layout) => layout)
 }
 
 /**

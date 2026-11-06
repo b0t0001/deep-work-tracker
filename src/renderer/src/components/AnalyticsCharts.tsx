@@ -10,6 +10,7 @@
  * reliably resolved, while a CSS declaration always is.
  */
 import { useState } from 'react'
+import { RangePicker } from './RangePicker'
 import {
   Area,
   AreaChart,
@@ -28,7 +29,7 @@ import {
   ZAxis
 } from 'recharts'
 import { formatDate, formatMonthDay } from '@shared/dates'
-import { WINDOWS, windowDef, type WindowId } from '@shared/windows'
+import { windowDef, type WindowId } from '@shared/windows'
 import { plannedFit } from '@shared/analytics'
 import type {
   DayTotal,
@@ -346,13 +347,25 @@ interface Point {
 
 export function HoursOverTime({
   daily,
-  accent
+  accent,
+  range,
+  onRange
 }: {
   daily: DayTotal[]
   accent: string
+  /*
+   * The range arrives as a prop rather than being held here.
+   *
+   * This panel had the tab's first range control and kept it in its own
+   * `useState`, which meant it was the one panel whose setting did not
+   * survive being looked at twice. Now that every panel has one they are all
+   * stored in the layout together, so this one is lifted for the same reason
+   * the rest exist.
+   */
+  range: WindowId
+  onRange: (next: WindowId) => void
 }): React.JSX.Element {
-  const [span, setSpan] = useState<WindowId>('8w')
-  const chosen = windowDef(span)
+  const chosen = windowDef(range)
   const byDay = chosen.days !== null && chosen.days <= DAILY_LIMIT_DAYS
   const points = seriesFor(daily, chosen.days, byDay)
   const unit = byDay ? 'day' : 'week'
@@ -369,21 +382,7 @@ export function HoursOverTime({
       }
       aside={
         daily.length > 0 ? (
-          <label className="ac__note" style={{ margin: 0 }}>
-            Show{' '}
-            <select
-              className="ac__unit"
-              value={span}
-              onChange={(event) => setSpan(event.target.value as WindowId)}
-              aria-label="How far back to show"
-            >
-              {WINDOWS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <RangePicker value={range} onChange={onRange} label="hours over time" />
         ) : undefined
       }
       note={
@@ -616,16 +615,19 @@ const PROJECT_LIMIT = 10
  */
 export function ByProject({
   byProject,
-  accent
+  accent,
+  control
 }: {
   byProject: ProjectTotal[]
   accent: string
+  /** This panel's range control, placed in its head beside the title. */
+  control?: React.ReactNode
 }): React.JSX.Element {
   const bars = projectBars(byProject)
   const height = Math.max(160, bars.length * 26 + 32)
 
   return (
-    <Frame title="Hours by project">
+    <Frame title="Hours by project" aside={control}>
       {bars.length === 0 ? (
         <Empty height={160}>No projects with recorded time yet.</Empty>
       ) : (
@@ -781,10 +783,12 @@ const MIN_RUNS = 8
 
 export function PlannedVsActual({
   data,
-  accent
+  accent,
+  control
 }: {
   data: PlannedVsActualPoint[]
   accent: string
+  control?: React.ReactNode
 }): React.JSX.Element {
   const all = ratioBars(data)
   const bars = all.filter((b) => b.sessions >= MIN_RUNS)
@@ -803,6 +807,7 @@ export function PlannedVsActual({
     <Frame
       title="Are your timers the right length?"
       sub="share of each setting actually run"
+      aside={control}
       note={
         share === null ? undefined : (
           <>
@@ -986,11 +991,13 @@ interface RateDot {
 export function RateTrend({
   ratesByUnit,
   units,
-  accent
+  accent,
+  control
 }: {
   ratesByUnit: Record<string, RatePoint[]>
   units: string[]
   accent: string
+  control?: React.ReactNode
 }): React.JSX.Element {
   const [chosen, setChosen] = useState('')
   // Derived rather than stored in an effect, so a unit that disappears from the
@@ -1034,24 +1041,32 @@ export function RateTrend({
           ? 'Work rate over time'
           : `${unit.charAt(0).toUpperCase()}${unit.slice(1)}s per minute`
       }
+      /* Two controls, and they are different kinds of thing: the unit decides
+         which quantity is being measured and the range decides over what
+         period. Rates are never comparable across units, so the unit picker
+         keeps its label and its border - it is a statement about what the
+         axis means, not a filter. */
       aside={
-        units.length > 0 ? (
-          <label className="ac__note" style={{ margin: 0 }}>
-            Unit{' '}
-            <select
-              className="ac__unit"
-              value={unit}
-              onChange={(e) => setChosen(e.target.value)}
-              aria-label="Unit to trend"
-            >
-              {units.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : undefined
+        <>
+          {units.length > 0 ? (
+            <label className="ac__note" style={{ margin: 0 }}>
+              Unit{' '}
+              <select
+                className="ac__unit"
+                value={unit}
+                onChange={(e) => setChosen(e.target.value)}
+                aria-label="Unit to trend"
+              >
+                {units.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {control}
+        </>
       }
       note={
         unit === '' || mean === null
@@ -1159,10 +1174,12 @@ interface PaceDot {
  */
 export function PaceAccuracy({
   pace,
-  accent
+  accent,
+  control
 }: {
   pace: PacePoint[]
   accent: string
+  control?: React.ReactNode
 }): React.JSX.Element {
   const dots: PaceDot[] = pace.map((p) => ({
     day: dayNumber(p.date),
@@ -1195,6 +1212,7 @@ export function PaceAccuracy({
            feature to be switched on. A sub implying patience would fix it
            would be a small lie. */
         sub={dots.length === 0 ? 'not switched on yet' : 'ratio of actual to target'}
+        aside={control}
       >
         <EmptyState
           title={
@@ -1251,6 +1269,7 @@ export function PaceAccuracy({
     <Frame
       title="Pace against target"
       sub="ratio of actual to target"
+      aside={control}
       note={`${count(dots.length, 'paced session')}, ${met} at or above target. Mean ${round(mean, 2)}× what was aimed at; the dashed line at 1.0 is where a prediction landed exactly. The ratio is unit-free, so sessions counted in words and in questions belong on one axis — the absolute amounts never would.`}
     >
       <ResponsiveContainer width="100%" height={220}>

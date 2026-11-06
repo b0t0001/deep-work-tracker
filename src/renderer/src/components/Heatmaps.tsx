@@ -186,10 +186,13 @@ function monthYear(date: string): string {
 
 export function CalendarHeatmap({
   daily,
-  accent
+  accent,
+  control
 }: {
   daily: DayTotal[]
   accent: string
+  /** This panel's range control, placed in its head beside the pager. */
+  control?: React.ReactNode
 }): React.JSX.Element {
   /** Windows back from the most recent one. Zero is the default view. */
   const [page, setPage] = useState(0)
@@ -317,6 +320,10 @@ export function CalendarHeatmap({
           }}
         >
           <Legend accent={accent} />
+          {/* Before the pager, because the range decides what there is to page
+              through: narrowing to 12 months is why the pager then has one
+              window rather than four. */}
+          {control}
           {pagerButton('Earlier', '‹', 1, safePage >= maxPage)}
           {pagerButton('Later', '›', -1, safePage <= 0)}
         </div>
@@ -406,7 +413,8 @@ export function TimeOfDayHeatmap({
   timedSessions,
   timedFirst,
   timedLast,
-  accent
+  accent,
+  control
 }: {
   byHour: HourTotal[]
   timedSessions: number
@@ -414,6 +422,7 @@ export function TimeOfDayHeatmap({
   timedFirst: string | null
   timedLast: string | null
   accent: string
+  control?: React.ReactNode
 }): React.JSX.Element {
   const hours = useMemo(() => {
     const found = new Map(byHour.map((h) => [h.hour, h]))
@@ -477,6 +486,12 @@ export function TimeOfDayHeatmap({
             Time of day
             <span className="an-panel__sub">not enough data yet</span>
           </h4>
+          {/* Kept in the empty state too. The range is why this panel is empty
+              as often as not - app-timed rows are recent and thin - so being
+              able to widen it from here is the first thing to try, and a
+              control that appears only once a panel has data is a control
+              nobody finds. */}
+          {control}
         </div>
 
         <div className="an-track">
@@ -528,7 +543,10 @@ export function TimeOfDayHeatmap({
             {plural(timedSessions, 'session')} this app timed itself
           </span>
         </h4>
-        <Legend accent={accent} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Legend accent={accent} />
+          {control}
+        </div>
       </div>
       <svg
         width={width}
