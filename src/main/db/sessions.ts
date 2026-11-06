@@ -74,25 +74,24 @@ export function withProject(patch: FormPatch): SessionPatch {
 /**
  * What a newly written row says about where it came from.
  *
- * An unpackaged build - `npm run dev`, the shoot harness, every script that
- * bundles main-process code against the electron stub - is by definition
- * someone testing, so everything it writes is `test` whatever it was meant to
- * be. That is automatic rather than opt-in on purpose: five rows written by
- * sessions had to be found and deleted from the user's history by hand, and a
- * marker that relies on the writer remembering it would not have marked them.
+ * An unpackaged build - `npm run dev`, `npm run preview`, the shoot harness,
+ * every script that bundles main-process code against the electron stub - is
+ * by definition someone testing, so everything it writes is `test` whatever it
+ * was meant to be. That is automatic rather than opt-in on purpose: five rows
+ * written by sessions had to be found and deleted from the user's history by
+ * hand, and a marker that relies on the writer remembering it would not have
+ * marked them.
  *
- * **The preview is the exception.** `npm run preview` runs against a copy of
- * the real history, and what the user does there is their real work: it is
- * copied into the real history when the preview closes (`scripts/preview-sync.ts`).
- * Marking those rows `test` would show a TEST badge on a real session and keep
- * it out of the preview's own analytics, so a preview writes what was meant.
+ * The preview has no exception. For one day it wrote the source that was meant
+ * and copied its rows into the real history on close; the user rejected that
+ * as an unreleased build writing to production data (11/06/2026). A preview
+ * row is TEST, and is deleted with the preview's copy when it closes.
  *
  * Only rows coming into existence go through this. Undo, redo and restore put
  * back a row that already had a source, and keep it.
  */
 export function sourceForNewRow(intended: 'app' | 'manual'): 'app' | 'manual' | 'test' {
-  if (app.isPackaged) return intended
-  return process.env['DWT_PROFILE'] === 'preview' ? intended : 'test'
+  return app.isPackaged ? intended : 'test'
 }
 
 const iso = (epochMs: number): string => new Date(epochMs).toISOString()

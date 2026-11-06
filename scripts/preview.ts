@@ -1,82 +1,83 @@
 /**
- * Runs the app against a fresh copy of the real history.
+ * Runs the current source against a read-only copy of the real history.
  *
  * Run:
  *   npm run preview
  *
- * ## Why a third profile
+ * ## Read-only, and thrown away
  *
- * The installed app has the real history; `npm run dev` has a handful of
- * throwaway rows. Neither is what you want for testing the Analytics tab: the
- * dev profile cannot show a trend, a streak or a chart worth looking at, and
- * the installed one is the data that must not be experimented on.
+ * The preview exists to try a change on real data before it is installed. It
+ * takes a copy of the real history, and **nothing ever goes back**: rows
+ * recorded in it are marked `test` like every unpackaged build's
+ * (`sourceForNewRow`), and when the preview closes its copy is deleted.
  *
- * Copying the real history into the **dev** profile is the obvious fix and
- * the wrong one - it is shared between sessions, so one session's snapshot
- * silently becomes another session's test data. That happened once already.
- * Hence `deep-work-tracker-preview`, which belongs to this command and is
- * rebuilt from scratch every time it runs.
+ * For one day (11/06/2026) it did the opposite - it copied what was done in it
+ * back into the real history on close, after the user logged real sessions in
+ * a preview and nearly lost them. The user rejected that as an untested build
+ * writing to production data, which it was. Real work is recorded in the
+ * installed app; the banner in the preview says so.
  *
- * ## The snapshot is taken with VACUUM INTO, not copied
+ * ## The copy is of the real file, not the one the sandbox shows
+ *
+ * The Claude desktop app is MSIX-packaged, and processes started from its
+ * terminal have `%APPDATA%` redirected into the package's LocalCache. Read
+ * from there, "the real database" is a stale hidden copy - which split the
+ * user's data in two for seven weeks (CLAUDE.md, "Claude's sandbox redirects
+ * AppData"). So when this script finds itself inside that sandbox, the
+ * snapshot is taken by a copy of itself started through WMI, outside it,
+ * reading the real file. The preview profile itself can live in the
+ * redirected view: it is disposable, and the preview app started from here
+ * sees the same view.
+ *
+ * ## The snapshot is taken with VACUUM INTO, read-only
  *
  * The installed app may be running, and a committed row lives in
- * `deepwork.db-wal` until a checkpoint moves it. Copying `.db`, `-wal` and
- * `-shm` as three separate files while a writer is active can therefore tear:
- * the three are read at three different instants and need not agree.
- *
- * `VACUUM INTO` writes one consistent file from a single read transaction,
- * WAL contents included. The source is opened **read-only**, so this cannot
- * write to the real history even if it is wrong.
- *
- * ## What you do in the preview is saved
- *
- * The preview used to be disposable: rows created in it were marked `test`
- * and thrown away by the next run. On 2026-11-06 the user logged three real
- * sessions in it, and they survived only because someone noticed. A window
- * that looks exactly like the real app and quietly discards what is typed into
- * it is a data-loss trap whatever its banner says.
- *
- * So the snapshot is kept as `baseline.db`, and when the preview closes its
- * changes are copied into the real history by a three-way comparison against
- * it - see `scripts/preview-sync.ts` for the rules. If the preview was killed
- * rather than closed, the next run does the copy before taking a new
- * snapshot. A copy of the real database is taken before anything is written,
- * and the preview's own files are kept under
- * `Documents/Deep Work Tracker/Recovery/` whenever they held a change.
- *
- * It refuses to run while a preview is still open: copying from a database
- * that is still being written, then replacing it under the running app, would
- * lose whatever came after.
+ * `deepwork.db-wal` until a checkpoint moves it, so copying `.db`, `-wal` and
+ * `-shm` as three files can tear. `VACUUM INTO` writes one consistent file
+ * from a single read transaction, and the source is opened **read-only**, so
+ * this cannot write to the real history even if it is wrong. Counted and
+ * `quick_check`ed on both sides before anything is replaced.
  */
 import { DatabaseSync } from 'node:sqlite'
 import { spawn, spawnSync } from 'node:child_process'
 import {
   closeSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   openSync,
+  readFileSync,
   readdirSync,
-  rmSync,
   renameSync,
-  rmdirSync,
-  writeFileSync,
-  statSync
+  rmSync,
+  statSync,
+  writeFileSync
 } from 'node:fs'
-import { join } from 'node:path'
-import { describe, syncPreview, SyncRefused, type SyncReport } from './preview-sync'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+
+// Helper mode, run outside the sandbox by snapshotFromOutside(). It is handed
+// every path rather than reading APPDATA, because a process started through
+// WMI is not guaranteed the same environment as the one that asked for it.
+// Hoisted functions only below this point until the guard returns.
+if (process.argv[2] === '--snapshot-helper') {
+  const [source, out, result] = process.argv.slice(3)
+  const outcome = snapshot(source, out)
+  writeFileSync(`${result}.part`, JSON.stringify(outcome))
+  renameSync(`${result}.part`, result)
+  process.exit(0)
+}
 
 const appData = process.env['APPDATA']
-if (appData === undefined || appData === '') {
+const localAppData = process.env['LOCALAPPDATA']
+if (!appData || !localAppData) {
   console.error('APPDATA is not set; this script is Windows-only.')
   process.exit(1)
 }
 
-const realProfile = join(appData, 'deep-work-tracker')
+const realDb = join(appData, 'deep-work-tracker', 'deepwork.db')
 const previewProfile = join(appData, 'deep-work-tracker-preview')
-const realDb = join(realProfile, 'deepwork.db')
 const previewDb = join(previewProfile, 'deepwork.db')
-const baselineDb = join(previewProfile, 'baseline.db')
+const marker = join(previewProfile, 'preview-snapshot.json')
 
 function die(message: string): never {
   console.error('')
@@ -84,55 +85,14 @@ function die(message: string): never {
   process.exit(1)
 }
 
-if (!existsSync(realDb)) {
-  die(`No database at ${realDb}. Nothing to preview.`)
-}
-
-/**
- * Retries a read of the real database before giving up on it.
- *
- * On 2026-11-05 the first read failed with `database disk image is malformed`
- * 28 seconds after the installed app had quit, then succeeded on byte-identical
- * files every time after - five in a row on the live file, and on copies. The
- * file was never damaged; the read landed while the closing app was still
- * letting go of it. Printed as a crash, though, a transient read error names
- * the user's real history as corrupt, which is the one thing this command must
- * never appear to do. So it is retried, and if it still fails it is reported as
- * what it is: a read that failed, against a file this command never writes.
- */
-const ATTEMPTS = 4
-const RETRY_MS = 1500
-
 function pause(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
 
-function readReal<T>(what: string, read: () => T): T {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return read()
-    } catch (error) {
-      if (attempt >= ATTEMPTS) {
-        die(
-          `Could not ${what} after ${ATTEMPTS} tries: ${String(error)}\n\n` +
-            'Nothing was written to your real history by this step: the snapshot only ever ' +
-            'opens it read-only. If the installed app just closed, wait a minute and run it again. ' +
-            'If it keeps failing, open the installed app - it checks the database on ' +
-            'startup and will say if the file itself is damaged.'
-        )
-      }
-      console.log(`  (could not ${what}, retrying: ${String(error)})`)
-      pause(RETRY_MS)
-    }
-  }
-}
-
-/** Counted before and after, so a torn or partial snapshot cannot pass. */
 function sessionCount(file: string): number {
   const db = new DatabaseSync(file, { readOnly: true })
   try {
-    const row = db.prepare('select count(*) n from sessions').get() as { n: number }
-    return row.n
+    return (db.prepare('select count(*) n from sessions').get() as { n: number }).n
   } finally {
     db.close()
   }
@@ -148,26 +108,133 @@ function integrity(file: string): string {
   }
 }
 
-/**
- * What "nothing wrote to it" is checked against.
- *
- * Opening a WAL database creates an empty `-wal` beside it if none is there -
- * even read-only - so the `-wal` appearing at 0 bytes is this command's own
- * open, not a write. Comparing existence would refuse every run made after the
- * installed app had closed cleanly, which is exactly when it deletes its `-wal`.
- */
-function walState(): { mtimeMs: number; size: number } | null {
-  const wal = `${realDb}-wal`
-  if (!existsSync(wal)) return null
-  const s = statSync(wal)
-  return { mtimeMs: s.mtimeMs, size: s.size }
+interface SnapshotResult {
+  ok: boolean
+  problem?: string
+  sourceRows?: number
+  rows?: number
+  check?: string
+  untouched?: boolean
 }
 
 /**
- * Chromium holds `lockfile` in the profile open for as long as the app runs,
- * so opening it fails with EBUSY exactly while a preview is open. Verified
- * against the installed app and a running preview on 2026-11-06.
+ * Copies `source` into `out` with VACUUM INTO, read-only, and checks both.
+ *
+ * Retried: on 2026-11-05 a read landed while the installed app was still
+ * closing and reported `database disk image is malformed` on a file that was
+ * fine every time after. A transient failure must not read as a damaged
+ * history, and it must never be "fixed" by writing to the source.
  */
+function snapshot(source: string, out: string): SnapshotResult {
+  if (!existsSync(source)) return { ok: false, problem: `no database at ${source}` }
+  if (out.includes("'")) return { ok: false, problem: `refusing a path with a quote: ${out}` }
+  const before = statSync(source).mtimeMs
+  let lastError = ''
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      rmSync(out, { force: true })
+      const sourceRows = sessionCount(source)
+      const check = integrity(source)
+      if (check !== 'ok') throw new Error(`quick_check on the source reported: ${check}`)
+      const db = new DatabaseSync(source, { readOnly: true })
+      try {
+        db.exec(`VACUUM INTO '${out.split(String.fromCharCode(92)).join('/')}'`)
+      } finally {
+        db.close()
+      }
+      const rows = sessionCount(out)
+      const outCheck = integrity(out)
+      if (rows !== sourceRows)
+        throw new Error(`copy has ${rows} sessions, source has ${sourceRows}`)
+      if (outCheck !== 'ok') throw new Error(`quick_check on the copy reported: ${outCheck}`)
+      return {
+        ok: true,
+        sourceRows,
+        rows,
+        check: outCheck,
+        untouched: statSync(source).mtimeMs === before
+      }
+    } catch (error) {
+      lastError = String(error)
+      pause(1500)
+    }
+  }
+  rmSync(out, { force: true })
+  return { ok: false, problem: lastError }
+}
+
+/**
+ * Whether this process is inside the Claude app's package sandbox.
+ *
+ * Measured, not guessed: a file written to `%APPDATA%` either lands there or
+ * turns up under some package's LocalCache. Nothing about the environment
+ * says which, and getting it wrong means previewing a stale copy.
+ */
+function insideSandbox(): boolean {
+  const name = `.dwt-sandbox-probe-${process.pid}`
+  const probe = join(appData!, name)
+  try {
+    writeFileSync(probe, 'x')
+    const packages = join(localAppData!, 'Packages')
+    if (!existsSync(packages)) return false
+    return readdirSync(packages).some((pkg) =>
+      existsSync(join(packages, pkg, 'LocalCache', 'Roaming', name))
+    )
+  } catch {
+    return false
+  } finally {
+    rmSync(probe, { force: true })
+  }
+}
+
+/**
+ * Takes the snapshot from outside the sandbox: this same script, started
+ * through WMI (which runs outside any package), in `--snapshot-helper` mode.
+ * Both paths are in Temp, which the sandbox does not redirect.
+ */
+function snapshotFromOutside(out: string): SnapshotResult {
+  const result = join(tmpdir(), `dwt-preview-snapshot-${process.pid}.json`)
+  rmSync(result, { force: true })
+  const command = [
+    process.execPath,
+    resolve(process.argv[1]),
+    '--snapshot-helper',
+    realDb,
+    out,
+    result
+  ]
+    .map((part) => `"${part}"`)
+    .join(' ')
+  const ps =
+    `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ ` +
+    `CommandLine = '${command.replace(/'/g, "''")}'; CurrentDirectory = '${process.cwd().replace(/'/g, "''")}' }; ` +
+    `$r.ReturnValue`
+  const started = spawnSync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf8' })
+  if (started.stdout.trim() !== '0') {
+    return {
+      ok: false,
+      problem: `could not start the snapshot outside the sandbox: ${started.stdout}${started.stderr}`
+    }
+  }
+  for (let waited = 0; waited < 90_000; waited += 500) {
+    if (existsSync(result)) {
+      try {
+        const parsed = JSON.parse(readFileSync(result, 'utf8')) as SnapshotResult
+        rmSync(result, { force: true })
+        return parsed
+      } catch {
+        /* still being written */
+      }
+    }
+    pause(500)
+  }
+  return {
+    ok: false,
+    problem: 'the snapshot taken outside the sandbox did not finish within 90 seconds'
+  }
+}
+
+/** Chromium holds `lockfile` open in the profile for as long as the app runs. */
 function previewRunning(): boolean {
   const lock = join(previewProfile, 'lockfile')
   if (!existsSync(lock)) return false
@@ -175,253 +242,94 @@ function previewRunning(): boolean {
     closeSync(openSync(lock, 'r+'))
     return false
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    return code === 'EBUSY' || code === 'EPERM'
+    return (error as NodeJS.ErrnoException).code === 'EBUSY'
   }
 }
 
 /**
- * Where a preview's changes are kept: beside the backups, not in the preview
- * profile, because that profile is rebuilt by every run.
- *
- * The local Documents folder rather than whatever OneDrive redirected it to,
- * for the reason `defaultBackupDirectory` gives.
+ * Deletes the preview's copy and everything recorded in it. What was done in
+ * a preview is not kept anywhere - that is the point of it. `baseline.db` and
+ * `last-sync.json` are from the one day the preview copied back, removed if
+ * an old run left them.
  */
-function recoveryDir(): string {
-  const home = process.env['USERPROFILE'] ?? ''
-  const root = join(home, 'Documents', 'Deep Work Tracker', 'Recovery')
-  const now = new Date()
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  const stamp =
-    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
-    `-${pad(now.getHours())}${pad(now.getMinutes())}`
-  let dir = join(root, `preview-${stamp}`)
-  for (let n = 2; existsSync(dir); n++) dir = join(root, `preview-${stamp}-${n}`)
-  return dir
-}
-
-function copyDatabase(from: string, to: string): void {
-  for (const suffix of ['', '-wal', '-shm']) {
-    if (existsSync(`${from}${suffix}`)) copyFileSync(`${from}${suffix}`, `${to}${suffix}`)
+function discardPreview(): void {
+  for (const name of [
+    'deepwork.db',
+    'deepwork.db-wal',
+    'deepwork.db-shm',
+    'preview-snapshot.json',
+    'baseline.db',
+    'last-sync.json'
+  ]) {
+    rmSync(join(previewProfile, name), { force: true })
   }
 }
 
-/** Writes one consistent file from a closed database, WAL contents included. */
-function vacuumCopy(from: string, to: string): void {
-  if (to.includes("'")) die(`Refusing to build a SQL literal from a path with a quote: ${to}`)
-  rmSync(to, { force: true })
-  const db = new DatabaseSync(from, { readOnly: true })
-  try {
-    db.exec(`VACUUM INTO '${to.replace(/\\/g, '/')}'`)
-  } finally {
-    db.close()
-  }
-}
-
-/**
- * Copies what was done in the last preview into the real history.
- *
- * Run before every snapshot - which catches a preview that was killed rather
- * than closed - and after the preview this run launched exits. On any failure
- * it stops the command without touching the preview's database, so what was
- * entered there is still there to be copied once the problem is fixed.
- */
-function carryBack(): void {
-  if (!existsSync(previewDb)) return
-  const baseline = existsSync(baselineDb) ? baselineDb : null
-  const dir = recoveryDir()
-  mkdirSync(dir, { recursive: true })
-
-  let report: SyncReport
-  try {
-    report = syncPreview({
-      baseline,
-      preview: previewDb,
-      real: realDb,
-      backupTo: join(dir, 'real-before.db')
-    })
-  } catch (error) {
-    const why = error instanceof SyncRefused ? error.message : `Copying failed: ${String(error)}`
-    if (readdirSync(dir).length === 0) rmdirSync(dir)
-    die(
-      `${why}\n\nNothing from the preview was copied into your real history, and the preview's ` +
-        `database is untouched at ${previewDb}. Ask for help before running the preview again.`
-    )
-  }
-
-  const changed =
-    report.added.length + report.edited.length + report.deleted.length + report.conflicts.length > 0
-  const lines = describe(report)
-  console.log('\nFrom the last preview:')
-  for (const l of lines) console.log(`  ${l}`)
-
-  if (changed) {
-    // The preview's files as they were, beside the copy of the real database
-    // taken before writing: everything needed to undo this or recover a
-    // conflict lives in one folder.
-    copyDatabase(previewDb, join(dir, 'preview.db'))
-    if (baseline !== null) copyDatabase(baseline, join(dir, 'baseline.db'))
-    writeFileSync(join(dir, 'report.txt'), `${lines.join('\n')}\n`, 'utf8')
-    console.log(`  Kept in ${dir}`)
-  } else if (readdirSync(dir).length === 0) {
-    rmdirSync(dir)
-  }
-
-  // Only when something happened. The run after a clean close finds nothing
-  // new, and writing that would replace what the close saved before anyone
-  // had seen it in the banner.
-  if (changed) {
-    const record = {
-      at: new Date().toISOString(),
-      added: report.added.length,
-      edited: report.edited.length,
-      deleted: report.deleted.length,
-      conflicts: report.conflicts.length,
-      recoveryDir: dir
-    }
-    writeFileSync(
-      join(previewProfile, 'last-sync.json'),
-      `${JSON.stringify(record, null, 2)}\n`,
-      'utf8'
-    )
-  }
-
-  // The preview is now in step with the real history, so it becomes its own
-  // baseline. Relaunching the preview build by hand keeps its data, and a
-  // second copy finds nothing new rather than adding everything again.
-  vacuumCopy(previewDb, baselineDb)
-}
-
+// ---- The preview.
 if (previewRunning()) {
   die(
-    'A preview is still open. Close it first - from the tray, Quit - so what you did in it can ' +
-      'be saved to your real history before a new copy is taken.'
+    'A preview is already open. Close it first: starting another would replace its copy under it.'
   )
 }
 
-// Skipped by --snapshot-only, which checks this script against a stand-in
-// profile and must not write anywhere.
-if (!process.argv.includes('--snapshot-only')) carryBack()
+// Whatever a previous preview left - one that was killed rather than closed -
+// is discarded before anything else, so its rows cannot outlive it.
+mkdirSync(previewProfile, { recursive: true })
+discardPreview()
 
+const sandboxed = insideSandbox()
+const staging = join(tmpdir(), `dwt-preview-${process.pid}.db`)
 console.log('')
-console.log(`source  ${realDb}`)
+console.log(`source  ${realDb}${sandboxed ? '  (read from outside the Claude sandbox)' : ''}`)
 console.log(`preview ${previewProfile}`)
 
-// Recorded so the run can prove it did not touch the original. mtime rather
-// than a hash because the claim being made is "nothing wrote to it", and a
-// write that happened to produce identical bytes would still be a write.
-const before = { db: statSync(realDb).mtimeMs, wal: walState() }
-
-const sourceRows = readReal('count the sessions in the real database', () => sessionCount(realDb))
-// A failed check is retried like a failed read: copying from a file that does
-// not pass is never the right next step, and one bad reading is not proof.
-const sourceCheck = readReal('check the real database', () => {
-  const result = integrity(realDb)
-  if (result !== 'ok') throw new Error(`quick_check reported: ${result}`)
-  return result
-})
-console.log(
-  `\n${sourceRows.toLocaleString()} sessions in the real profile, quick_check ${sourceCheck}`
-)
-
-mkdirSync(previewProfile, { recursive: true })
-
-// Into a temp name first, so a failure part-way cannot leave a half-written
-// database sitting where the next launch would open it.
-const staging = join(previewProfile, `snapshot-${process.pid}.db`)
-rmSync(staging, { force: true })
-
-// The path is a SQL string literal here, so a quote in it would break out.
-// APPDATA containing a single quote is far-fetched; being wrong about that
-// silently would not be.
-if (staging.includes("'"))
-  die(`Refusing to build a SQL literal from a path with a quote: ${staging}`)
-readReal('snapshot the real database', () => {
-  rmSync(staging, { force: true })
-  const db = new DatabaseSync(realDb, { readOnly: true })
-  try {
-    db.exec(`VACUUM INTO '${staging.replace(/\\/g, '/')}'`)
-  } finally {
-    db.close()
-  }
-})
-
-const snapshotRows = sessionCount(staging)
-const snapshotOk = integrity(staging)
-console.log(`${snapshotRows.toLocaleString()} sessions in the snapshot, quick_check ${snapshotOk}`)
-
-// Asserted before anything is replaced. A snapshot that disagrees with its
-// source is the failure this whole approach exists to prevent, so it stops
-// here rather than launching against it.
-if (snapshotRows !== sourceRows) {
+const taken = sandboxed ? snapshotFromOutside(staging) : snapshot(realDb, staging)
+if (!taken.ok) {
   rmSync(staging, { force: true })
   die(
-    `Snapshot has ${snapshotRows} sessions but the source has ${sourceRows}. Not replacing anything.`
+    `Could not copy the real history: ${taken.problem}\n\n` +
+      'Nothing was written to it: the copy only ever opens it read-only. If the installed app ' +
+      'just closed, wait a minute and run this again.'
   )
 }
-if (snapshotOk !== 'ok') {
-  rmSync(staging, { force: true })
-  die(`Snapshot failed quick_check: ${snapshotOk}. Not replacing anything.`)
-}
+console.log(
+  `${taken.rows!.toLocaleString()} sessions copied, quick_check ${taken.check}, ` +
+    `real database ${taken.untouched ? 'untouched' : 'CHANGED during the copy (by the installed app?)'}`
+)
 
-// The old -wal and -shm have to go with the old database. Leaving a -wal from
-// a previous preview beside a new .db is the exact shape of the 2026-09-23
-// loss, with the halves mismatched instead of missing.
-for (const suffix of ['', '-wal', '-shm']) {
-  rmSync(`${previewDb}${suffix}`, { force: true })
-}
-// The baseline is what the preview's changes are measured against when it
-// closes. Copied while staging is a closed, freshly vacuumed file, so it is
-// byte-for-byte the database the preview starts from.
-rmSync(baselineDb, { force: true })
-copyFileSync(staging, baselineDb)
 renameSync(staging, previewDb)
-
-const takenAt = new Date().toISOString()
 writeFileSync(
-  join(previewProfile, 'preview-snapshot.json'),
-  `${JSON.stringify({ takenAt, sessions: snapshotRows, from: realDb }, null, 2)}\n`,
+  marker,
+  `${JSON.stringify({ takenAt: new Date().toISOString(), sessions: taken.rows }, null, 2)}\n`,
   'utf8'
 )
 
-const after = { db: statSync(realDb).mtimeMs, wal: walState() }
-const walUntouched =
-  before.wal === null
-    ? after.wal === null || after.wal.size === 0
-    : after.wal !== null &&
-      after.wal.mtimeMs === before.wal.mtimeMs &&
-      after.wal.size === before.wal.size
-const untouched = before.db === after.db && walUntouched
-console.log(`real profile ${untouched ? 'untouched' : 'CHANGED'} (.db and -wal mtimes compared)`)
-if (!untouched) {
-  die(
-    'The real database changed while snapshotting it. Refusing to go on; check what is writing to it.'
-  )
-}
-
-// For checking this script against a stand-in profile without rebuilding the
-// app or opening a window: point APPDATA (and USERPROFILE, where Recovery
-// goes) at folders holding copies. `--snapshot-only` never writes to the
-// stand-in real database; `--no-launch` also runs the copy-back first.
-if (process.argv.includes('--snapshot-only') || process.argv.includes('--no-launch')) {
-  console.log('not building or launching')
+if (process.argv.includes('--no-launch')) {
+  console.log('--no-launch: snapshot only')
   process.exit(0)
 }
 
 console.log('\nbuilding...')
 const built = spawnSync('npm', ['run', 'build'], { stdio: 'inherit', shell: true })
-if (built.status !== 0) die('Build failed; not launching.')
+if (built.status !== 0) {
+  discardPreview()
+  die('Build failed; not launching. The copy was discarded.')
+}
 
-console.log(`\nlaunching the preview build against ${snapshotRows.toLocaleString()} sessions`)
-console.log(
-  'What you add, edit or delete is copied into your real history when the preview closes.\n'
-)
-const child = spawn('npx', ['electron', join('out', 'main', 'index.js')], {
+console.log(`\nlaunching the preview against ${taken.rows!.toLocaleString()} sessions`)
+console.log('Read-only: anything recorded is marked TEST and deleted when the preview closes.\n')
+// A debugging port passes through, so a check can drive the preview the way
+// the user would; nothing else does.
+const passThrough = process.argv.filter((arg) => arg.startsWith('--remote-debugging-port='))
+const child = spawn('npx', ['electron', join('out', 'main', 'index.js'), ...passThrough], {
   stdio: 'inherit',
   shell: true,
   env: { ...process.env, DWT_PROFILE: 'preview' }
 })
 child.on('exit', (code) => {
-  carryBack()
+  // A moment for Chromium to let go of the files after the window closes.
+  for (let i = 0; i < 20 && previewRunning(); i++) pause(500)
+  discardPreview()
+  console.log('Preview closed; its copy and anything recorded in it were deleted.')
   process.exit(code ?? 0)
 })

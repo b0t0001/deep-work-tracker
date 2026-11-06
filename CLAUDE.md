@@ -559,9 +559,9 @@ Source filter option, and is excluded from every analytics query. Added
 2026-11-05 after five rows written by testing sessions had to be deleted from
 the real history.
 
-**The preview is the exception.** `npm run preview` writes the source that was
-meant, because what the user does there is real work that is copied into the
-real history - see "The preview saves what you enter".
+This includes `npm run preview`: what is recorded there is `test`, and is
+deleted with the preview's copy when it closes - see "The preview is
+read-only".
 
 `session_date` is the local calendar date, separate from `started_at`.
 Imported rows know their date but not their time of day, so without it the date
@@ -1122,54 +1122,44 @@ be run, tested against and killed without touching it. Verified: a dev run
 created `deep-work-tracker-dev\deepwork.db` and left the real file at the same
 row count and `quick_check: ok`.
 
-### The preview saves what you enter
+### The preview is read-only
 
 `npm run preview` is a third profile, `deep-work-tracker-preview`: the current
-source running against a fresh snapshot of the real history, for trying a
-change on real data before it is installed.
+source running against a fresh copy of the real history, for trying a change
+on real data before it is installed. **Nothing in it reaches the real
+history.** Anything recorded is `test` (the TEST badge), and when the preview
+closes its copy is deleted - and with it everything recorded there. The banner
+says all of that and points real work at the installed app.
 
-**It was built as disposable, and that was the bug.** Rows written there were
-marked `test` and the next run replaced the database, with a banner saying
-nothing was saved. On 2026-11-06 the user logged three real MATH 1410 sessions
-in it anyway - to them, a window showing their history *is* the app - and they
-survived only because they were noticed and copied across by hand. A build
-that looks exactly like the real one and quietly discards what is typed into
-it is a data-loss trap however clearly it is labeled. So it now keeps what it
-is given:
+**This was decided after the opposite was tried.** On 11/06/2026 the user
+logged real sessions in a preview and nearly lost them, and for one day the
+preview copied its changes back into the real history on close (a three-way
+merge against a baseline, with backups and refusal thresholds). The user
+rejected it: *"isn't using the real production data like really bad
+practice?"* It is - a snapshot of production for testing is normal; an
+unreleased build writing to it is not, and no amount of safeguarding makes
+the untested build trustworthy. The write-back code was deleted, not kept
+behind a flag.
 
-- **The snapshot is kept as `baseline.db`**, and when the preview closes its
-  changes are copied into the real history (`scripts/preview-sync.ts`). If it
-  was killed rather than closed, the next `npm run preview` copies first and
-  snapshots second.
-- **Three-way, against the baseline.** The installed app may be used while a
-  preview is open, so neither side overwrites the other. Added rows are
-  inserted under fresh ids. An edit or delete is applied only if the real row
-  still matches the baseline; if both sides changed it, nothing is chosen - it
-  is reported as a conflict and the preview's version is kept in Recovery.
-- **Projects and tags are compared by name.** The two databases create projects
-  independently, so the same id can mean different projects in each.
-- **Source moves only if it was changed in the preview**, and a baseline row
-  marked `test` is compared ignoring source - that is a preview from before
-  this change, whose rows were given their proper source when copied by hand.
-- **More than 50 edits and deletes, or 200 additions, is refused** rather than
-  applied. Nobody does that by hand; it is a restore or an import, and the
-  preview database is left untouched so refusing loses nothing.
-- **One transaction, a copy first, a checkpoint after.** The real database is
-  written with `VACUUM INTO` to `Documents/Deep Work Tracker/Recovery/preview-*`
-  before the first change, beside the preview's own files and a `report.txt`.
-- **It refuses to start while a preview is open.** Chromium holds `lockfile` in
-  the profile for as long as the app runs, so opening it fails with `EBUSY`.
-  Copying from a database still being written and then replacing it under the
-  running app would lose whatever came after.
-- **After a copy the preview becomes its own baseline**, so relaunching the
-  preview build by hand keeps its data and a second copy finds nothing new.
-- **The banner says what the last copy did**, from `last-sync.json`, which is
-  written only when something changed - otherwise the run after a clean close
-  would replace the record before anyone had seen it.
-
-`scripts/preview-sync-check.ts` exercises every rule above on throwaway copies;
-`node out/preview/index.js --no-launch` with `APPDATA` and `USERPROFILE`
-pointed at stand-in folders runs the whole script without opening a window.
+- **The copy is of the real file.** From inside the Claude sandbox the script
+  detects the redirect (a probe file written to `%APPDATA%` turns up under a
+  package's LocalCache) and takes the snapshot by starting a copy of itself
+  through WMI, outside the sandbox, in `--snapshot-helper` mode, handing it
+  every path and reading the result back through Temp, which is not
+  redirected. Outside the sandbox it reads directly.
+- **`VACUUM INTO`, read-only, counted and `quick_check`ed on both sides**,
+  retried on a transient failure. The source is never opened for writing.
+- **Discard first, discard last.** A copy left by a preview that was killed
+  rather than closed is deleted before the next snapshot, so its rows cannot
+  outlive it; a closed preview deletes its own.
+- **It refuses to start while a preview is open** (Chromium holds `lockfile`
+  in the profile; opening it fails with `EBUSY`), since replacing the copy
+  under a running app would corrupt it.
+- `--no-launch` takes the snapshot only; `--remote-debugging-port=N` is passed
+  through to Electron so a check can drive the preview. Verified 11/06: a
+  session created in the preview read back as `test` with the TEST badge,
+  closing deleted the copy, and the real history - read from outside the
+  sandbox - still had 2,478 sessions and no test rows.
 
 ### Claude's sandbox redirects AppData: the profile was split for seven weeks
 
@@ -1211,10 +1201,8 @@ copy taken from outside the sandbox read 2,478 sessions.
   what the user's app sees.
 - **Prove where a launch went**: the real `logs/errors.log` gets an
   `INFO Started` line and the redirected one does not.
-- **`npm run preview` is affected**: it snapshots and copies back through
-  `%APPDATA%`, so run from the shell it reads and writes the redirected copy.
-  Until it is routed outside the package, it must not be used for anything
-  meant to reach the real history.
+- **`npm run preview` handles this itself**: it detects the sandbox and takes
+  its snapshot from outside it. See "The preview is read-only".
 
 ### One process, and a busy timeout
 
@@ -1413,7 +1401,7 @@ npm run dev        # dev with hot reload
 npm run build      # typecheck + bundle all three processes
 npm run typecheck  # typecheck only (node + web configs)
 npm run dist       # package a Windows installer
-npm run preview    # current source against a snapshot of the real history; saves back on close
+npm run preview    # current source against a read-only copy of the real history; discarded on close
 npm run lint
 npm run format
 ```

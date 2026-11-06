@@ -10,10 +10,11 @@ import { formatDateTime } from '@shared/dates'
  * that the most recent session is missing, which is precisely the thing
  * nobody notices.
  *
- * It also says what happens to what is done here: since 2026-11-06 the
- * preview's changes are copied into the real history when it closes, and the
- * line under it reports what the last preview's copy did - including anything
- * it could not copy, which is the one case that needs the user to look.
+ * It also says what happens to what is done here, which is nothing: the
+ * preview is read-only toward the real history. Anything recorded is marked
+ * TEST and deleted with the copy when the preview closes. That is the rule the
+ * user chose on 11/06/2026, after a day in which the preview copied its rows
+ * back - an unreleased build writing to the real data.
  *
  * **Dashboard only.** The timer window is filmed for the timelapses the user
  * posts, so a banner there would end up in them; the dashboard carries the
@@ -45,45 +46,11 @@ const CSS = `
 .preview-flag__note {
   color: #c9a76a;
 }
-.preview-flag__last {
-  display: block;
-  margin-top: 2px;
-  color: #c9a76a;
-}
 `
 
 interface Snapshot {
   takenAt: string | null
   sessions: number | null
-  lastSync: {
-    at: string | null
-    added: number
-    edited: number
-    deleted: number
-    conflicts: number
-    recoveryDir: string | null
-  } | null
-}
-
-const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
-
-/** What the last preview's copy did, in one sentence, or null if it did nothing. */
-function lastSyncLine(last: Snapshot['lastSync']): string | null {
-  if (last === null) return null
-  const parts = [
-    last.added > 0 ? `${plural(last.added, 'session')} added` : null,
-    last.edited > 0 ? `${last.edited} edited` : null,
-    last.deleted > 0 ? `${last.deleted} deleted` : null
-  ].filter((part): part is string => part !== null)
-  const when = last.at === null ? '' : ` (${formatDateTime(last.at)})`
-  const saved =
-    parts.length === 0 ? null : `Last preview${when}: ${parts.join(', ')} in your real history.`
-  const kept =
-    last.conflicts === 0
-      ? null
-      : `${plural(last.conflicts, 'change')} not saved, because the desktop app changed the ` +
-        `same session too - kept in ${last.recoveryDir ?? 'Recovery'}.`
-  return [saved, kept].filter(Boolean).join(' ') || null
 }
 
 export function PreviewBanner(): React.JSX.Element | null {
@@ -107,7 +74,6 @@ export function PreviewBanner(): React.JSX.Element | null {
   if (snapshot === null) return null
 
   const taken = snapshot.takenAt === null ? null : formatDateTime(snapshot.takenAt)
-  const last = lastSyncLine(snapshot.lastSync)
 
   return (
     // The `<style>` sits outside the strip, not inside it: as a child its
@@ -119,9 +85,9 @@ export function PreviewBanner(): React.JSX.Element | null {
       <div className="preview-flag">
         <span className="preview-flag__tag">Preview</span>
         <span className="preview-flag__note">
-          {taken === null ? 'a copy of your data.' : `a copy of your data from ${taken}.`} What you
-          add or change here is saved to your real history when the preview closes.
-          {last !== null && <span className="preview-flag__last">{last}</span>}
+          {taken === null ? 'a copy of your data.' : `a copy of your data from ${taken}.`} Nothing
+          here is saved to your real history: anything you record is marked TEST and deleted when
+          the preview closes. Record real work in Deep Work Tracker.
         </span>
       </div>
     </>

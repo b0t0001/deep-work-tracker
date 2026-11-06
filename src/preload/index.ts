@@ -128,18 +128,8 @@ const api = {
    * what the last preview's copy did.
    */
   build: {
-    preview: (): Promise<{
-      takenAt: string | null
-      sessions: number | null
-      lastSync: {
-        at: string | null
-        added: number
-        edited: number
-        deleted: number
-        conflicts: number
-        recoveryDir: string | null
-      } | null
-    } | null> => ipcRenderer.invoke('app:preview')
+    preview: (): Promise<{ takenAt: string | null; sessions: number | null } | null> =>
+      ipcRenderer.invoke('app:preview')
   },
   ui: {
     /** A one-button notice: something did not happen, and why. */

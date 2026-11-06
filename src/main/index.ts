@@ -836,51 +836,24 @@ function registerIpc(): void {
   /**
    * Null everywhere except a preview run, where it describes the snapshot.
    *
-   * The dashboard says so in its header, because a preview holds a copy of
-   * the real history and is therefore the one build where the numbers look
-   * exactly right and are not the live ones. What the user does here is
-   * copied into the real history when the preview closes, so the banner says
-   * that too, and what the last preview's copy did - `last-sync.json`, written
-   * by `scripts/preview.ts`.
+   * The dashboard says so in a banner, because a preview holds a copy of the
+   * real history and is the one build where the numbers look exactly right and
+   * are not the live ones - and because nothing done in it is kept.
    *
-   * It is read from a file rather than passed in the environment so that it
-   * survives relaunching the preview build by hand - the marker should not
-   * quietly disappear the second time the window is opened.
-   *
-   * Through `safely()` because it is a convenience: a preview with no marker
-   * is a cosmetic fault, and it must not be able to take the dashboard down.
+   * Read from a file rather than the environment so that it survives
+   * relaunching the preview build by hand. Through `safely()`: a preview with
+   * no marker is a cosmetic fault and must not take the dashboard down.
    */
   ipcMain.handle('app:preview', () =>
     safely(() => {
       if (!isPreview) return null
-      const readJson = <T>(name: string): T | null => {
-        const file = join(app.getPath('userData'), name)
-        return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as T) : null
+      const marker = join(app.getPath('userData'), 'preview-snapshot.json')
+      if (!existsSync(marker)) return { takenAt: null, sessions: null }
+      const read = JSON.parse(readFileSync(marker, 'utf8')) as {
+        takenAt?: string
+        sessions?: number
       }
-      const snapshot = readJson<{ takenAt?: string; sessions?: number }>('preview-snapshot.json')
-      const last = readJson<{
-        at?: string
-        added?: number
-        edited?: number
-        deleted?: number
-        conflicts?: number
-        recoveryDir?: string | null
-      }>('last-sync.json')
-      return {
-        takenAt: snapshot?.takenAt ?? null,
-        sessions: snapshot?.sessions ?? null,
-        lastSync:
-          last === null
-            ? null
-            : {
-                at: last.at ?? null,
-                added: last.added ?? 0,
-                edited: last.edited ?? 0,
-                deleted: last.deleted ?? 0,
-                conflicts: last.conflicts ?? 0,
-                recoveryDir: last.recoveryDir ?? null
-              }
-      }
+      return { takenAt: read.takenAt ?? null, sessions: read.sessions ?? null }
     }, null)
   )
 
@@ -974,10 +947,9 @@ function registerShortcuts(): Record<ShortcutAction, boolean> {
  * session's test data.
  *
  * So `npm run preview` gets its own folder, filled from a snapshot by
- * `scripts/preview.ts`. It is a copy, but what the user does in it is not
- * disposable: on 2026-11-06 real sessions were logged here, so the script
- * copies the preview's changes into the real history when it closes. See
- * `scripts/preview-sync.ts`.
+ * `scripts/preview.ts`. It is a read-only copy: nothing done in it reaches the
+ * real history, rows recorded in it are `test`, and the script deletes the
+ * copy when the preview closes.
  *
  * The variable is honoured only when unpackaged. A packaged build ignores it
  * entirely, so an environment variable can never move the real history's
