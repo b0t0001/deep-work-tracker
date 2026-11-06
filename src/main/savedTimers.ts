@@ -60,7 +60,15 @@ function isSaved(value: unknown): value is SavedTimer {
  * the shortcut back to them, and it must never stop a timer window opening.
  */
 export function listSaved(): SavedTimer[] {
-  const raw = getSetting(KEY)
+  // The read as well as the parse: the tray menu is built from this at
+  // startup, and an unreadable database once took the tray icon down with it.
+  let raw: string | null
+  try {
+    raw = getSetting(KEY)
+  } catch (error) {
+    console.error('Could not read the saved timers:', error)
+    return []
+  }
   if (raw === null) return []
   try {
     const parsed: unknown = JSON.parse(raw)

@@ -1203,6 +1203,36 @@ last resort. The checkpoint on every write makes a kill more dangerous than it
 used to be, because truncating the WAL is exactly the moment to be interrupted
 during.
 
+**Errors go to a log file: `userData/logs/errors.log`.** On 11/06/2026 a
+launch of the installed app failed partway through startup: no timer window,
+the Data tab on "Loading..." forever, the user's 2,478 sessions intact on disk,
+and the cause unrecoverable because the packaged app has no console. So:
+
+- `main/errorLog.ts` starts right after `userData` is chosen (each profile has
+  its own log) and mirrors every `console.error` / `console.warn` to the file,
+  so the existing reporting needed no changes. It also catches uncaught
+  exceptions, unhandled rejections, dead renderer or helper processes, and
+  errors a page logs or throws (via `console-message`). Synchronous appends,
+  1 MB then rotate to `errors.1.log`, and a failed write is swallowed - a
+  logger that throws turns a report into a crash. One `INFO Started` line per
+  launch separates runs.
+- **Startup is a list of independent steps** (`step()` in `whenReady`): one
+  failing is logged with its stack, the rest still run, and a dialog names the
+  failure and the log's path. The app either works or says it does not.
+- **Nothing in the UI may wait forever on a rejected call.** The Data tab and
+  Backups had no `catch`; a failure now shows as a failure, with Try again and
+  Open the error log. A stuck "Loading..." reads as "you have no data", which
+  is the worst thing this app can say.
+- **The tray must not depend on the database.** Its Saved timers submenu read
+  `app_settings`, so an unreadable file took the tray icon with it; the read
+  now falls back to an empty list.
+- Settings shows the log's path with Open folder.
+
+Verified by running the real build on the dev profile with its database
+swapped for a file that is not one: the timer still opened, the tray still
+appeared, both tabs said what failed, and every failure was in the log with
+its stack.
+
 **A read the app can live without must not be able to break it.** The two
 project lookups run on every timer window's first paint. When they threw, the
 invoke rejected, the renderer never caught it, and one bad read filled the

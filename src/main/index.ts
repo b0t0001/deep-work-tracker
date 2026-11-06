@@ -48,6 +48,7 @@ import { defaultLayout, type Layout } from '../shared/layout'
 import { listOf, missingForNewSession } from '../shared/sessionForm'
 import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
 import { clearSaved, listSaved, reopenSaved, saveRunning, type SavedTimer } from './savedTimers'
+import { logError, logFile, revealLog, startErrorLog } from './errorLog'
 
 /** Actions a global shortcut can drive, and what they start out bound to. */
 export type ShortcutAction = 'pause' | 'stop' | 'newTimer'
@@ -825,6 +826,9 @@ function registerIpc(): void {
     safely(() => writeLayout(layout), defaultLayout())
   )
 
+  ipcMain.handle('log:location', () => logFile())
+  ipcMain.handle('log:reveal', () => revealLog())
+
   ipcMain.handle('backup:status', () => backupStatus())
   ipcMain.handle('backup:now', () => runBackup())
   ipcMain.handle('backup:reveal', () => revealBackups())
@@ -991,6 +995,10 @@ if (isPreview) {
   app.setPath('userData', join(app.getPath('appData'), 'deep-work-tracker-dev'))
 }
 
+// First thing after the profile is chosen: the log lives in it, and anything
+// below this line that fails should leave a trace there.
+startErrorLog()
+
 /**
  * A second launch opens another timer in the running app rather than starting
  * a rival process.
@@ -1015,31 +1023,71 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  openDatabase()
-  const damage = healthCheck()
-  if (damage !== null) {
-    // Worth a dialog rather than a log line: every query afterwards will fail
-    // in its own way, and the user needs to know the file is the problem and
-    // that the backups exist, not watch the app misbehave.
-    console.error('Database failed its health check:', damage)
-    dialog.showErrorBox(
-      'The database is damaged',
-      `SQLite reports: ${damage}\n\n` +
-        'Your automatic backups are unaffected. Open Settings and use ' +
-        '"Restore from a backup" to rebuild from the most recent one.'
-    )
+  /*
+   * Each step runs on its own, so one failure cannot take the rest with it.
+   *
+   * On 11/06/2026 a launch failed partway through this sequence and left the
+   * app running with no timer window and the Data tab stuck on "Loading...",
+   * saying nothing. A step that fails is now logged with its stack, the steps
+   * after it still run, and a dialog names what went wrong and where the log
+   * is - so the app either works or says it does not.
+   */
+  const failures: string[] = []
+  const step = (name: string, run: () => void): void => {
+    try {
+      run()
+    } catch (error) {
+      failures.push(`${name}: ${error instanceof Error ? error.message : String(error)}`)
+      logError('fatal', 'startup', `${name} failed:`, error)
+    }
   }
-  registerIpc()
-  startBackupSchedule()
-  createTimerWindow()
-  createTray()
 
+  step('Opening the database', () => {
+    openDatabase()
+    const damage = healthCheck()
+    if (damage !== null) {
+      // Worth a dialog rather than a log line: every query afterwards will fail
+      // in its own way, and the user needs to know the file is the problem and
+      // that the backups exist, not watch the app misbehave.
+      console.error('Database failed its health check:', damage)
+      dialog.showErrorBox(
+        'The database is damaged',
+        `SQLite reports: ${damage}\n\n` +
+          'Your automatic backups are unaffected. Open Settings and use ' +
+          '"Restore from a backup" to rebuild from the most recent one.'
+      )
+    }
+  })
+  step('Connecting the windows to the app', registerIpc)
+  step('Scheduling backups', startBackupSchedule)
+  step('Opening the timer', () => void createTimerWindow())
+  step('Creating the tray icon', createTray)
   // Sleeping the machine is not working, so suspend pauses every running timer
   // rather than letting countdowns burn through a closed lid.
-  powerMonitor.on('suspend', () => instances.forEach((i) => i.engine.handleSuspend()))
-  powerMonitor.on('resume', () => instances.forEach((i) => i.engine.handleResume()))
+  step('Watching for sleep', () => {
+    powerMonitor.on('suspend', () => instances.forEach((i) => i.engine.handleSuspend()))
+    powerMonitor.on('resume', () => instances.forEach((i) => i.engine.handleResume()))
+  })
+  step('Registering shortcuts', registerShortcuts)
 
-  registerShortcuts()
+  if (failures.length > 0) {
+    void dialog
+      .showMessageBox({
+        type: 'error',
+        title: 'Deep Work Tracker',
+        message: 'Something went wrong while starting',
+        detail:
+          `${failures.join('\n')}\n\n` +
+          'Your recorded sessions are not affected by this. The details are in the ' +
+          `error log:\n${logFile()}`,
+        buttons: ['OK', 'Open the log folder'],
+        defaultId: 0,
+        noLink: true
+      })
+      .then((result) => {
+        if (result.response === 1) revealLog()
+      })
+  }
 
   app.on('activate', () => {
     if (instances.size === 0) createTimerWindow()

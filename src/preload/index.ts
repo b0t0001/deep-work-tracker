@@ -170,6 +170,11 @@ const api = {
     set: (layout: Layout): Promise<Layout> => ipcRenderer.invoke('layout:set', layout)
   },
 
+  log: {
+    /** Where errors are written, for Settings to show. */
+    location: (): Promise<string> => ipcRenderer.invoke('log:location'),
+    reveal: (): Promise<void> => ipcRenderer.invoke('log:reveal')
+  },
   backups: {
     status: (): Promise<unknown> => ipcRenderer.invoke('backup:status'),
     now: (): Promise<unknown> => ipcRenderer.invoke('backup:now'),

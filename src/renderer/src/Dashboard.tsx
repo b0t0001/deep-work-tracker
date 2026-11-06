@@ -318,7 +318,47 @@ function SettingsTab(): React.JSX.Element {
         <h2>Backups</h2>
         <Backups />
       </div>
+      <div className="set-group set-group--wide">
+        <h2>Error log</h2>
+        <ErrorLog />
+      </div>
     </section>
+  )
+}
+
+/**
+ * Where the app writes what goes wrong. Shown so that "the Data tab is stuck"
+ * comes with somewhere to look, and so the file can be sent along with a
+ * report rather than the problem being reconstructed from memory.
+ */
+/** An IPC rejection, without Electron's "Error invoking remote method" wrapper. */
+function cleanError(error: unknown): string {
+  return String(error)
+    .replace(/^Error: /, '')
+    .replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+}
+
+function ErrorLog(): React.JSX.Element {
+  const [path, setPath] = useState<string | null>(null)
+  useEffect(() => {
+    window.api.log
+      .location()
+      .then(setPath)
+      .catch(() => setPath(null))
+  }, [])
+  return (
+    <>
+      <p className="muted">
+        Anything that goes wrong - a failed read, a session that could not be saved, a crash - is
+        written here with the details needed to find the cause. Nothing about your work is in it.
+      </p>
+      <div className="backup-path">
+        <code>{path ?? 'unavailable'}</code>
+        <button className="action" onClick={() => void window.api.log.reveal()}>
+          Open folder
+        </button>
+      </div>
+    </>
   )
 }
 
@@ -362,8 +402,17 @@ function Backups(): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<string | null>(null)
 
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  // With a catch: without one a failed read left this on "Loading..." for good.
   function load(): void {
-    void window.api.backups.status().then((next) => setStatus(next as BackupStatus))
+    window.api.backups
+      .status()
+      .then((next) => {
+        setStatus(next as BackupStatus)
+        setLoadError(null)
+      })
+      .catch((error) => setLoadError(cleanError(error)))
   }
 
   useEffect(load, [])
@@ -450,6 +499,13 @@ function Backups(): React.JSX.Element {
     }
   }
 
+  if (status === null && loadError !== null) {
+    return (
+      <p className="muted">
+        Backup status could not be read: {loadError}. The details are in the error log below.
+      </p>
+    )
+  }
   if (status === null) return <p className="muted">Loading…</p>
 
   const newest = status.backups[0]
@@ -1649,6 +1705,7 @@ const RANGES: Array<{ id: string; label: string; from: () => string }> = [
 
 function DataTab(): React.JSX.Element {
   const [page, setPage] = useState<SessionPage | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [projects, setProjects] = useState<ProjectOption[]>([])
   const [history, setHistory] = useState<HistoryState>(EMPTY_HISTORY)
   const [editing, setEditing] = useState<SessionRow | 'new' | null>(null)
@@ -1687,17 +1744,22 @@ function DataTab(): React.JSX.Element {
   }, [typed])
 
   async function refresh(): Promise<void> {
-    const [next, state] = await Promise.all([
-      window.api.sessions.query(criteria),
-      window.api.history.state()
-    ])
-    const loaded = next as SessionPage
-    // Deleting the last row of the last page would otherwise leave the view
-    // sitting past the end of the results, showing an empty table.
-    if (offset > 0 && loaded.total <= offset) setOffset(0)
-    setPage(loaded)
-    setHistory(state)
-    setProjects(await window.api.sessions.projects())
+    try {
+      const [next, state] = await Promise.all([
+        window.api.sessions.query(criteria),
+        window.api.history.state()
+      ])
+      const loaded = next as SessionPage
+      // Deleting the last row of the last page would otherwise leave the view
+      // sitting past the end of the results, showing an empty table.
+      if (offset > 0 && loaded.total <= offset) setOffset(0)
+      setPage(loaded)
+      setHistory(state)
+      setProjects(await window.api.sessions.projects())
+      setLoadError(null)
+    } catch (error) {
+      setLoadError(cleanError(error))
+    }
   }
 
   // Written as a promise chain rather than calling refresh(): the lint rule
@@ -1717,12 +1779,20 @@ function DataTab(): React.JSX.Element {
       }),
       window.api.history.state(),
       window.api.sessions.projects()
-    ]).then(([next, state, options]) => {
-      if (!live) return
-      setPage(next as SessionPage)
-      setHistory(state)
-      setProjects(options)
-    })
+    ])
+      .then(([next, state, options]) => {
+        if (!live) return
+        setPage(next as SessionPage)
+        setHistory(state)
+        setProjects(options)
+        setLoadError(null)
+      })
+      // This had no catch. On 11/06/2026 the query failed and the tab sat on
+      // "Loading..." indefinitely, which reads as "you have no data" - the
+      // worst thing this tab can say. A failure is now said as one.
+      .catch((error) => {
+        if (live) setLoadError(cleanError(error))
+      })
     return () => {
       live = false
     }
@@ -1809,6 +1879,26 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
     await refresh()
   }
 
+  if (loadError !== null && page === null) {
+    return (
+      <section className="panel">
+        <h2>Sessions</h2>
+        <p>
+          <strong>Your sessions could not be loaded.</strong> They are still saved; this is the app
+          failing to read them, not data that is gone.
+        </p>
+        <p className="muted">{loadError}</p>
+        <div className="row">
+          <button className="action action--primary" onClick={() => void refresh()}>
+            Try again
+          </button>
+          <button className="action" onClick={() => void window.api.log.reveal()}>
+            Open the error log
+          </button>
+        </div>
+      </section>
+    )
+  }
   if (page === null) return <section className="panel">Loading…</section>
 
   const { rows, total, totalRunningS, earliest, latest } = page
