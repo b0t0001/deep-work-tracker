@@ -1171,6 +1171,51 @@ is given:
 `node out/preview/index.js --no-launch` with `APPDATA` and `USERPROFILE`
 pointed at stand-in folders runs the whole script without opening a window.
 
+### Claude's sandbox redirects AppData: the profile was split for seven weeks
+
+**Read this before touching the real profile from a terminal.** The Claude
+desktop app is MSIX-packaged, and every process started from its shell - Bash,
+PowerShell, node scripts, `npx electron`, even the *installed*
+`deep-work-tracker.exe` - has its writes to `%APPDATA%\Roaming` silently
+redirected to `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\`,
+and its reads of that folder see the redirected copy first.
+`%LOCALAPPDATA%\Programs` (where the installer writes) and `Documents` are not
+redirected, which is why installs and backups always landed for real.
+
+From 9/19 to 11/06/2026 this split the app's data in two. Every instance
+started from the shell after an install used the hidden copy, which received
+the import and every session since - 2,478 sessions. A launch from the desktop
+icon, when no shell-started instance was running, opened the real
+`deepwork.db`: a 15-page file from 9/23, later corrupt. A second launch while
+a shell-started instance ran just handed off to it (single-instance lock), so
+the user mostly saw their data and occasionally saw none. That is the 11/06
+"NO data", the "database disk image is malformed" on every launch, and very
+likely the 9/23 "rows only ever in a -wal" loss. Every check run from the
+shell read the healthy hidden copy and reported all was well.
+
+Fixed 11/06/2026: a verified `VACUUM INTO` copy of the hidden database was put
+in the real folder, the 9/23 file moved to
+`Documents/Deep Work Tracker/Recovery/move-to-real-2026-11-06-1414/`, and the
+app relaunched via Explorer; the real `errors.log` showed a clean start and a
+copy taken from outside the sandbox read 2,478 sessions.
+
+**Rules that follow:**
+
+- **Never launch the installed app from the shell.** Use
+  `Start-Process explorer.exe -ArgumentList '"<exe>"'` (Explorer starts it
+  outside the package) or let the user use the icon.
+- **Read or write the real profile only from outside the package**:
+  `Invoke-CimMethod -ClassName Win32_Process -MethodName Create` runs a
+  command through WMI, outside the sandbox. Copy files out to `Documents`, then
+  inspect the copy. A read of `$APPDATA` from the shell proves nothing about
+  what the user's app sees.
+- **Prove where a launch went**: the real `logs/errors.log` gets an
+  `INFO Started` line and the redirected one does not.
+- **`npm run preview` is affected**: it snapshots and copies back through
+  `%APPDATA%`, so run from the shell it reads and writes the redirected copy.
+  Until it is routed outside the package, it must not be used for anything
+  meant to reach the real history.
+
 ### One process, and a busy timeout
 
 Two copies of the app meant two SQLite connections competing for one file, and
