@@ -15,6 +15,7 @@ import {
 } from '@shared/windows'
 import { formatDate, formatDateRange, formatDateTime } from '@shared/dates'
 import { rankProjects } from '@shared/projects'
+import { listOf, missingForEdit, missingForNewSession } from '@shared/sessionForm'
 import {
   MAX_FONT_SCALE,
   MIN_FONT_SCALE,
@@ -1354,8 +1355,6 @@ function SessionForm({
 
   const plannedMs = parseDurationMs(form.planned)
   const actualMs = parseDurationMs(form.actual)
-  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(form.session_date)
-  const canSave = validDate && actualMs !== null
   // The same ranking the timer's project field uses, so `hw`, `HW 2` and a
   // typo offer the same project here as they do there.
   const matches = rankProjects(form.project, projectNames, 4)
@@ -1369,8 +1368,65 @@ function SessionForm({
     setProjectOpen(false)
   }
 
+  function patch(): Record<string, unknown> {
+    return {
+      session_date: form.session_date,
+      // Sent as the typed name; main resolves it against the existing
+      // projects, so it never starts a duplicate of one.
+      project: form.project.trim() === '' ? null : form.project.trim(),
+      task: form.task.trim() === '' ? null : form.task.trim(),
+      // An edit may leave planned blank and keep actual for it, since an
+      // imported row was not always planned; a new session must give both.
+      planned_duration_s: Math.round((plannedMs ?? (row ? actualMs : null) ?? 0) / 1000),
+      running_duration_s: Math.round((actualMs ?? 0) / 1000),
+      work_quantity: form.work_quantity === '' ? null : Number(form.work_quantity),
+      work_unit: form.work_unit.trim() === '' ? null : form.work_unit.trim(),
+      notes: form.notes.trim() === '' ? null : form.notes.trim(),
+      ...(row ? { source: form.source } : {})
+    }
+  }
+
+  /**
+   * The button is never disabled. A disabled button and a short grey line
+   * beside it is how a session went unsaved on 11/05/2026 with nothing to say
+   * so: what is missing is now said in a popup, by name, and nothing is
+   * written until it is filled.
+   */
+  function submit(event: React.FormEvent): void {
+    event.preventDefault()
+    const next = patch()
+    // Text that is there but cannot be read as a duration is reported as
+    // that, not as "required" - the field is not empty, and saying so would
+    // send the user looking for the wrong problem.
+    const unreadable = [
+      ...(form.planned.trim() !== '' && plannedMs === null ? ['Planned'] : []),
+      ...(form.actual.trim() !== '' && actualMs === null ? ['Actual'] : [])
+    ]
+    if (unreadable.length > 0) {
+      void window.api.ui.alert({
+        title: row ? 'Not saved' : 'Session not added',
+        message: `${listOf(unreadable)} could not be read as a duration.`,
+        detail: 'Try 1:30:00, 90 min or 1h30m. Nothing was saved.'
+      })
+      return
+    }
+    const missing = row ? missingForEdit(next) : missingForNewSession(next)
+    if (missing.length > 0) {
+      void window.api.ui.alert({
+        title: row ? 'Not saved' : 'Session not added',
+        message: `${listOf(missing)} ${missing.length === 1 ? 'is' : 'are'} required.`,
+        detail: row
+          ? 'Nothing was changed.'
+          : 'A session entered by hand needs a date, project, task, planned and actual time. Output is optional. Nothing was added.'
+      })
+      return
+    }
+    onSave(next)
+  }
+
   return (
-    <div className="editor">
+    // A form, so Enter in any field submits and is checked like a click.
+    <form className="editor" onSubmit={submit} noValidate>
       <h3>{row ? `Edit session ${row.id}` : 'Add a session'}</h3>
       <p className="muted">
         {row
@@ -1399,7 +1455,7 @@ function SessionForm({
           <span className="project-box">
             <input
               value={form.project}
-              placeholder="HW"
+              placeholder={row ? '' : 'required'}
               autoComplete="off"
               spellCheck={false}
               aria-label="Project"
@@ -1455,13 +1511,17 @@ function SessionForm({
         </div>
         <label className="field field--inline field--wide">
           <span>Task</span>
-          <input value={form.task} onChange={(e) => set('task', e.target.value)} />
+          <input
+            value={form.task}
+            placeholder={row ? '' : 'required'}
+            onChange={(e) => set('task', e.target.value)}
+          />
         </label>
         <label className="field field--inline">
           <span>Planned</span>
           <input
             value={form.planned}
-            placeholder="1:00:00"
+            placeholder={row ? '' : 'required, e.g. 1:30:00 or 90 min'}
             onChange={(e) => set('planned', e.target.value)}
           />
         </label>
@@ -1469,7 +1529,7 @@ function SessionForm({
           <span>Actual</span>
           <input
             value={form.actual}
-            placeholder="45:00"
+            placeholder="required"
             onChange={(e) => set('actual', e.target.value)}
           />
         </label>
@@ -1477,7 +1537,7 @@ function SessionForm({
           <span>Quantity</span>
           <input
             value={form.work_quantity}
-            placeholder="340"
+            placeholder="optional"
             inputMode="decimal"
             onChange={(e) => {
               if (/^\d{0,7}(\.\d{0,2})?$/.test(e.target.value)) set('work_quantity', e.target.value)
@@ -1488,7 +1548,7 @@ function SessionForm({
           <span>Unit</span>
           <input
             value={form.work_unit}
-            placeholder="words"
+            placeholder="optional"
             onChange={(e) => set('work_unit', e.target.value.replace(/[0-9]/g, ''))}
           />
         </label>
@@ -1511,35 +1571,14 @@ function SessionForm({
       </div>
 
       <div className="row">
-        <button
-          className="action action--primary"
-          disabled={!canSave}
-          onClick={() =>
-            onSave({
-              session_date: form.session_date,
-              // Sent as the typed name; main resolves it against the existing
-              // projects, so it never starts a duplicate of one.
-              project: form.project.trim() === '' ? null : form.project.trim(),
-              task: form.task.trim() === '' ? null : form.task.trim(),
-              // Planned falls back to actual: a session entered from memory was
-              // never planned, and a null there would break duration maths.
-              planned_duration_s: Math.round((plannedMs ?? actualMs ?? 0) / 1000),
-              running_duration_s: Math.round((actualMs ?? 0) / 1000),
-              work_quantity: form.work_quantity === '' ? null : Number(form.work_quantity),
-              work_unit: form.work_unit.trim() === '' ? null : form.work_unit.trim(),
-              notes: form.notes.trim() === '' ? null : form.notes.trim(),
-              ...(row ? { source: form.source } : {})
-            })
-          }
-        >
+        <button type="submit" className="action action--primary">
           {row ? 'Save' : 'Add session'}
         </button>
-        <button className="action" onClick={onCancel}>
+        <button type="button" className="action" onClick={onCancel}>
           Cancel
         </button>
-        {!canSave && <span className="muted">A date and an actual duration are required.</span>}
       </div>
-    </div>
+    </form>
   )
 }
 
@@ -1707,9 +1746,25 @@ function DataTab(): React.JSX.Element {
     setOffset(0)
   }
 
+  /**
+   * A failed save says so and keeps the form, with everything typed still in
+   * it. This used to have no catch: a rejected write vanished, the form sat
+   * there looking ready, and the session simply did not exist.
+   */
   async function save(patch: Record<string, unknown>): Promise<void> {
-    if (editing === 'new') await window.api.sessions.create(patch)
-    else if (editing) await window.api.sessions.update(editing.id, patch)
+    try {
+      if (editing === 'new') await window.api.sessions.create(patch)
+      else if (editing) await window.api.sessions.update(editing.id, patch)
+    } catch (error) {
+      await window.api.ui.alert({
+        title: editing === 'new' ? 'Session not added' : 'Not saved',
+        message: String(error)
+          .replace(/^Error: /, '')
+          .replace(/^Error invoking remote method '[^']+': (Error: )?/, ''),
+        detail: 'Nothing was written. What you typed is still in the form.'
+      })
+      return
+    }
     setEditing(null)
     await refresh()
   }
@@ -1920,9 +1975,16 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
           >
             Redo
           </button>
-          <button className="action action--primary action--sm" onClick={() => setEditing('new')}>
-            Add session
-          </button>
+          {/* Hidden while the form is open. It used to stay, so the page had
+              two blue "Add session" buttons, and this one - the bigger, more
+              obvious one - only opens the form: clicking it with a filled
+              form did nothing, and that is how a session went unsaved on
+              11/05/2026. The form's own button is the only one now. */}
+          {editing === null && (
+            <button className="action action--primary action--sm" onClick={() => setEditing('new')}>
+              Add session
+            </button>
+          )}
         </div>
       </div>
 

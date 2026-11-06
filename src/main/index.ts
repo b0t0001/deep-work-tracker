@@ -45,6 +45,7 @@ import {
 import { previewRestore, restoreFromCsv } from './restore'
 import { readLayout, writeLayout } from './db/layout'
 import { defaultLayout, type Layout } from '../shared/layout'
+import { listOf, missingForNewSession } from '../shared/sessionForm'
 import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
 
 /** Actions a global shortcut can drive, and what they start out bound to. */
@@ -577,9 +578,14 @@ function registerIpc(): void {
 
   // Edits from the Data tab go through the history module rather than the
   // repository, so every one of them is undoable by construction.
-  ipcMain.handle('sessions:create', (_event, patch: FormPatch) =>
-    createSession(withProject(patch), 'add session')
-  )
+  // The form already refuses an incomplete session; this refuses one that
+  // reached main another way, so a row with no project or task cannot be
+  // written by hand at all. The message is what the form's popup shows.
+  ipcMain.handle('sessions:create', (_event, patch: FormPatch) => {
+    const missing = missingForNewSession(patch)
+    if (missing.length > 0) throw new Error(`Not added: ${listOf(missing)} must be filled in.`)
+    return createSession(withProject(patch), 'add session')
+  })
   ipcMain.handle('sessions:update', (_event, id: number, patch: FormPatch) =>
     updateSession(id, withProject(patch), 'edit session')
   )
@@ -630,6 +636,22 @@ function registerIpc(): void {
   })
 
   /** A real modal, attached to the window that asked, so it cannot be missed. */
+  ipcMain.handle(
+    'ui:alert',
+    async (event, options: { title: string; message: string; detail?: string }) => {
+      const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
+      await dialog.showMessageBox(parent!, {
+        type: 'warning',
+        buttons: ['OK'],
+        defaultId: 0,
+        title: options.title,
+        message: options.message,
+        detail: options.detail,
+        noLink: true
+      })
+    }
+  )
+
   ipcMain.handle(
     'ui:confirm',
     async (

@@ -179,6 +179,93 @@ let engine = new TimerEngine()
 
 const SHOTS: Shot[] = [
   {
+    id: 'probe-add-missing-project',
+    width: 1150,
+    height: 700,
+    route: '/dashboard',
+    // Everything but the project, then the form button: a popup naming Project, no write, form kept.
+    drive: `
+      click('.tabs .tab:nth-child(2)'); await wait(1500);
+      [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add session').click();
+      await wait(300);
+      const fill = (label, value) => {
+        const field = [...document.querySelectorAll('.editor .field')].find((f) => f.querySelector('span')?.textContent === label);
+        const input = field.querySelector('input');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      fill('Date', '2026-11-05'); fill('Task', 'Study for CIS 1200 Midterm');
+      fill('Planned', '3h'); fill('Actual', '57 min'); fill('Quantity', '3'); fill('Unit', 'questions');
+      
+      await wait(200);
+      const adds = [...document.querySelectorAll('button')].filter((b) => b.textContent.trim() === 'Add session');
+      document.title = 'add-buttons=' + adds.length + ' in-form=' + adds.every((b) => b.closest('.editor'));
+      adds[0].click();
+      await wait(600);
+      document.title += ' form-open-after=' + !!document.querySelector('.editor');
+    `,
+    note: 'Everything but the project, then the form button: a popup naming Project, no write, form kept.'
+  },
+  {
+    id: 'probe-add-unreadable',
+    width: 1150,
+    height: 700,
+    route: '/dashboard',
+    // A planned time that cannot be read: said as unreadable, not as missing.
+    drive: `
+      click('.tabs .tab:nth-child(2)'); await wait(1500);
+      [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add session').click();
+      await wait(300);
+      const fill = (label, value) => {
+        const field = [...document.querySelectorAll('.editor .field')].find((f) => f.querySelector('span')?.textContent === label);
+        const input = field.querySelector('input');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      fill('Date', '2026-11-05'); fill('Task', 'Study for CIS 1200 Midterm');
+      fill('Planned', 'three hours-ish'); fill('Actual', '57 min'); fill('Quantity', '3'); fill('Unit', 'questions');
+      fill('Project', 'HW');
+      await wait(200);
+      const adds = [...document.querySelectorAll('button')].filter((b) => b.textContent.trim() === 'Add session');
+      document.title = 'add-buttons=' + adds.length + ' in-form=' + adds.every((b) => b.closest('.editor'));
+      adds[0].click();
+      await wait(600);
+      document.title += ' form-open-after=' + !!document.querySelector('.editor');
+    `,
+    note: 'A planned time that cannot be read: said as unreadable, not as missing.'
+  },
+  {
+    id: 'probe-add-complete-enter',
+    width: 1150,
+    height: 700,
+    route: '/dashboard',
+    // Complete, submitted the way Enter submits: one write, form closed.
+    drive: `
+      click('.tabs .tab:nth-child(2)'); await wait(1500);
+      [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add session').click();
+      await wait(300);
+      const fill = (label, value) => {
+        const field = [...document.querySelectorAll('.editor .field')].find((f) => f.querySelector('span')?.textContent === label);
+        const input = field.querySelector('input');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      fill('Date', '2026-11-05'); fill('Task', 'Study for CIS 1200 Midterm');
+      fill('Planned', '3h'); fill('Actual', '57 min'); fill('Quantity', '3'); fill('Unit', 'questions');
+      fill('Project', 'HW');
+      await wait(200);
+      const adds = [...document.querySelectorAll('button')].filter((b) => b.textContent.trim() === 'Add session');
+      document.title = 'add-buttons=' + adds.length + ' in-form=' + adds.every((b) => b.closest('.editor'));
+      document.querySelector('form.editor').requestSubmit();
+      await wait(600);
+      document.title += ' form-open-after=' + !!document.querySelector('.editor');
+    `,
+    note: 'Complete, submitted the way Enter submits: one write, form closed.'
+  },
+  {
     id: 'timer-bar-idle',
     width: 250,
     height: 136,
@@ -593,7 +680,6 @@ function registerHandlers(): void {
     'pace:close',
     'sessions:setStopReason',
     'sessions:setQuantity',
-    'sessions:create',
     'sessions:update',
     'sessions:remove',
     'history:undo',
@@ -618,6 +704,18 @@ function registerHandlers(): void {
   for (const channel of inert) {
     ipcMain.handle(channel, () => null)
   }
+
+  // Logged rather than inert, so the add-session probes can show what the
+  // form actually asked for: whether a write was attempted at all, and what
+  // the popup said instead. Nothing is written - this is not the app.
+  ipcMain.handle('sessions:create', (_event, patch) => {
+    console.log('    create:', JSON.stringify(patch))
+    return null
+  })
+  ipcMain.handle('ui:alert', (_event, options: { message: string }) => {
+    console.log('    alert:', options.message)
+    return null
+  })
 
   // Echoed rather than inert. `useLayout` adopts whatever the write returns, so
   // answering null would snap the tab back to the default layout the moment a

@@ -584,6 +584,26 @@ the row in place; no shadow "corrected" copy.
 club meeting (Penn Electric Racing) is entered afterwards from memory. These get
 `source = 'manual'`.
 
+**A session entered by hand requires date, project, task, planned and
+actual; output is optional.** Missing fields are named in a popup and nothing
+is written; text that cannot be read as a duration is reported as unreadable
+rather than missing. The rule is `shared/sessionForm.ts`, applied by the form
+and again by main's `sessions:create`, so a write that skipped the form is
+refused too. Edits keep the smaller rule (date and actual) because imported
+rows without a project must stay fixable one field at a time.
+
+This came from a session that silently went unsaved on 11/05/2026. Three
+things combined, each now fixed: the page showed **two** blue "Add session"
+buttons while the form was open and the bigger toolbar one only opens the
+form, so clicking it with a filled form did nothing (it is now hidden while
+the form is open); the empty Project field showed a grey `HW` placeholder that
+read as a value (placeholders now say `required` / `optional`); and `save()`
+had no `catch`, so a rejected write vanished (it now says so in a popup and
+keeps what was typed). The form's button is never disabled - a disabled
+button with a grey line beside it is the failure being fixed.
+`scripts/shoot.ts --only probe-add-missing-project,probe-add-unreadable,probe-add-complete-enter`
+shows all three paths.
+
 **Manual entry must not be the default surface.** Opening the app presents the
 timer; retroactive entry is deliberately one step further in. The timer is the
 primary path and must stay uncluttered.
