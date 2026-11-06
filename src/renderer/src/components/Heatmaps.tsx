@@ -117,6 +117,36 @@ function Legend({ accent }: { accent: string }): React.JSX.Element {
 const CELL = 12
 const GAP = 3
 const PITCH = CELL + GAP
+
+/**
+ * The biggest a day square may be drawn, in CSS pixels.
+ *
+ * The grid is an svg with a viewBox and `width: 100%`, so it scales to
+ * whatever the panel gives it. That is right when the viewBox is wide - at
+ * 12 months it is 816 units against an 1,800px panel, a little over 2x, and
+ * it is what makes the calendar the first thing you see rather than the
+ * faintest. It is catastrophic when the viewBox is narrow, because nothing
+ * stopped the same rule from scaling two columns to the same width:
+ *
+ *   range        viewBox   scale    day square   panel height
+ *   30 days          96    18.7x      224.9px        2,304px
+ *   8 weeks         156    11.5x      138.4px        1,453px
+ *   12 months       816     2.2x       26.5px          353px
+ *   all time        831     2.2x       26.0px          348px
+ *
+ * Measured at 1,900px wide, and the user's words for the first row are "it
+ * zooms in hella and then i can't see anything" - a handful of enormous
+ * rounded squares several screens tall.
+ *
+ * 26 is not a guess: it is the size a day already has at 12 months and all
+ * time on a wide window, which is the state nobody complained about. Capping
+ * there means **a day is the same size whatever range is chosen**, which is
+ * what "proportional to the timescale" actually asks for - a week is a
+ * smaller picture than a year because it has less in it, not because its
+ * squares are smaller. It also leaves the two long ranges visually
+ * untouched, which matters: the upscale was asked for.
+ */
+const MAX_CELL_PX = 26
 /** Room for an end-aligned `M` / `W` / `F`. */
 const WEEKDAY_W = 24
 const MONTH_H = 16
@@ -338,8 +368,22 @@ export function CalendarHeatmap({
            the tab, leaving a third of the row empty beside it; letting the
            viewBox fill the width roughly doubles the cell area and makes it
            the one chart you see first. `height: auto` keeps the squares
-           square at any width. */
-        style={{ display: 'block', width: '100%', height: 'auto' }}
+           square at any width.
+
+           `maxWidth` is the bound that was missing: the width at which a day
+           square reaches `MAX_CELL_PX`. On a long range it is wider than the
+           panel and nothing changes; on a short one it stops the grid
+           stretching and leaves it compact and left-aligned. Expressed as a
+           width rather than a transform because `height: auto` then follows
+           from the aspect ratio - the squares stay square and the panel
+           stops being three screens tall without any second rule to keep in
+           step. */
+        style={{
+          display: 'block',
+          width: '100%',
+          maxWidth: `${(width * MAX_CELL_PX) / CELL}px`,
+          height: 'auto'
+        }}
         role="img"
         aria-label="Hours worked per day"
       >

@@ -600,6 +600,206 @@ const SHOTS: Shot[] = [
     note: 'A second course and unit: WRIT 0580 words per minute, at full width.'
   },
   {
+    id: 'heatmap-week-1150',
+    width: 1150,
+    height: 760,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const panel = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes('Every day'));
+      const sel = panel.querySelector('.an-range select');
+      const want = ${JSON.stringify('1w')};
+      if ([...sel.options].some((o) => o.value === want)) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, want);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(900);
+      }
+      for (const slot of document.querySelectorAll('.an-slot')) {
+        if (!slot.contains(panel)) slot.style.display = 'none';
+      }
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      document.querySelector('.an-stats').style.display = 'none';
+      await wait(500);
+    `,
+    note: 'The calendar at week, 1150px wide. A day square is the same size at every range.'
+  },
+  {
+    id: 'heatmap-30days-1150',
+    width: 1150,
+    height: 760,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const panel = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes('Every day'));
+      const sel = panel.querySelector('.an-range select');
+      const want = ${JSON.stringify('1m')};
+      if ([...sel.options].some((o) => o.value === want)) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, want);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(900);
+      }
+      for (const slot of document.querySelectorAll('.an-slot')) {
+        if (!slot.contains(panel)) slot.style.display = 'none';
+      }
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      document.querySelector('.an-stats').style.display = 'none';
+      await wait(500);
+    `,
+    note: 'The calendar at 30days, 1150px wide. A day square is the same size at every range.'
+  },
+  {
+    id: 'heatmap-12months-1150',
+    width: 1150,
+    height: 760,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const panel = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes('Every day'));
+      const sel = panel.querySelector('.an-range select');
+      const want = ${JSON.stringify('1y')};
+      if ([...sel.options].some((o) => o.value === want)) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, want);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(900);
+      }
+      for (const slot of document.querySelectorAll('.an-slot')) {
+        if (!slot.contains(panel)) slot.style.display = 'none';
+      }
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      document.querySelector('.an-stats').style.display = 'none';
+      await wait(500);
+    `,
+    note: 'The calendar at 12months, 1150px wide. A day square is the same size at every range.'
+  },
+  {
+    id: 'heatmap-alltime-1150',
+    width: 1150,
+    height: 760,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const panel = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes('Every day'));
+      const sel = panel.querySelector('.an-range select');
+      const want = ${JSON.stringify('all')};
+      if ([...sel.options].some((o) => o.value === want)) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, want);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(900);
+      }
+      for (const slot of document.querySelectorAll('.an-slot')) {
+        if (!slot.contains(panel)) slot.style.display = 'none';
+      }
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      document.querySelector('.an-stats').style.display = 'none';
+      await wait(500);
+    `,
+    note: 'The calendar at alltime, 1150px wide. A day square is the same size at every range.'
+  },
+  {
+    id: 'heatmap-week-1900',
+    width: 1900,
+    height: 760,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const panel = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes('Every day'));
+      const sel = panel.querySelector('.an-range select');
+      const want = ${JSON.stringify('1w')};
+      if ([...sel.options].some((o) => o.value === want)) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, want);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(900);
+      }
+      for (const slot of document.querySelectorAll('.an-slot')) {
+        if (!slot.contains(panel)) slot.style.display = 'none';
+      }
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      document.querySelector('.an-stats').style.display = 'none';
+      await wait(500);
+    `,
+    note: 'The calendar at week, 1900px wide. A day square is the same size at every range.'
+  },
+  {
+    id: 'heatmap-30days-1900',
+    width: 1900,
+    height: 760,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const panel = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes('Every day'));
+      const sel = panel.querySelector('.an-range select');
+      const want = ${JSON.stringify('1m')};
+      if ([...sel.options].some((o) => o.value === want)) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, want);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(900);
+      }
+      for (const slot of document.querySelectorAll('.an-slot')) {
+        if (!slot.contains(panel)) slot.style.display = 'none';
+      }
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      document.querySelector('.an-stats').style.display = 'none';
+      await wait(500);
+    `,
+    note: 'The calendar at 30days, 1900px wide. A day square is the same size at every range.'
+  },
+  {
+    id: 'heatmap-12months-1900',
+    width: 1900,
+    height: 760,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const panel = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes('Every day'));
+      const sel = panel.querySelector('.an-range select');
+      const want = ${JSON.stringify('1y')};
+      if ([...sel.options].some((o) => o.value === want)) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, want);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(900);
+      }
+      for (const slot of document.querySelectorAll('.an-slot')) {
+        if (!slot.contains(panel)) slot.style.display = 'none';
+      }
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      document.querySelector('.an-stats').style.display = 'none';
+      await wait(500);
+    `,
+    note: 'The calendar at 12months, 1900px wide. A day square is the same size at every range.'
+  },
+  {
+    id: 'heatmap-alltime-1900',
+    width: 1900,
+    height: 760,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const panel = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes('Every day'));
+      const sel = panel.querySelector('.an-range select');
+      const want = ${JSON.stringify('all')};
+      if ([...sel.options].some((o) => o.value === want)) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, want);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(900);
+      }
+      for (const slot of document.querySelectorAll('.an-slot')) {
+        if (!slot.contains(panel)) slot.style.display = 'none';
+      }
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      document.querySelector('.an-stats').style.display = 'none';
+      await wait(500);
+    `,
+    note: 'The calendar at alltime, 1900px wide. A day square is the same size at every range.'
+  },
+  {
     id: 'dash-analytics-tall',
     width: 1280,
     // Tall enough that the whole tab fits with nothing scrolled away. The
