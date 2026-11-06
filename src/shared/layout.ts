@@ -111,7 +111,11 @@ export const DEFAULT_RANGES: Record<RangeTargetId, WindowId> = {
   hoursPerWeek: '8w',
   projects: 'all',
   plannedRatio: 'all',
-  rateTrend: 'all',
+  // A year rather than all time: at all time this draws a bar a month for
+  // 42 months, which is honest and is a lot of panel to scroll past on the
+  // way to the next one. Twelve bars is the shape the chart was rebuilt to
+  // be readable at, and the control is right there for the rest.
+  rateTrend: '1y',
   timeOfDay: 'all',
   pace: 'all'
 }
