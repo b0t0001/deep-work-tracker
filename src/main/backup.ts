@@ -129,7 +129,10 @@ const HEADER = [
   'pace_target_qty',
   'pace_target_interval_s',
   'source',
-  'pauses'
+  'pauses',
+  // Last, and optional on restore: backups written before loops were one
+  // session do not have it, and every row in them was a single run.
+  'laps'
 ]
 
 /** Quote only when the value would otherwise change meaning. */
@@ -159,6 +162,7 @@ interface ExportRow {
   pace_target_qty: number | null
   pace_target_interval_s: number | null
   source: string
+  laps: number
 }
 
 /**
@@ -195,7 +199,7 @@ export function buildCsv(): { csv: string; rows: number } {
               p.name AS project, t.name AS tag, s.task,
               s.stop_reason, s.stop_reason_note,
               s.work_quantity, s.work_unit, s.unquantifiable, s.notes,
-              s.pace_target_qty, s.pace_target_interval_s, s.source
+              s.pace_target_qty, s.pace_target_interval_s, s.source, s.laps
          FROM sessions s
          LEFT JOIN projects p ON p.id = s.project_id
          LEFT JOIN tags t ON t.id = s.tag_id
@@ -225,7 +229,8 @@ export function buildCsv(): { csv: string; rows: number } {
         row.pace_target_qty,
         row.pace_target_interval_s,
         row.source,
-        (pauses.get(row.id) ?? []).join(';')
+        (pauses.get(row.id) ?? []).join(';'),
+        row.laps
       ]
         .map(field)
         .join(',')

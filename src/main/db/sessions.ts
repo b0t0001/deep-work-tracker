@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { checkpoint, checkpointSoon, openDatabase } from './index'
-import { runningMs, type TimerSnapshot } from '../../shared/timer'
+import { lapsBegun, runningMs, type TimerSnapshot } from '../../shared/timer'
 import { canonicalProjectName } from '../../shared/projects'
 
 /** Every column, so a deleted row can be restored exactly as it was. */
@@ -23,6 +23,11 @@ export interface SessionRow {
   pace_target_qty: number | null
   pace_target_interval_s: number | null
   source: string
+  /**
+   * Laps of a loop this session ran: 1 for a single run. `planned_duration_s`
+   * covers all of them, so one lap was planned / laps long.
+   */
+  laps: number
 }
 
 export const SESSION_COLUMNS = [
@@ -42,7 +47,8 @@ export const SESSION_COLUMNS = [
   'notes',
   'pace_target_qty',
   'pace_target_interval_s',
-  'source'
+  'source',
+  'laps'
 ] as const
 
 export type SessionPatch = Partial<Omit<SessionRow, 'id'>>
@@ -163,39 +169,79 @@ export function lastProjectName(): string | null {
   return row?.name ?? null
 }
 
-export function recordSession(snapshot: TimerSnapshot, pace?: PaceTarget | null): number | null {
-  const runningSeconds = Math.round(runningMs(snapshot, Date.now()) / 1000)
+/**
+ * Writes a timer session, or brings up to date the one already written for it.
+ *
+ * A loop is one session, saved at the end of every lap and finally at stop, so
+ * the first call inserts and every later call for the same loop passes the id
+ * it got back. Saving per lap is what keeps a five-hour loop from being lost
+ * whole to a crash in its last minute.
+ *
+ * Only what the timer knows is written on an update - timing, laps, pauses,
+ * project, task, pace. Quantity, unit and stop reason belong to the stop prompt
+ * and are never touched here. If the row has gone (deleted from the Data tab
+ * mid-loop) it is written afresh rather than the loop being dropped.
+ */
+export function recordSession(
+  snapshot: TimerSnapshot,
+  pace?: PaceTarget | null,
+  existingId?: number | null
+): number | null {
+  const now = Date.now()
+  const runningSeconds = Math.round(runningMs(snapshot, now) / 1000)
   if (snapshot.startedAt === null || runningSeconds < 1) return null
+  const laps = Math.max(1, lapsBegun(snapshot, now))
+
+  const values = [
+    findOrCreateProject(snapshot.project),
+    snapshot.task.trim() || null,
+    // Local date, not UTC: a session at 11pm belongs to that day as lived,
+    // which is how every daily total and streak is read. The day it started,
+    // for a loop that runs past midnight.
+    localDate(snapshot.startedAt),
+    iso(snapshot.startedAt),
+    iso(now),
+    Math.round((snapshot.plannedMs * laps) / 1000),
+    runningSeconds,
+    laps,
+    pace?.quantity ?? null,
+    pace ? Math.round(pace.intervalMs / 1000) : null
+  ]
 
   const db = openDatabase()
   // Session and pauses go in together: pauses without their session would be
   // orphaned, and a session without its pauses makes running time unverifiable.
   db.exec('BEGIN')
   try {
-    const result = db
-      .prepare(
-        `INSERT INTO sessions
-           (project_id, task, session_date, started_at, ended_at,
-          planned_duration_s, running_duration_s,
-          pace_target_qty, pace_target_interval_s, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        findOrCreateProject(snapshot.project),
-        snapshot.task.trim() || null,
-        // Local date, not UTC: a session at 11pm belongs to that day as lived,
-        // which is how every daily total and streak is read.
-        localDate(snapshot.startedAt),
-        iso(snapshot.startedAt),
-        iso(Date.now()),
-        Math.round(snapshot.plannedMs / 1000),
-        runningSeconds,
-        pace?.quantity ?? null,
-        pace ? Math.round(pace.intervalMs / 1000) : null,
-        sourceForNewRow('app')
-      )
+    let sessionId: number | null = null
+    if (existingId != null) {
+      const updated = db
+        .prepare(
+          `UPDATE sessions
+              SET project_id = ?, task = ?, session_date = ?, started_at = ?, ended_at = ?,
+                  planned_duration_s = ?, running_duration_s = ?, laps = ?,
+                  pace_target_qty = ?, pace_target_interval_s = ?
+            WHERE id = ?`
+        )
+        .run(...values, existingId)
+      if (Number(updated.changes) > 0) {
+        sessionId = existingId
+        db.prepare('DELETE FROM pauses WHERE session_id = ?').run(sessionId)
+      }
+    }
+    if (sessionId === null) {
+      const result = db
+        .prepare(
+          `INSERT INTO sessions
+             (project_id, task, session_date, started_at, ended_at,
+              planned_duration_s, running_duration_s, laps,
+              pace_target_qty, pace_target_interval_s, source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(...values, sourceForNewRow('app'))
+      sessionId = Number(result.lastInsertRowid)
+    }
 
-    const sessionId = Number(result.lastInsertRowid)
     const insertPause = db.prepare(
       'INSERT INTO pauses (session_id, paused_at, resumed_at) VALUES (?, ?, ?)'
     )
@@ -204,7 +250,8 @@ export function recordSession(snapshot: TimerSnapshot, pace?: PaceTarget | null)
     }
 
     db.exec('COMMIT')
-    // A finished run is worth keeping; do not leave it in the -wal.
+    // A finished run - or a finished lap - is worth keeping; do not leave it in
+    // the -wal.
     checkpoint()
     return sessionId
   } catch (error) {

@@ -76,6 +76,12 @@ interface TimerInstance {
   window: BrowserWindow
   engine: TimerEngine
   lastCompleted: { id: number; snapshot: TimerSnapshot } | null
+  /**
+   * The row a loop in progress has been saved to so far. A loop is one session,
+   * written at the end of each lap and finished at stop; this is how stop finds
+   * the row to finish rather than writing a second one.
+   */
+  loopSessionId: number | null
   minimum: { width: number; height: number }
   /**
    * The pace loop's own window: a small circle beside the timer it belongs to.
@@ -270,6 +276,7 @@ function createTimerWindow(): BrowserWindow {
     window,
     engine,
     lastCompleted: null,
+    loopSessionId: null,
     minimum: BAR_MIN,
     paceWindow: null,
     lastPace: null
@@ -296,13 +303,28 @@ function createTimerWindow(): BrowserWindow {
     // reported and the timer still stops cleanly.
     let id: number | null = null
     try {
-      id = recordSession(snapshot, engine.paceConfig())
+      id = recordSession(snapshot, engine.paceConfig(), instance.loopSessionId)
     } catch (error) {
       console.error('Could not record the session:', error)
       send(instance, 'timer:recordFailed', String(error))
     }
+    instance.loopSessionId = null
     instance.lastCompleted = id === null ? null : { id, snapshot }
     send(instance, 'timer:completed', null)
+  })
+
+  // A lap of a loop ran out and the next began. The session goes on, but what
+  // it has run so far is saved now: a loop written only at stop is lost whole
+  // if the app dies in its fifth hour. Same failure handling as `completed` -
+  // a lap that cannot be saved must not stop the clock - and the next lap or
+  // the stop tries again with the whole loop.
+  engine.on('lap', (snapshot: TimerSnapshot) => {
+    try {
+      instance.loopSessionId = recordSession(snapshot, engine.paceConfig(), instance.loopSessionId)
+    } catch (error) {
+      console.error('Could not save the loop so far:', error)
+      send(instance, 'timer:recordFailed', String(error))
+    }
   })
 
   // The pace window owns its own cue and flash: it is the thing that fires, so

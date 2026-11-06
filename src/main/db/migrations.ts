@@ -171,5 +171,19 @@ export const MIGRATIONS: Migration[] = [
 
       DROP TABLE pauses_keep;
     `
+  },
+  {
+    id: 5,
+    name: 'laps, so a looped session is one row',
+    sql: `
+      -- A loop is recorded as one session rather than one row per lap, so a
+      -- row needs to say how many laps it ran: planned_duration_s is the whole
+      -- loop's (laps x lap length), and the lap length is planned / laps.
+      --
+      -- An added column with a constant default, which SQLite applies without
+      -- rewriting the table. Every existing row was one run of the timer -
+      -- imported, manual or recorded - so 1 is true of all of them.
+      ALTER TABLE sessions ADD COLUMN laps INTEGER NOT NULL DEFAULT 1 CHECK (laps >= 1);
+    `
   }
 ]

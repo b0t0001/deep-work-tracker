@@ -92,14 +92,34 @@ ticks only to repaint; if renderer and main disagree, main wins.
 The user ran two Hourglass windows at once. The app reproduces that literally.
 
 **1. The session timer** — the countdown for the work session, one per timer
-window. On expiry it cues and auto-starts another run of the same length
-(Hourglass's loop, on by default). Each run is its own `sessions` row.
-No break interval — breaks are not tracked.
+window. On expiry it cues and starts another lap of the same length
+(Hourglass's loop, on by default). No break interval — breaks are not tracked.
 
-A run that reaches zero records **exactly its planned duration**, not the
-polling overshoot. Expiry is noticed by a 100 ms tick, so recording elapsed
-time would inflate every completed session by up to one tick — and those are
-the sessions whose duration is least in doubt.
+**A loop is one session, not one row per lap.** This is the reason the app
+exists rather than a hand count, in the user's words. Output is entered once,
+at stop, and read as a rate across the whole loop; a row per lap split a
+2.35-hour MATH 1410 loop into two rows and pinned the quantity on the last lap
+alone. So expiry with loop on does not end the session: the countdown restarts,
+and running time, pauses and the pace loop carry straight on. The row records
+`laps` (laps begun, so stopping ten minutes into lap two is two) and
+`planned_duration_s` is the whole loop's — laps × lap length. The Data tab
+shows `2×` beside such a planned figure.
+
+**A loop is saved at every lap**, then finished at stop. The engine emits
+`lap`; main writes the row on the first and updates the same row after
+(`loopSessionId` on the timer instance), and stop finishes it rather than
+writing a second. A loop written only at stop would be lost whole to a crash
+in its fifth hour. An update writes only what the timer knows - timing, laps,
+pauses, project, task, pace - never the stop prompt's quantity or reason, and a
+row deleted mid-loop is written afresh rather than the loop being dropped.
+
+Each lap ends on **exactly its planned length**, not the polling overshoot.
+Expiry is noticed by a 100 ms tick, so the next lap starts at the instant the
+last one ran out, and the overshoot belongs to it rather than being counted
+twice or lost. A loop switched off mid-lap ends when that lap reaches zero.
+`scripts/loop-check.ts` drives the engine through all of this with a fake
+clock; `scripts/loop-record-check.ts` covers the row, the migration and the
+backup round trip.
 
 **2. The pace loop** — a target rate such as "100 words per 20 minutes",
 expressed as **its own small circular window** beside the timer it belongs to.
@@ -477,7 +497,8 @@ rows record the literal value `unquantifiable`, which must stay representable.
 
 ## Data model
 
-`sessions` is the atomic unit: **one row per timer run**. Everything else is
+`sessions` is the atomic unit: **one row per session**, where a loop of
+several laps is one session. Everything else is
 derived. Record more per session rather than aggregating early — aggregation can
 be recomputed, lost detail cannot.
 
@@ -492,7 +513,8 @@ be recomputed, lost detail cannot.
   **session_date**, started_at, ended_at, planned_duration_s,
   **running_duration_s** (excludes paused time), stop_reason, stop_reason_note,
   work_quantity, work_unit, unquantifiable, notes, pace_target_qty,
-  pace_target_interval_s, source (`app` | `manual` | `import` | `test`)
+  pace_target_interval_s, source (`app` | `manual` | `import` | `test`),
+  **laps** (1 for a single run; planned covers every lap)
 
 `test` is what any unpackaged build writes (`app.isPackaged === false`), so a
 row written by `npm run dev` or a harness is marked automatically rather than
