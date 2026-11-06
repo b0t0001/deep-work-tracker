@@ -342,6 +342,42 @@ Everything here was arrived at by iteration and is easy to undo by accident.
 - **The dial is declared before the chrome and reordered with flexbox.** This
   is a drag-region consequence, not a styling preference. See below.
 
+### Closing a timer mid-session: recorded, and saved for later
+
+Until 2026-11-06, closing a timer window or quitting the app disposed the
+engine **without recording anything** - so a session paused and closed, which
+is the user's stated habit, was simply lost. Hourglass never did that: a
+running timer that is closed goes into its **Saved timers** list (ten, in the
+right-click and tray menus, with Open all and Clear) and can be reopened where
+it left off.
+
+This app now does the same, with the session recorded first:
+
+- **Closing pauses, records, then saves.** The window's `close` event (which
+  quitting also fires, for every window) and Windows' `session-end` call
+  `saveRunning()` in `main/savedTimers.ts`. Running is paused first, because
+  time spent closed is not work. The row is written - or updated, for a loop
+  or a timer that was itself reopened - and an entry pointing at it goes on
+  the list. A timer that is idle or already finished saves nothing.
+- **Reopening carries on in the same row.** `reopenSaved()` restores the
+  timer paused, with its pace, and the window keeps the row id, so stopping
+  it later finishes that session rather than starting another. The stretch it
+  spent closed is the pause that closing opened, so it is recorded and never
+  counted. The window takes its project and task from the restored session
+  rather than pushing the last-used project over it.
+- **The list is a shortcut, not the record.** Ten entries, newest first,
+  stored as JSON in `app_settings` so a timer saved by quitting is there after
+  the next launch. Clearing it, or an entry falling off the end, never touches
+  a recorded session. A damaged value reads as an empty list.
+- **Right-click works everywhere on the timer.** Most of the window is a
+  drag region, where a right-click is the OS caption menu rather than a page
+  event, so `system-context-menu` is answered with the same menu as
+  `context-menu`.
+
+`scripts/saved-timers-check.ts` (24) covers the logic on a copy; a run of the
+real built app over CDP confirmed that closing the window records the row and
+lists it.
+
 ### The tray
 
 One icon for the whole app, not one per timer.

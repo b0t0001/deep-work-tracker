@@ -47,6 +47,7 @@ import { readLayout, writeLayout } from './db/layout'
 import { defaultLayout, type Layout } from '../shared/layout'
 import { listOf, missingForNewSession } from '../shared/sessionForm'
 import { formatClock, remainingMs, type TimerSnapshot } from '../shared/timer'
+import { clearSaved, listSaved, reopenSaved, saveRunning, type SavedTimer } from './savedTimers'
 
 /** Actions a global shortcut can drive, and what they start out bound to. */
 export type ShortcutAction = 'pause' | 'stop' | 'newTimer'
@@ -168,6 +169,98 @@ function endPace(instance: TimerInstance): void {
   instance.engine.setPace(null)
   syncPaceWindow(instance)
   send(instance, 'pace:ended', null)
+}
+
+/**
+ * A timer window is closing - by its own button, by quitting, or by Windows
+ * shutting down - with a session still going. Record it and keep it.
+ *
+ * Paused first, because the time a timer spends closed is not work; the pause
+ * this opens is closed again if the timer is reopened, so the gap is recorded
+ * rather than counted. Then the row is written (or brought up to date, for a
+ * loop or a timer that was itself reopened), and an entry pointing at that row
+ * goes into the saved timers list. See `savedTimers.ts`.
+ *
+ * Never throws: it runs inside a close handler, where an exception is a crash
+ * dialog on the way out. A failure is logged and the window still closes.
+ */
+function saveForLater(instance: TimerInstance): void {
+  try {
+    const id = saveRunning(instance.engine, instance.loopSessionId)
+    if (id === null) return
+    instance.loopSessionId = id
+    refreshTrayMenu()
+  } catch (error) {
+    console.error('Could not save the timer being closed:', error)
+  }
+}
+
+/**
+ * Opens a saved timer in a new window, paused where it was left. It carries
+ * on recording into the same row, so stopping it later finishes that session
+ * rather than starting another.
+ */
+function openSaved(sessionId: number): void {
+  const window = createTimerWindow()
+  const instance = instances.get(window.id)
+  const id = instance ? reopenSaved(instance.engine, sessionId) : null
+  refreshTrayMenu()
+  if (!instance || id === null) {
+    // Already reopened elsewhere, or cleared: nothing to carry on with.
+    window.close()
+    return
+  }
+  instance.loopSessionId = id
+  if (instance.engine.paceConfig()) window.once('show', () => syncPaceWindow(instance))
+}
+
+function savedLabel(saved: SavedTimer): string {
+  const name = saved.snapshot.task.trim() || saved.snapshot.project.trim() || 'Untitled'
+  const left = formatClock(remainingMs(saved.snapshot, saved.savedAt))
+  const when = new Date(saved.savedAt).toLocaleString('en-US', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: 'numeric',
+    minute: '2-digit'
+  })
+  return `${name}  ·  ${left} left  ·  closed ${when}`
+}
+
+/** The same submenu in the tray and in a timer's right-click menu. */
+function savedTimersMenu(): Electron.MenuItemConstructorOptions {
+  const saved = listSaved()
+  return {
+    label: 'Saved timers',
+    submenu:
+      saved.length === 0
+        ? [{ label: 'No saved timers', enabled: false }]
+        : [
+            ...saved.map((s) => ({ label: savedLabel(s), click: () => openSaved(s.sessionId) })),
+            { type: 'separator' as const },
+            {
+              label: 'Open all saved timers',
+              click: () => saved.forEach((s) => openSaved(s.sessionId))
+            },
+            {
+              // Only the shortcut back goes. Every one of these sessions is
+              // already recorded and stays in the Data tab.
+              label: 'Clear saved timers',
+              click: () => {
+                clearSaved()
+                refreshTrayMenu()
+              }
+            }
+          ]
+  }
+}
+
+function timerMenu(): Menu {
+  return Menu.buildFromTemplate([
+    { label: 'New timer', click: () => createTimerWindow() },
+    savedTimersMenu(),
+    { type: 'separator' },
+    { label: 'Settings and data', click: () => openDashboard() }
+  ])
 }
 
 function sendToPace(instance: TimerInstance, channel: string, payload: unknown): void {
@@ -347,6 +440,21 @@ function createTimerWindow(): BrowserWindow {
     }
     window.show()
   })
+  // Before 'closed', while the engine still exists. Quitting closes every
+  // window, so this covers quit too; 'session-end' is Windows shutting down or
+  // logging off, which may not close windows at all.
+  window.on('close', () => saveForLater(instance))
+  window.on('session-end', () => saveForLater(instance))
+
+  // Right-click, as in Hourglass. Most of the window is a drag region, and a
+  // right-click there is the OS's caption menu (Move, Size, Close) rather than
+  // a page event - so both are answered with the same menu.
+  window.webContents.on('context-menu', () => timerMenu().popup({ window }))
+  window.on('system-context-menu', (event) => {
+    event.preventDefault()
+    timerMenu().popup({ window })
+  })
+
   window.on('enter-full-screen', () => send(instance, 'window:fullscreen', true))
   window.on('leave-full-screen', () => send(instance, 'window:fullscreen', false))
   window.on('closed', () => {
@@ -415,20 +523,27 @@ function openDashboard(): void {
 /** The tray is the only surface left when every window is minimised. */
 function createTray(): void {
   tray = new Tray(nativeImage.createFromPath(icon).resize({ width: 16, height: 16 }))
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: 'New timer', click: () => createTimerWindow() },
-      { label: 'Show timers', click: () => instances.forEach((i) => i.window.show()) },
-      { label: 'Settings and data', click: () => openDashboard() },
-      { type: 'separator' },
-      { label: 'Quit', click: () => app.quit() }
-    ])
-  )
+  refreshTrayMenu()
   tray.on('click', () => {
     const anyHidden = [...instances.values()].some((i) => !i.window.isVisible())
     instances.forEach((i) => (anyHidden ? i.window.show() : i.window.hide()))
   })
   updateTray()
+}
+
+/** Rebuilt whenever the saved timers change, since the menu lists them. */
+function refreshTrayMenu(): void {
+  if (!tray) return
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'New timer', click: () => createTimerWindow() },
+      { label: 'Show timers', click: () => instances.forEach((i) => i.window.show()) },
+      savedTimersMenu(),
+      { label: 'Settings and data', click: () => openDashboard() },
+      { type: 'separator' },
+      { label: 'Quit', click: () => app.quit() }
+    ])
+  )
 }
 
 function updateTray(): void {

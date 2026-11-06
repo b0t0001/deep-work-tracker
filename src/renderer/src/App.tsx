@@ -160,9 +160,19 @@ export default function App(): React.JSX.Element {
       .projectNames()
       .then(setProjectNames)
       .catch(() => setProjectNames([]))
+    // A window can open onto a session already under way - a saved timer
+    // reopened from the tray or the right-click menu. Its project and task are
+    // the session's, and pushing the last-used project into it would quietly
+    // refile the session; so the default applies only to an idle timer.
     void window.api.timer
-      .lastProject()
-      .then((name) => {
+      .get()
+      .then(async (current) => {
+        if (current && current.status !== 'idle') {
+          setProject(current.project)
+          setLabel(current.task)
+          return
+        }
+        const name = await window.api.timer.lastProject()
         if (!name) return
         setProject(name)
         void window.api.timer.setProject(name)
