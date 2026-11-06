@@ -19,7 +19,15 @@ import {
   windowDef,
   windowRange
 } from '../src/shared/windows'
-import { buildFacts, pickFact, pluralUnit, formatHours, type FactSource } from '../src/shared/facts'
+import {
+  buildFacts,
+  formatCount,
+  formatHours,
+  pickFact,
+  pluralUnit,
+  verbFor,
+  type FactSource
+} from '../src/shared/facts'
 
 let pass = 0
 let fail = 0
@@ -46,7 +54,10 @@ eq('ids are unique', new Set(WINDOWS.map((w) => w.id)).size, WINDOWS.length)
 eq(
   'the user list is all there',
   WINDOWS.map((w) => w.id),
-  ['1w', '2w', '1m', '8w', '1y', '2y', 'all']
+  // '3m' joined the ladder when the comparison box needed 90 days. It is in
+  // the shared list rather than a private one so that "past 90 days" covers
+  // the same 90 days wherever it is chosen.
+  ['1w', '2w', '1m', '8w', '3m', '1y', '2y', 'all']
 )
 eq('8 weeks is 56 days, not two calendar months', windowDef('8w').days, 56)
 
@@ -161,11 +172,20 @@ const empty: FactSource = {
   daily: [],
   editingHours: 0,
   totalHours: 0,
-  firstDate: null
+  firstDate: null,
+  unitTasks: {}
 }
 eq('an empty history has no facts, not "0 words written"', buildFacts(empty), [])
 
 const real: FactSource = {
+  // Real task strings, so the verb rules are exercised against the history
+  // they were derived from rather than against invented examples.
+  unitTasks: {
+    question: ['Bio', 'A2TH', 'ID Activity', 'Bio HW: Worksheet'],
+    word: ['English', 'English Background Notes', 'Officer Applications for Scioly'],
+    video: ['Create a Video', 'Record 2 Videos', 'Edit and Release 3 Videos'],
+    page: ['Read 三体', '读三体', '三体', 'Bio Workbook']
+  },
   unitTotals: [
     { unit: 'question', quantity: 16550.3, sessions: 775 },
     { unit: 'word', quantity: 292358, sessions: 526 },
@@ -194,11 +214,18 @@ eq('words get their verb', byId['unit:word'], {
   detail: 'across 526 sessions'
 })
 eq(
-  'questions are answered, and rounded',
+  // Exact, at the user's insistence - "no. big numbers should always be
+  // exact" - so the stored .3 of a question survives rather than being
+  // rounded away.
+  'questions are answered, and counted exactly',
   byId['unit:question']?.label + ' ' + byId['unit:question']?.value,
-  'questions answered 16,550'
+  'questions answered 16,550.3'
 )
-eq('a unit with no verb is a plain count', byId['unit:video']?.label, 'videos')
+// This assertion used to be the opposite: that a unit the map did not know
+// stayed a plain count. "285 components" is precisely what the user objected
+// to, so there is no longer any such case - `video` is in the map, and
+// anything that is not falls through to "done".
+eq('a unit the map knows takes its verb', byId['unit:video']?.label, 'videos made')
 eq('a typed phrase is not given a verb', byId['unit:seconds edited']?.label, 'seconds edited')
 eq('a rarely-used unit is not a fact', byId['unit:thumbnail'], undefined)
 eq('a small total is not a fact', byId['unit:assignment'], undefined)
@@ -228,6 +255,52 @@ eq(
   buildFacts({ ...real, editingHours: 0 }).some((f) => f.id === 'editing'),
   false
 )
+
+console.log('')
+console.log('--- verbFor: what was actually done ---')
+
+/*
+ * The task strings here are real ones from the user's history, not invented
+ * examples. That matters for `page` in particular: the rule is deciding
+ * between a novel read in Chinese and a Bio workbook worked through, and a
+ * made-up sentence would not tell us whether it can.
+ */
+eq('a unit with one obvious verb takes it', verbFor('component'), 'CADded')
+eq('and case and spacing do not matter', verbFor('  Component '), 'CADded')
+eq('an unknown unit is never left bare', verbFor('widget'), 'done')
+eq('a unit typed as a phrase already carries its verb', verbFor('seconds edited'), '')
+eq(
+  'pages of a novel are read',
+  verbFor('page', ['Read 三体', '读三体', '三体', 'Bio Workbook']),
+  'read'
+)
+eq(
+  'pages of an essay are written',
+  verbFor('page', ['Write College Essay', 'Draft Supplement', 'Outline Report', 'Read Prompt']),
+  'written'
+)
+eq('and with nothing to go on it does not guess', verbFor('page', []), 'done')
+eq(
+  'a single reading task does not flip sixty written ones',
+  verbFor('page', ['Write Essay', 'Write Notes', 'Draft Report', 'Review Answers']),
+  'written'
+)
+eq('tests that were graded', verbFor('test', ['Grade XPD Tests', 'Grade Ecology Tests']), 'graded')
+eq('tests that were taken', verbFor('test', ['Finish CSE Test', 'Conduct Tests']), 'taken')
+
+console.log('')
+console.log('--- formatCount: exact, always ---')
+
+/*
+ * "no. big numbers should always be exact". An earlier version printed
+ * "nearly 300k words", which reads well and throws away the figure the card
+ * exists to show.
+ */
+eq('a big number keeps every digit', formatCount(292358), '292,358')
+eq('and is never abbreviated', formatCount(296412), '296,412')
+eq('a fractional quantity keeps its precision', formatCount(1975.5), '1,975.5')
+eq('with trailing zeros trimmed', formatCount(284.0), '284')
+eq('and a small one is just itself', formatCount(92), '92')
 
 console.log('')
 console.log('--- pickFact ---')

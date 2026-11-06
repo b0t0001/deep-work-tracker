@@ -8,7 +8,7 @@
  * streaks, week-over-week, and grouping consecutive runs into sittings.
  */
 
-import type { HourDay, PlannedRun, ProjectDay } from './ranges'
+import type { HourDay, PlannedRun, ProjectDay, UnitDay } from './ranges'
 
 /** One calendar day. `hours` is running time, never wall-clock span. */
 export interface DayTotal {
@@ -176,6 +176,21 @@ export interface Analytics {
   projectDays: ProjectDay[]
   hourDays: HourDay[]
   plannedRuns: PlannedRun[]
+  /** Output by unit by day, so the fun fact can follow its own range control. */
+  unitDays: UnitDay[]
+  /**
+   * A handful of the task names each unit was recorded against.
+   *
+   * The fun fact says what was *done*, not just how much of it there was -
+   * "285 components CADded", not "285 components" - and for some units the
+   * verb is only decidable from the work. `page` is the case: the real
+   * history has pages of a novel read in Chinese and pages of a lab workbook
+   * worked through, and guessing one verb for both would make the card lie
+   * about half of them. A sample rather than every task: the rule only needs
+   * to see which kind of work dominates, and the whole list of 2,475 task
+   * strings would be on the wire for nothing.
+   */
+  unitTasks: Record<string, string[]>
 }
 
 export interface Streaks {

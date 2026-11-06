@@ -27,7 +27,7 @@
  * open-ended `to` and dropped by a `from`, so it appears or vanishes
  * depending on which end of the range was typed.
  */
-import type { HourTotal, PlannedVsActual, ProjectTotal } from './analytics'
+import type { HourTotal, PlannedVsActual, ProjectTotal, UnitTotal } from './analytics'
 import type { Range } from './windows'
 
 /** Hours on one project on one day. The dated form of `ProjectTotal`. */
@@ -60,6 +60,14 @@ export interface PlannedRun {
   /** Seconds, as stored. */
   planned: number
   actual: number
+}
+
+/** A unit's output on one day. The dated form of `UnitTotal`. */
+export interface UnitDay {
+  date: string
+  unit: string
+  quantity: number
+  sessions: number
 }
 
 /**
@@ -148,4 +156,19 @@ export function plannedVsActualIn(
       actualMinutes: v.actualSeconds / 60 / v.sessions
     }))
     .sort((a, b) => a.plannedMinutes - b.plannedMinutes)
+}
+
+/** Output by unit over a range, most sessions first - the shape the fun fact reads. */
+export function unitTotalsIn(unitDays: readonly UnitDay[], range: Range | null): UnitTotal[] {
+  const totals = new Map<string, UnitTotal>()
+  for (const row of within(unitDays, range)) {
+    const found = totals.get(row.unit)
+    if (found) {
+      found.quantity += row.quantity
+      found.sessions += row.sessions
+    } else {
+      totals.set(row.unit, { unit: row.unit, quantity: row.quantity, sessions: row.sessions })
+    }
+  }
+  return [...totals.values()].sort((a, b) => b.sessions - a.sessions || b.quantity - a.quantity)
 }

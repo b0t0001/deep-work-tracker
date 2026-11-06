@@ -8,7 +8,13 @@ import {
   type PlannedVsActual,
   type RatePoint
 } from '../../shared/analytics'
-import { bucketMinutes, type HourDay, type PlannedRun, type ProjectDay } from '../../shared/ranges'
+import {
+  bucketMinutes,
+  type HourDay,
+  type PlannedRun,
+  type ProjectDay,
+  type UnitDay
+} from '../../shared/ranges'
 /**
  * Every figure the Analytics tab shows, aggregated in SQL.
  *
@@ -84,7 +90,9 @@ export function analytics(): Analytics {
     editingHours: 0,
     projectDays: [],
     hourDays: [],
-    plannedRuns: []
+    plannedRuns: [],
+    unitDays: [],
+    unitTasks: {}
   }
   if (span.first === null || span.last === null || Number(span.sessions) === 0) return empty
   const rawDaily = (
@@ -361,6 +369,40 @@ export function analytics(): Analytics {
       .all() as Array<{ unit: string; quantity: number; sessions: number }>
   ).map((r) => ({ unit: r.unit, quantity: Number(r.quantity), sessions: Number(r.sessions) }))
 
+  // By day as well, so the fun fact can follow its own range control, and a
+  // sample of the tasks each unit was recorded against, so it can say what
+  // was done rather than only how much. Same conditions as `unitTotals`, so
+  // a ranged reading can never include a row the all-time one excludes.
+  const unitDays: UnitDay[] = (
+    db
+      .prepare(
+        `SELECT session_date AS date, work_unit AS unit,
+                SUM(work_quantity) AS quantity, COUNT(*) AS sessions
+           FROM ${COUNTED} AS sessions
+          WHERE work_unit IS NOT NULL AND work_unit <> ''
+            AND work_quantity IS NOT NULL AND unquantifiable = 0
+            AND session_date IS NOT NULL
+          GROUP BY session_date, work_unit
+          ORDER BY session_date`
+      )
+      .all() as Array<{ date: string; unit: string; quantity: number; sessions: number }>
+  ).map((row) => ({
+    date: row.date,
+    unit: row.unit,
+    quantity: Number(row.quantity),
+    sessions: Number(row.sessions)
+  }))
+
+  const taskRows = db.prepare(
+    `SELECT DISTINCT task FROM ${COUNTED} AS sessions
+      WHERE work_unit = ? AND task IS NOT NULL AND task <> ''
+      LIMIT 12`
+  )
+  const unitTasks: Record<string, string[]> = {}
+  for (const row of unitTotals) {
+    unitTasks[row.unit] = (taskRows.all(row.unit) as Array<{ task: string }>).map((t) => t.task)
+  }
+
   const longestRow = db
     .prepare(
       `SELECT s.session_date AS date, s.task AS task, p.name AS project,
@@ -422,6 +464,8 @@ export function analytics(): Analytics {
     editingHours,
     projectDays,
     hourDays,
-    plannedRuns
+    plannedRuns,
+    unitDays,
+    unitTasks
   }
 }

@@ -13,6 +13,7 @@
  * the first panel added after someone customises.
  */
 import {
+  DEFAULT_COMPARE,
   DEFAULT_RANGES,
   PANEL_IDS,
   SECTIONS,
@@ -58,22 +59,23 @@ eq(
 {
   // The rule that matters. A user who dragged things before `pace` existed
   // must still see `pace`.
-  const before = { order: ['calendar', 'hoursPerWeek', 'projects'], hidden: [], fontScale: 1 }
+  const before = { order: ['calendar', 'projects', 'pace'], hidden: [], fontScale: 1 }
   const got = resolveLayout(before)
   eq('every panel is present after resolving', got.order.length, PANEL_IDS.length)
   // Relative to itself, not at the front: a new panel whose default position
-  // falls between two the user has placed belongs between them. `stats` is
-  // exactly that case - it sits second in PANEL_IDS, so it lands between
-  // `calendar` and `hoursPerWeek` rather than after everything they chose.
+  // falls between two the user has placed belongs between them.
+  // `hoursPerWeek` is exactly that case here - it sits between `calendar`
+  // and `projects` in PANEL_IDS, so it lands between them rather than after
+  // everything they chose.
   eq(
     'the expressed order is preserved relative to itself',
     got.order.filter((id) => before.order.includes(id)),
-    ['calendar', 'hoursPerWeek', 'projects']
+    ['calendar', 'projects', 'pace']
   )
   eq(
     'and a panel never opined about lands in its default position, not last',
-    got.order.slice(0, 4),
-    ['calendar', 'stats', 'hoursPerWeek', 'projects']
+    got.order.slice(0, 3),
+    ['calendar', 'hoursPerWeek', 'projects']
   )
   eq('a panel never opined about is visible, not hidden', got.hidden, [])
   eq('and it is actually drawn', visiblePanels(got).includes('pace'), true)
@@ -86,7 +88,6 @@ eq(
       'pace',
       'calendar',
       'rateTrend',
-      'stats',
       'timeOfDay',
       'projects',
       'plannedRatio',
@@ -94,7 +95,8 @@ eq(
     ],
     hidden: ['timeOfDay'],
     fontScale: 1.25,
-    ranges: { projects: '1y', averages: '8w' }
+    ranges: { projects: '1y', timeOfDay: '8w' },
+    compare: { statistic: 'median', grain: 'week', range: '3m' }
   }
   eq('a full custom layout round-trips', parseLayout(serialiseLayout(mine)), mine)
 }
@@ -142,6 +144,11 @@ console.log('--- per-panel ranges ---')
 eq(
   'a target that is not a panel or a tile is dropped',
   resolveLayout({ ranges: { nonsense: '1w', projects: '1w' } }).ranges,
+  { projects: '1w' }
+)
+eq(
+  'a panel that has been removed is dropped too - `stats` is exactly that case',
+  resolveLayout({ ranges: { stats: '1w', projects: '1w' } }).ranges,
   { projects: '1w' }
 )
 eq(
@@ -203,6 +210,37 @@ eq('and it holds no panels - the figure row is not draggable', SECTIONS[0].panel
 eq('sectionOf agrees with the table', sectionOf('calendar'), 'hours')
 
 console.log('')
+console.log('--- the comparison box: statistic, grain and range ---')
+
+/*
+ * Each of the three is validated on its own. A stored grain that no longer
+ * exists must not also throw away the statistic the user chose - these are
+ * three separate decisions that happen to be stored together.
+ */
+eq('nothing stored means the defaults', resolveLayout({}).compare, DEFAULT_COMPARE)
+eq(
+  'one bad value does not take the other two with it',
+  resolveLayout({ compare: { statistic: 'mode', grain: 'week', range: '1y' } }).compare,
+  { statistic: DEFAULT_COMPARE.statistic, grain: 'week', range: '1y' }
+)
+eq(
+  'a window that no longer exists falls back',
+  resolveLayout({ compare: { statistic: 'median', grain: 'day', range: 'fortnight' } }).compare
+    .range,
+  DEFAULT_COMPARE.range
+)
+eq(
+  'and a complete choice round-trips',
+  parseLayout(
+    serialiseLayout({
+      ...defaultLayout(),
+      compare: { statistic: 'median', grain: 'month', range: '3m' }
+    })
+  ).compare,
+  { statistic: 'median', grain: 'month', range: '3m' }
+)
+
+console.log('')
 console.log('--- through app_settings ---')
 openDatabase()
 eq('an unwritten layout reads as defaults', readLayout(), defaultLayout())
@@ -211,7 +249,8 @@ eq('an unwritten layout reads as defaults', readLayout(), defaultLayout())
     order: [...PANEL_IDS].reverse(),
     hidden: ['projects'],
     fontScale: 1.5,
-    ranges: { stats: '1m', period: '2y' }
+    ranges: { pace: '1m', projects: '2y' },
+    compare: { statistic: 'mean', grain: 'month', range: '1y' }
   }
   eq('what is written is what is read back', writeLayout(mine), mine)
   eq('and it survives a reopen', readLayout(), mine)

@@ -16,7 +16,7 @@
  */
 import { previousDay, type DayTotal } from './analytics'
 
-export type WindowId = '1w' | '2w' | '1m' | '8w' | '1y' | '2y' | 'all'
+export type WindowId = '1w' | '2w' | '1m' | '8w' | '3m' | '1y' | '2y' | 'all'
 
 export interface WindowDef {
   id: WindowId
@@ -38,6 +38,12 @@ export const WINDOWS: readonly WindowDef[] = [
   { id: '2w', label: 'past 2 weeks', days: 14 },
   { id: '1m', label: 'past month', days: 30 },
   { id: '8w', label: 'past 8 weeks', days: 56 },
+  // Added for the comparison box, which the user asked to be able to set to
+  // 90 days. It joins the shared ladder rather than being a fourth private
+  // list - a quarter is a sensible thing to ask any panel for, and the whole
+  // argument of this file is that "past 90 days" must cover the same 90 days
+  // wherever it is chosen.
+  { id: '3m', label: 'past 90 days', days: 90 },
   { id: '1y', label: 'past year', days: 365 },
   { id: '2y', label: 'past 2 years', days: 730 },
   { id: 'all', label: 'all time', days: null }

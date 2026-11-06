@@ -700,6 +700,58 @@ local.
   calendar — it would leave today's square unfilled on a grid whose whole job
   is to show that today is filled.
 
+**One comparison box, not three readings of one number.** The tab showed
+"3.21 h a day over the past week", "3.75 h a day worked in the past week" and
+a Stats table whose first row was 3.21 again. The difference was that the
+first divided 22.5 hours by 7 calendar days and the second divided the same
+22.5 by the 6 days that had work on them - defensible separately, indefensible
+together, and the user said so: *"look at how much redundant data there is...
+I want ONE general box that i can quickly do comparisons on."* Both tiles and
+the whole Stats panel are gone. `CompareBox` asks [Average|Median] hours per
+[day|week|month] over [range] and answers with one figure, the same statistic
+over the previous period of equal length, and over all time.
+
+- **Only the calendar-day reading survives**, which `CLAUDE.md` had already
+  settled: dividing by worked days answers how long a working day is, not how
+  much gets done. The percentage moved from -31% to -41% as a result, because
+  the worked-day version was comparing 6 days against 7.
+- **An option that can only answer "—" is not offered.** `grainsFor` lists
+  only the grains a range is long enough to fill, so "hours a month over the
+  past week" is not in the menu rather than in the menu printing an em dash.
+- **A grain that stops fitting is not forgotten**, only unused. Shortening the
+  range falls back to the longest grain that fits and widening it returns to
+  what was chosen.
+- **All time has no previous period**, so there is no percentage. Comparing it
+  against the stretch before the first session would be comparing against
+  zero, and "up ∞%" is the loudest possible way to say nothing.
+- The baseline tile stays and is **not** a duplicate: the box compares a
+  period against the one before it, the baseline compares the present against
+  a fixed point three years back, and no setting of the box produces that.
+
+**The fun fact says what was done, not just how much.** *"285 components means
+285 components CADded across XYZ sessions... it shouldn't just tell me '285
+components.'"* The verb map in `shared/facts.ts` is built from the user's own
+history - the distinct `work_unit` values listed by frequency against a copy
+of the real database, and for each frequent one a sample of its tasks read -
+not from guesses about what the words might mean. That is where `components`
+→ CADded comes from: all 49 of its sessions are tasks beginning "CAD".
+
+- **Where the work genuinely goes two ways, the tasks decide.** `page` is the
+  case: 63 of them, split between a novel read in Chinese (`Read 三体`,
+  `读三体`) and a Bio workbook worked through. `verbFor` counts which kind of
+  task dominates rather than taking the first match, so one `Review Answers`
+  among sixty written pages does not flip the sentence. The payload carries a
+  sample of tasks per unit for this; a unit typed as a phrase (`seconds
+  edited`) already contains its verb and is left alone.
+- **Never a bare noun.** The fallback is "done".
+- **Numbers are exact.** An earlier version wrote "nearly 300k words", which
+  reads well and throws away the figure the card exists to show - *"no. big
+  numbers should always be exact"*. 292,358, and a fractional quantity keeps
+  its real precision with trailing zeros trimmed.
+- **On a narrowed range, only the facts that narrowed with it.** Lifetime
+  hours and the longest session ever cannot follow a range control, so they
+  drop out rather than answering "past month" with a figure since 2023.
+
 **Axis sizes are measured, never typed.** Every `YAxis width` and chart
 `margin` was a number chosen while looking at one chart with one set of data,
 and both of those change underneath it: a range control can swap a two-digit
