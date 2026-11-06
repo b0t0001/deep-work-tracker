@@ -523,6 +523,10 @@ Source filter option, and is excluded from every analytics query. Added
 2026-11-05 after five rows written by testing sessions had to be deleted from
 the real history.
 
+**The preview is the exception.** `npm run preview` writes the source that was
+meant, because what the user does there is real work that is copied into the
+real history - see "The preview saves what you enter".
+
 `session_date` is the local calendar date, separate from `started_at`.
 Imported rows know their date but not their time of day, so without it the date
 would have been lost and every trend with it. It is the local date rather than
@@ -809,6 +813,55 @@ be run, tested against and killed without touching it. Verified: a dev run
 created `deep-work-tracker-dev\deepwork.db` and left the real file at the same
 row count and `quick_check: ok`.
 
+### The preview saves what you enter
+
+`npm run preview` is a third profile, `deep-work-tracker-preview`: the current
+source running against a fresh snapshot of the real history, for trying a
+change on real data before it is installed.
+
+**It was built as disposable, and that was the bug.** Rows written there were
+marked `test` and the next run replaced the database, with a banner saying
+nothing was saved. On 2026-11-06 the user logged three real MATH 1410 sessions
+in it anyway - to them, a window showing their history *is* the app - and they
+survived only because they were noticed and copied across by hand. A build
+that looks exactly like the real one and quietly discards what is typed into
+it is a data-loss trap however clearly it is labeled. So it now keeps what it
+is given:
+
+- **The snapshot is kept as `baseline.db`**, and when the preview closes its
+  changes are copied into the real history (`scripts/preview-sync.ts`). If it
+  was killed rather than closed, the next `npm run preview` copies first and
+  snapshots second.
+- **Three-way, against the baseline.** The installed app may be used while a
+  preview is open, so neither side overwrites the other. Added rows are
+  inserted under fresh ids. An edit or delete is applied only if the real row
+  still matches the baseline; if both sides changed it, nothing is chosen - it
+  is reported as a conflict and the preview's version is kept in Recovery.
+- **Projects and tags are compared by name.** The two databases create projects
+  independently, so the same id can mean different projects in each.
+- **Source moves only if it was changed in the preview**, and a baseline row
+  marked `test` is compared ignoring source - that is a preview from before
+  this change, whose rows were given their proper source when copied by hand.
+- **More than 50 edits and deletes, or 200 additions, is refused** rather than
+  applied. Nobody does that by hand; it is a restore or an import, and the
+  preview database is left untouched so refusing loses nothing.
+- **One transaction, a copy first, a checkpoint after.** The real database is
+  written with `VACUUM INTO` to `Documents/Deep Work Tracker/Recovery/preview-*`
+  before the first change, beside the preview's own files and a `report.txt`.
+- **It refuses to start while a preview is open.** Chromium holds `lockfile` in
+  the profile for as long as the app runs, so opening it fails with `EBUSY`.
+  Copying from a database still being written and then replacing it under the
+  running app would lose whatever came after.
+- **After a copy the preview becomes its own baseline**, so relaunching the
+  preview build by hand keeps its data and a second copy finds nothing new.
+- **The banner says what the last copy did**, from `last-sync.json`, which is
+  written only when something changed - otherwise the run after a clean close
+  would replace the record before anyone had seen it.
+
+`scripts/preview-sync-check.ts` exercises every rule above on throwaway copies;
+`node out/preview/index.js --no-launch` with `APPDATA` and `USERPROFILE`
+pointed at stand-in folders runs the whole script without opening a window.
+
 ### One process, and a busy timeout
 
 Two copies of the app meant two SQLite connections competing for one file, and
@@ -976,6 +1029,7 @@ npm run dev        # dev with hot reload
 npm run build      # typecheck + bundle all three processes
 npm run typecheck  # typecheck only (node + web configs)
 npm run dist       # package a Windows installer
+npm run preview    # current source against a snapshot of the real history; saves back on close
 npm run lint
 npm run format
 ```
