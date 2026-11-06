@@ -324,7 +324,12 @@ export default function App(): React.JSX.Element {
           // record a session this window never sees stop.
           void window.api.timer.setProject(event.target.value)
         }}
-        onFocus={() => {
+        onFocus={(event) => {
+          // Selected whole, as the clock is. The field arrives holding the
+          // last session's project, so clicking it is nearly always to put a
+          // different one there; a caret dropped mid-word made the new name
+          // land inside the old one (`H|W` + `Job` = `HJobW`).
+          event.currentTarget.select()
           setProjectFocused(true)
           setProjectOpen(true)
           setHighlight(0)
