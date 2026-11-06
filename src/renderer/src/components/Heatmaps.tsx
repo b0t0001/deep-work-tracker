@@ -121,6 +121,19 @@ const PITCH = CELL + GAP
 const WEEKDAY_W = 24
 const MONTH_H = 16
 
+/**
+ * About the width of `Sep` in viewBox units, used to keep the last label on
+ * screen.
+ *
+ * The svg clips at its own edge, and the final column's label starts a few
+ * units short of it: measured, `Nov` sat at x=819 in an 831-unit box and
+ * needed 18, so it lost its last letter and read as `No`. The current month is
+ * the one label nobody can afford to lose. Generous on purpose - too wide only
+ * anchors a label that would have fitted anyway, which is invisible, while too
+ * narrow clips it again.
+ */
+const MONTH_LABEL_W = 22
+
 /*
  * Three and a half years is about 183 weeks. Drawn in full inside the 1500px
  * panel that is roughly 8px a column: cells too small to aim at, and month
@@ -323,11 +336,24 @@ export function CalendarHeatmap({
         role="img"
         aria-label="Hours worked per day"
       >
-        {monthLabels.map((label) => (
-          <text key={label.text + label.x} x={label.x} y={MONTH_H - 5} style={labelStyle}>
-            {label.text}
-          </text>
-        ))}
+        {monthLabels.map((label) => {
+          // Flush to the right edge rather than clipped. Anchoring the end is
+          // better than skipping the label or widening the box: the grid keeps
+          // its full width, and the label moves by at most a few units - `Oct`
+          // sits 60 units to its left, so they cannot collide.
+          const overflows = label.x + MONTH_LABEL_W > width
+          return (
+            <text
+              key={label.text + label.x}
+              x={overflows ? width : label.x}
+              y={MONTH_H - 5}
+              textAnchor={overflows ? 'end' : undefined}
+              style={labelStyle}
+            >
+              {label.text}
+            </text>
+          )
+        })}
         {[
           [0, 'M'],
           [2, 'W'],

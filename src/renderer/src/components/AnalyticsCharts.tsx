@@ -630,10 +630,24 @@ export function ByProject({
         <Empty height={160}>No projects with recorded time yet.</Empty>
       ) : (
         <ResponsiveContainer width="100%" height={height}>
+          {/*
+           * The right margin is for the value labels, not for air.
+           *
+           * Recharts gives each label a `width` equal to the room left between
+           * it and the edge of the svg, and its `Text` *wraps* when the string
+           * does not fit - svg text cannot wrap on its own, so this is Recharts
+           * doing it deliberately. At `right: 16` the longest bar left 25.6px
+           * for a `760 h` that measures 26, and it broke into `760` over `h`:
+           * one row twice the height of its neighbours, from a third of a pixel.
+           * Measured in the running app rather than inferred from the markup.
+           *
+           * 48 leaves about 42px, which clears four digits. The bars lose the
+           * same 32px, which at this width is invisible.
+           */}
           <BarChart
             data={bars}
             layout="vertical"
-            margin={{ top: 0, right: 16, left: 0, bottom: 0 }}
+            margin={{ top: 0, right: 48, left: 0, bottom: 0 }}
           >
             <CartesianGrid stroke={GRID} horizontal={false} />
             <XAxis type="number" tickLine={false} unit=" h" />

@@ -19,6 +19,7 @@
  * weeks" waiting to disagree with the first.
  */
 import { periodStats, type Analytics, type PeriodFigures } from '@shared/analytics'
+import { formatDate } from '@shared/dates'
 import { windowDef, windowRange, type WindowId } from '@shared/windows'
 
 /**
@@ -137,10 +138,25 @@ export function StatsTable({
         {/* Both rules are worth stating where the figures are read. The first
             is the one a reader is most likely to disagree with, and they
             should be able to see that it was a choice. */}
-        Every calendar day counts, including days with no work — an average over worked days only
-        would answer how long a working day is, not how much you get done. Weeks are 7 days and
-        months 30, measured back from the end of the period; a part-week left over at the start is
-        not counted as a week.
+        {/*
+         * The end date is here because the header above this panel prints a
+         * lifetime total that includes today and this column's total does not
+         * - 2,751 h against 2,750.9. Both are right, and the difference is one
+         * unfinished day, but two totals on one screen with nothing to explain
+         * the gap is how a reader stops believing either.
+         *
+         * The table is the one that gives way, by saying where it stops rather
+         * than by taking today in. Every figure here divides by the days it
+         * covers, so folding in a day still being lived would leave the total
+         * covering one more day than the average beside it - a table that
+         * disagrees with itself, which is worse than one that disagrees with a
+         * caption.
+         */}
+        Everything here runs to the end of {formatDate(allTime.to)}, the last complete day, so work
+        recorded today is not in it yet. Every calendar day counts, including days with no work — an
+        average over worked days only would answer how long a working day is, not how much you get
+        done. Weeks are 7 days and months 30, measured back from the end of the period; a part-week
+        left over at the start is not counted as a week.
       </p>
     </div>
   )
