@@ -910,6 +910,38 @@ not from guesses about what the words might mean. That is where `components`
   hours and the longest session ever cannot follow a range control, so they
   drop out rather than answering "past month" with a figure since 2023.
 
+**The calendar grid's zoom is bounded, and a day is always the same size.**
+The grid is an svg with a viewBox and `width: 100%`, which is what makes it
+the first thing you see at 12 months - and, unbounded, what made a 30-day
+range draw 225px squares in a panel 2,304px tall. The user: *"the zoom of the
+heatmap is NOT proportional to the timescale. look what happens - it zooms in
+hella and then i can't see anything."* Measured at 1,900px before the fix:
+
+| range | viewBox | scale | day square | panel |
+| --- | --- | --- | --- | --- |
+| 30 days | 96 | 18.7x | 224.9px | 2,304px |
+| 8 weeks | 156 | 11.5x | 138.4px | 1,453px |
+| 12 months | 816 | 2.2x | 26.5px | 353px |
+| all time | 831 | 2.2x | 26.0px | 348px |
+
+`MAX_CELL_PX` is 26 because that is what the two long ranges already drew -
+the state nobody complained about - so the cap leaves them untouched and
+every short range now matches them. **A week is a smaller picture than a year
+because it contains less, not because its squares are smaller.** It is
+expressed as a `maxWidth` on the svg rather than a transform, so `height:
+auto` keeps the squares square and the panel short without a second rule to
+keep in step.
+
+`scripts/heatmap-size-check.ts` sweeps every range at two widths and two text
+sizes. Its invariant took a failing run to state: "the same size at every
+range" is true at 1,900px and **false at 1,150px**, where a 52-column year
+needs ~1,800px and has 1,090, so it shrinks to 15.2px - which is correct, and
+the assertion was wrong, not the code. What it checks now is that a square is
+either at the cap or smaller *only because the grid ran out of room*. Two
+things that bit while writing it: a bounding rect on the parent includes its
+padding, so a grid filling every pixel measured 38px short; and a backtick in
+a comment inside a template literal ends the literal.
+
 **Axis sizes are measured, never typed.** Every `YAxis width` and chart
 `margin` was a number chosen while looking at one chart with one set of data,
 and both of those change underneath it: a range control can swap a two-digit
