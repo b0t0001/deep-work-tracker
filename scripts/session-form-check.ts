@@ -60,6 +60,11 @@ eq('an edit still needs a date and an actual', missingForEdit({ running_duration
   'Date',
   'Actual'
 ])
+eq('laps default to one when absent', missingForNewSession(full), [])
+eq('two laps are fine', missingForNewSession({ ...full, laps: 2 }), [])
+eq('zero laps is not a session', missingForNewSession({ ...full, laps: 0 }), ['Laps'])
+eq('a fraction of a lap is not a count', missingForNewSession({ ...full, laps: 1.5 }), ['Laps'])
+eq('an edit checks laps too', missingForEdit({ ...full, laps: 0 }), ['Laps'])
 eq('listOf one', listOf(['Project']), 'Project')
 eq('listOf two', listOf(['Project', 'Task']), 'Project and Task')
 eq('listOf three', listOf(['Date', 'Project', 'Actual']), 'Date, Project and Actual')

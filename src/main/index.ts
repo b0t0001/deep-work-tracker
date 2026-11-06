@@ -753,22 +753,6 @@ function registerIpc(): void {
 
   /** A real modal, attached to the window that asked, so it cannot be missed. */
   ipcMain.handle(
-    'ui:alert',
-    async (event, options: { title: string; message: string; detail?: string }) => {
-      const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
-      await dialog.showMessageBox(parent!, {
-        type: 'warning',
-        buttons: ['OK'],
-        defaultId: 0,
-        title: options.title,
-        message: options.message,
-        detail: options.detail,
-        noLink: true
-      })
-    }
-  )
-
-  ipcMain.handle(
     'ui:confirm',
     async (
       event,

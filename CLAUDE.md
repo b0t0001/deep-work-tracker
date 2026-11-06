@@ -109,8 +109,15 @@ lap.** It was laps × lap for a day, and the user caught what that hid: two
 early, when the goal was 45 minutes and the work took 70. Planned means what
 the timer was set to on every other row (an imported row's Start is exactly
 that), so a loop is the same setting gone round more than once. Migration 6
-divided the looped rows written under the old rule. The Data tab shows
-`2× 0.75 h`: two laps of a 45-minute goal. A loop therefore runs past 100% of
+divided the looped rows written under the old rule.
+
+**Why planned matters this much:** the user sets these timers *slightly short
+on purpose* - a little less time than the work seems to need, to rush
+themselves. So the number worth keeping is the goal they set, readable on its
+own against what it actually took. The Data tab therefore shows **Planned**
+(the goal), **Laps**, **Total** (planned × laps, derived, never stored) and
+**Actual** as separate columns, and the add/edit form takes Planned and Laps
+and shows the total as it is typed. A loop therefore runs past 100% of
 planned, and "Are your timers the right length?" raises its ceiling above 100%
 when a length's runs average past it rather than clipping the overrun.
 
@@ -283,6 +290,23 @@ This distinction is load-bearing and was missed in the first draft.
 **Stopping must be undoable.** A 30-second "undo — resume session" banner after
 stopping, and the session stays editable in history afterwards. Accidentally
 hitting stop instead of pause must never lose timing data.
+
+### The app speaks for itself
+
+**Information, validation and failures are shown in the app's own UI, never
+in a Windows dialog.** The user's rule, 11/06/2026: *"i don't want windows
+popups to convey the information, the app should display it itself"* - a
+native message box breaks the app's look and reads as a different program
+interrupting. A form marks the field and writes a red line under its
+buttons; a tab that cannot load says so in place, with Try again; a save that
+fails says why beside the button that was pressed. `ui:alert` was removed
+rather than left for the next convenient use.
+
+The exception is a failure with no window to speak in: startup steps that
+fail before any window exists, and the damaged-database warning at launch,
+still use a native dialog, because the alternative is saying nothing.
+Confirmations of destructive actions (delete, restore, replace an import)
+are still native `ui:confirm` dialogs - see Known gaps.
 
 ### Windows
 
@@ -629,10 +653,12 @@ the row in place; no shadow "corrected" copy.
 club meeting (Penn Electric Racing) is entered afterwards from memory. These get
 `source = 'manual'`.
 
-**A session entered by hand requires date, project, task, planned and
-actual; output is optional.** Missing fields are named in a popup and nothing
-is written; text that cannot be read as a duration is reported as unreadable
-rather than missing. The rule is `shared/sessionForm.ts`, applied by the form
+**A session entered by hand requires date, project, task, planned, laps and
+actual; output is optional.** Required fields carry an asterisk. A missing or
+unreadable field is outlined in red and named in a red line under the
+buttons, and nothing is written - never a Windows dialog (see "The app speaks
+for itself"). Text that cannot be read as a duration is reported as
+unreadable rather than missing. Laps defaults to 1. The rule is `shared/sessionForm.ts`, applied by the form
 and again by main's `sessions:create`, so a write that skipped the form is
 refused too. Edits keep the smaller rule (date and actual) because imported
 rows without a project must stay fixable one field at a time.
@@ -1527,6 +1553,10 @@ than no spec.
   `setBackupDirectory` and its `app_settings` key work; no picker calls them.
   The automatic default is what matters and it is correct, so this is a
   convenience, not a hole.
+- **Destructive confirmations are still Windows dialogs.** Delete, the
+  second confirm for an imported row, restore and replace-import go through
+  `ui:confirm`. "The app speaks for itself" says information belongs in the
+  app; whether a yes/no question counts has not been put to the user.
 - **`presets` is still an unused table.** Named in the schema for the settings
   toggle that would bring preset durations back. Nothing writes it.
 

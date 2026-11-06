@@ -189,7 +189,7 @@ const SHOTS: Shot[] = [
       [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add session').click();
       await wait(300);
       const fill = (label, value) => {
-        const field = [...document.querySelectorAll('.editor .field')].find((f) => f.querySelector('span')?.textContent === label);
+        const field = [...document.querySelectorAll('.editor .field')].find((f) => (f.querySelector('span')?.textContent ?? '').replace('*', '').trim() === label);
         const input = field.querySelector('input');
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
         setter.call(input, value);
@@ -203,7 +203,7 @@ const SHOTS: Shot[] = [
       document.title = 'add-buttons=' + adds.length + ' in-form=' + adds.every((b) => b.closest('.editor'));
       adds[0].click();
       await wait(600);
-      document.title += ' form-open-after=' + !!document.querySelector('.editor');
+      document.title += ' form-open-after=' + !!document.querySelector('.editor') + ' invalid=[' + [...document.querySelectorAll('.field--invalid > span:first-child')].map((e) => e.textContent.replace('*', '')).join(',') + '] error=' + JSON.stringify(document.querySelector('.editor__error')?.textContent ?? null) + ' total=' + JSON.stringify(document.querySelector('.editor__computed')?.textContent ?? null);
     `,
     note: 'Everything but the project, then the form button: a popup naming Project, no write, form kept.'
   },
@@ -218,7 +218,7 @@ const SHOTS: Shot[] = [
       [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add session').click();
       await wait(300);
       const fill = (label, value) => {
-        const field = [...document.querySelectorAll('.editor .field')].find((f) => f.querySelector('span')?.textContent === label);
+        const field = [...document.querySelectorAll('.editor .field')].find((f) => (f.querySelector('span')?.textContent ?? '').replace('*', '').trim() === label);
         const input = field.querySelector('input');
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
         setter.call(input, value);
@@ -232,7 +232,7 @@ const SHOTS: Shot[] = [
       document.title = 'add-buttons=' + adds.length + ' in-form=' + adds.every((b) => b.closest('.editor'));
       adds[0].click();
       await wait(600);
-      document.title += ' form-open-after=' + !!document.querySelector('.editor');
+      document.title += ' form-open-after=' + !!document.querySelector('.editor') + ' invalid=[' + [...document.querySelectorAll('.field--invalid > span:first-child')].map((e) => e.textContent.replace('*', '')).join(',') + '] error=' + JSON.stringify(document.querySelector('.editor__error')?.textContent ?? null) + ' total=' + JSON.stringify(document.querySelector('.editor__computed')?.textContent ?? null);
     `,
     note: 'A planned time that cannot be read: said as unreadable, not as missing.'
   },
@@ -247,7 +247,7 @@ const SHOTS: Shot[] = [
       [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add session').click();
       await wait(300);
       const fill = (label, value) => {
-        const field = [...document.querySelectorAll('.editor .field')].find((f) => f.querySelector('span')?.textContent === label);
+        const field = [...document.querySelectorAll('.editor .field')].find((f) => (f.querySelector('span')?.textContent ?? '').replace('*', '').trim() === label);
         const input = field.querySelector('input');
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
         setter.call(input, value);
@@ -261,9 +261,38 @@ const SHOTS: Shot[] = [
       document.title = 'add-buttons=' + adds.length + ' in-form=' + adds.every((b) => b.closest('.editor'));
       document.querySelector('form.editor').requestSubmit();
       await wait(600);
-      document.title += ' form-open-after=' + !!document.querySelector('.editor');
+      document.title += ' form-open-after=' + !!document.querySelector('.editor') + ' invalid=[' + [...document.querySelectorAll('.field--invalid > span:first-child')].map((e) => e.textContent.replace('*', '')).join(',') + '] error=' + JSON.stringify(document.querySelector('.editor__error')?.textContent ?? null) + ' total=' + JSON.stringify(document.querySelector('.editor__computed')?.textContent ?? null);
     `,
     note: 'Complete, submitted the way Enter submits: one write, form closed.'
+  },
+  {
+    id: 'probe-add-loop',
+    width: 1150,
+    height: 700,
+    route: '/dashboard',
+    // A loop: 45 min x 2 laps shows a 1:30:00 total and is saved with laps 2.
+    drive: `
+      click('.tabs .tab:nth-child(2)'); await wait(1500);
+      [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add session').click();
+      await wait(300);
+      const fill = (label, value) => {
+        const field = [...document.querySelectorAll('.editor .field')].find((f) => (f.querySelector('span')?.textContent ?? '').replace('*', '').trim() === label);
+        const input = field.querySelector('input');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      fill('Date', '2026-11-05'); fill('Task', 'Study for CIS 1200 Midterm');
+      fill('Planned', '45 min'); fill('Laps', '2'); fill('Actual', '57 min'); fill('Quantity', '3'); fill('Unit', 'questions');
+      fill('Project', 'HW');
+      await wait(200);
+      const adds = [...document.querySelectorAll('button')].filter((b) => b.textContent.trim() === 'Add session');
+      document.title = 'add-buttons=' + adds.length + ' in-form=' + adds.every((b) => b.closest('.editor'));
+      document.querySelector('form.editor').requestSubmit();
+      await wait(600);
+      document.title += ' form-open-after=' + !!document.querySelector('.editor') + ' invalid=[' + [...document.querySelectorAll('.field--invalid > span:first-child')].map((e) => e.textContent.replace('*', '')).join(',') + '] error=' + JSON.stringify(document.querySelector('.editor__error')?.textContent ?? null) + ' total=' + JSON.stringify(document.querySelector('.editor__computed')?.textContent ?? null);
+    `,
+    note: 'A loop: 45 min x 2 laps shows a 1:30:00 total and is saved with laps 2.'
   },
   {
     id: 'timer-bar-idle',
@@ -367,7 +396,7 @@ const SHOTS: Shot[] = [
       [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add session').click();
       await wait(300);
       const fill = (label, value) => {
-        const field = [...document.querySelectorAll('.editor .field')].find((f) => f.querySelector('span')?.textContent === label);
+        const field = [...document.querySelectorAll('.editor .field')].find((f) => (f.querySelector('span')?.textContent ?? '').replace('*', '').trim() === label);
         const input = field.querySelector('input');
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
         setter.call(input, value);
@@ -710,10 +739,6 @@ function registerHandlers(): void {
   // the popup said instead. Nothing is written - this is not the app.
   ipcMain.handle('sessions:create', (_event, patch) => {
     console.log('    create:', JSON.stringify(patch))
-    return null
-  })
-  ipcMain.handle('ui:alert', (_event, options: { message: string }) => {
-    console.log('    alert:', options.message)
     return null
   })
 

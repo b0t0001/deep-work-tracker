@@ -2146,7 +2146,7 @@ code {
 }
 
 .editor .field--inline {
-  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-columns: 104px minmax(0, 1fr);
   margin-bottom: 0;
 }
 
@@ -2195,6 +2195,45 @@ code {
 
 .editor .field--wide {
   grid-column: 1 / -1;
+}
+
+/* Required fields carry an asterisk; a field without one is optional. Muted
+   rather than red: it marks a rule, not a problem, and red is kept for the
+   moment something is actually wrong. */
+.editor .req {
+  margin-left: 2px;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+/* A field that stopped the save. The same red as the failure notice and the
+   line under the buttons, so the outline and its explanation read as one
+   thing - and not the accent, which is the user's choice and may be red too. */
+.editor .field--invalid input,
+.editor .field--invalid .project-box input {
+  border-color: #e5484d;
+  box-shadow: 0 0 0 1px #e5484d;
+}
+.editor .field--invalid > span:first-child {
+  color: #f87171;
+}
+
+/* Said in the app, under the buttons, never in a Windows dialog. */
+.editor__error {
+  margin: 10px 0 0;
+  padding-left: 10px;
+  border-left: 3px solid #e5484d;
+  color: #f87171;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* A derived value laid out like a field but plainly not one to type into. */
+.editor__computed {
+  display: block;
+  padding: 6px 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .row-actions {

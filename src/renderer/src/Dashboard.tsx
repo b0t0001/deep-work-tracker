@@ -1350,6 +1350,8 @@ interface FormState {
   project: string
   task: string
   planned: string
+  /** Laps of a loop, as typed. Planned is one lap; the total is derived. */
+  laps: string
   actual: string
   work_quantity: string
   work_unit: string
@@ -1380,6 +1382,7 @@ function toForm(row: SessionRow | null): FormState {
     project: row?.project_name ?? '',
     task: row?.task ?? '',
     planned: row ? formatDurationInput(row.planned_duration_s * 1000) : '',
+    laps: String(row?.laps ?? 1),
     actual: row ? formatDurationInput(row.running_duration_s * 1000) : '',
     work_quantity: row?.work_quantity == null ? '' : String(row.work_quantity),
     work_unit: row?.work_unit ?? '',
@@ -1388,19 +1391,52 @@ function toForm(row: SessionRow | null): FormState {
   }
 }
 
+/** Which form field each validation label belongs to. */
+const FIELD_LABEL: Partial<Record<keyof FormState, string>> = {
+  session_date: 'Date',
+  project: 'Project',
+  task: 'Task',
+  planned: 'Planned',
+  laps: 'Laps',
+  actual: 'Actual'
+}
+
+/**
+ * The add and edit form.
+ *
+ * **What it says, it says in the app.** A missing or unreadable field is
+ * outlined in red and named in a red line under the buttons; a save the main
+ * process refuses is reported in the same line. It used to raise a Windows
+ * dialog for both, which the user rejected for breaking the app's look:
+ * information belongs in the app's own UI (CLAUDE.md, "The app speaks for
+ * itself").
+ *
+ * **Planned is the goal; laps and total sit beside it.** The point of these
+ * timers is to set slightly less time than the work seems to need, so the
+ * figure worth keeping is what was set. A loop repeats that setting, so it is
+ * entered as planned plus laps, and the total is shown rather than typed.
+ *
+ * **The button is never disabled.** A disabled button with a grey line
+ * beside it is how a session went unsaved on 11/05/2026 with nothing to say
+ * so. Clicking always either saves or says, in red, what is in the way.
+ */
 function SessionForm({
   row,
   onSave,
   onCancel
 }: {
   row: SessionRow | null
-  onSave: (patch: Record<string, unknown>) => void
+  /** Resolves to null when saved, or to what went wrong. */
+  onSave: (patch: Record<string, unknown>) => Promise<string | null>
   onCancel: () => void
 }): React.JSX.Element {
   const [form, setForm] = useState<FormState>(() => toForm(row))
   const [projectNames, setProjectNames] = useState<string[]>([])
   const [projectOpen, setProjectOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
+  const [invalid, setInvalid] = useState<Set<string>>(() => new Set())
+  const [message, setMessage] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     window.api.timer
@@ -1411,12 +1447,30 @@ function SessionForm({
 
   const plannedMs = parseDurationMs(form.planned)
   const actualMs = parseDurationMs(form.actual)
+  const laps = form.laps === '' ? null : Number(form.laps)
+  const totalMs = plannedMs !== null && laps !== null && laps >= 1 ? plannedMs * laps : null
   // The same ranking the timer's project field uses, so `hw`, `HW 2` and a
   // typo offer the same project here as they do there.
   const matches = rankProjects(form.project, projectNames, 4)
 
+  // A new session needs all six; an edit keeps the smaller rule, because an
+  // imported row with no project must stay fixable one field at a time.
+  const required = new Set(
+    row ? ['Date', 'Laps', 'Actual'] : ['Date', 'Project', 'Task', 'Planned', 'Laps', 'Actual']
+  )
+
   function set<K extends keyof FormState>(key: K, value: string): void {
     setForm((current) => ({ ...current, [key]: value }))
+    // Fixing a field takes its outline away at once, rather than leaving the
+    // red until the next attempt to save.
+    const label = FIELD_LABEL[key]
+    if (label && invalid.has(label)) {
+      setInvalid((current) => {
+        const next = new Set(current)
+        next.delete(label)
+        return next
+      })
+    }
   }
 
   function chooseProject(name: string): void {
@@ -1434,6 +1488,7 @@ function SessionForm({
       // An edit may leave planned blank and keep actual for it, since an
       // imported row was not always planned; a new session must give both.
       planned_duration_s: Math.round((plannedMs ?? (row ? actualMs : null) ?? 0) / 1000),
+      laps: laps ?? 0,
       running_duration_s: Math.round((actualMs ?? 0) / 1000),
       work_quantity: form.work_quantity === '' ? null : Number(form.work_quantity),
       work_unit: form.work_unit.trim() === '' ? null : form.work_unit.trim(),
@@ -1442,62 +1497,79 @@ function SessionForm({
     }
   }
 
-  /**
-   * The button is never disabled. A disabled button and a short grey line
-   * beside it is how a session went unsaved on 11/05/2026 with nothing to say
-   * so: what is missing is now said in a popup, by name, and nothing is
-   * written until it is filled.
-   */
-  function submit(event: React.FormEvent): void {
+  async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault()
+    if (saving) return
     const next = patch()
-    // Text that is there but cannot be read as a duration is reported as
-    // that, not as "required" - the field is not empty, and saying so would
-    // send the user looking for the wrong problem.
+    // Text that is there but cannot be read as a duration is said as that,
+    // not as "required" - the field is not empty, and saying so would send
+    // the user looking for the wrong problem.
     const unreadable = [
       ...(form.planned.trim() !== '' && plannedMs === null ? ['Planned'] : []),
       ...(form.actual.trim() !== '' && actualMs === null ? ['Actual'] : [])
     ]
-    if (unreadable.length > 0) {
-      void window.api.ui.alert({
-        title: row ? 'Not saved' : 'Session not added',
-        message: `${listOf(unreadable)} could not be read as a duration.`,
-        detail: 'Try 1:30:00, 90 min or 1h30m. Nothing was saved.'
-      })
+    const missing = (row ? missingForEdit(next) : missingForNewSession(next)).filter(
+      (label) => !unreadable.includes(label)
+    )
+    if (missing.length > 0 || unreadable.length > 0) {
+      setInvalid(new Set([...missing, ...unreadable]))
+      const parts = [
+        missing.length > 0
+          ? `${listOf(missing)} ${missing.length === 1 ? 'is' : 'are'} required.`
+          : null,
+        unreadable.length > 0
+          ? `${listOf(unreadable)} could not be read as a duration - try 1:30:00, 90 min or 1h30m.`
+          : null
+      ]
+      setMessage(`${parts.filter(Boolean).join(' ')} Nothing was ${row ? 'saved' : 'added'}.`)
       return
     }
-    const missing = row ? missingForEdit(next) : missingForNewSession(next)
-    if (missing.length > 0) {
-      void window.api.ui.alert({
-        title: row ? 'Not saved' : 'Session not added',
-        message: `${listOf(missing)} ${missing.length === 1 ? 'is' : 'are'} required.`,
-        detail: row
-          ? 'Nothing was changed.'
-          : 'A session entered by hand needs a date, project, task, planned and actual time. Output is optional. Nothing was added.'
-      })
-      return
-    }
-    onSave(next)
+    setInvalid(new Set())
+    setMessage(null)
+    setSaving(true)
+    const problem = await onSave(next)
+    setSaving(false)
+    if (problem !== null) setMessage(`${problem} Nothing was ${row ? 'saved' : 'added'}.`)
+  }
+
+  function fieldClass(label: string, wide = false): string {
+    return `field field--inline${wide ? ' field--wide' : ''}${invalid.has(label) ? ' field--invalid' : ''}`
+  }
+
+  /** The label, with an asterisk when the field is required. */
+  function caption(label: string): React.JSX.Element {
+    return (
+      <span>
+        {label}
+        {required.has(label) && (
+          <span className="req" aria-label="required">
+            *
+          </span>
+        )}
+      </span>
+    )
   }
 
   return (
     // A form, so Enter in any field submits and is checked like a click.
-    <form className="editor" onSubmit={submit} noValidate>
+    <form className="editor" onSubmit={(event) => void submit(event)} noValidate>
       <h3>{row ? `Edit session ${row.id}` : 'Add a session'}</h3>
       <p className="muted">
         {row
           ? 'Changes apply to the row in place, and can be undone.'
-          : 'For work that was not timed, such as a meeting entered afterwards. Saved as a manual session; time-of-day charts leave it out, since its times are from memory.'}
+          : 'For work that was not timed, such as a meeting entered afterwards. Saved as a manual session; time-of-day charts leave it out, since its times are from memory.'}{' '}
+        <span className="req">*</span> required.
       </p>
 
       {/* Two fixed columns rather than auto-fit. Auto-fit packed four
           label-and-field pairs onto one line and each field kept the
           browser's default width, so every label sat inside the field to its
-          left and Unit ran off the card. Pairs that belong together - planned
-          with actual, quantity with unit - share a line. */}
+          left and Unit ran off the card. Pairs that belong together share a
+          line, in the order the numbers are thought about: the goal and how
+          many times it was set, then the total that makes and what it took. */}
       <div className="editor__grid">
-        <label className="field field--inline">
-          <span>Date</span>
+        <label className={fieldClass('Date')}>
+          {caption('Date')}
           {/* The same native picker as the filters: it shows MM/DD/YYYY and
               stores the ISO date, which is what the column holds. */}
           <input
@@ -1506,12 +1578,11 @@ function SessionForm({
             onChange={(e) => set('session_date', e.target.value)}
           />
         </label>
-        <div className="field field--inline">
-          <span>Project</span>
+        <div className={fieldClass('Project')}>
+          {caption('Project')}
           <span className="project-box">
             <input
               value={form.project}
-              placeholder={row ? '' : 'required'}
               autoComplete="off"
               spellCheck={false}
               aria-label="Project"
@@ -1565,35 +1636,52 @@ function SessionForm({
             )}
           </span>
         </div>
-        <label className="field field--inline field--wide">
-          <span>Task</span>
-          <input
-            value={form.task}
-            placeholder={row ? '' : 'required'}
-            onChange={(e) => set('task', e.target.value)}
-          />
+        <label className={fieldClass('Task', true)}>
+          {caption('Task')}
+          <input value={form.task} onChange={(e) => set('task', e.target.value)} />
         </label>
-        <label className="field field--inline">
-          <span>Planned</span>
+        <label className={fieldClass('Planned')}>
+          {caption('Planned')}
+          {/* An example, not a value: "e.g." in front, because an example
+              that looks like an answer is how an empty field once read as
+              filled. */}
           <input
             value={form.planned}
-            placeholder={row ? '' : 'required, e.g. 1:30:00 or 90 min'}
+            placeholder="e.g. 45:00 or 45 min"
             onChange={(e) => set('planned', e.target.value)}
           />
         </label>
-        <label className="field field--inline">
-          <span>Actual</span>
+        <label className={fieldClass('Laps')}>
+          {caption('Laps')}
+          <input
+            value={form.laps}
+            inputMode="numeric"
+            onChange={(e) => {
+              // A count: digits only, and empty is allowed so it can be cleared.
+              if (/^\d{0,3}$/.test(e.target.value)) set('laps', e.target.value)
+            }}
+          />
+        </label>
+        <div className="field field--inline">
+          <span>Total planned</span>
+          {/* Shown, not typed: it is planned times laps, and a second field
+              holding it would be a second place for it to be wrong. */}
+          <output className="editor__computed">
+            {totalMs === null ? '—' : formatDurationInput(totalMs)}
+          </output>
+        </div>
+        <label className={fieldClass('Actual')}>
+          {caption('Actual')}
           <input
             value={form.actual}
-            placeholder="required"
+            placeholder="e.g. 1:10:00"
             onChange={(e) => set('actual', e.target.value)}
           />
         </label>
         <label className="field field--inline">
-          <span>Quantity</span>
+          {caption('Quantity')}
           <input
             value={form.work_quantity}
-            placeholder="optional"
             inputMode="decimal"
             onChange={(e) => {
               if (/^\d{0,7}(\.\d{0,2})?$/.test(e.target.value)) set('work_quantity', e.target.value)
@@ -1601,20 +1689,19 @@ function SessionForm({
           />
         </label>
         <label className="field field--inline">
-          <span>Unit</span>
+          {caption('Unit')}
           <input
             value={form.work_unit}
-            placeholder="optional"
             onChange={(e) => set('work_unit', e.target.value.replace(/[0-9]/g, ''))}
           />
         </label>
         <label className="field field--inline field--wide">
-          <span>Notes</span>
+          {caption('Notes')}
           <input value={form.notes} onChange={(e) => set('notes', e.target.value)} />
         </label>
         {row && (
           <label className="field field--inline">
-            <span>Source</span>
+            {caption('Source')}
             <select value={form.source} onChange={(e) => set('source', e.target.value)}>
               {SOURCE_CHOICES.map((choice) => (
                 <option key={choice.value} value={choice.value}>
@@ -1634,6 +1721,11 @@ function SessionForm({
           Cancel
         </button>
       </div>
+      {message !== null && (
+        <p className="editor__error" role="alert">
+          {message}
+        </p>
+      )}
     </form>
   )
 }
@@ -1821,22 +1913,21 @@ function DataTab(): React.JSX.Element {
    * it. This used to have no catch: a rejected write vanished, the form sat
    * there looking ready, and the session simply did not exist.
    */
-  async function save(patch: Record<string, unknown>): Promise<void> {
+  /**
+   * Resolves to null once saved, or to what went wrong - which the form shows
+   * in its own red line. It used to raise a Windows dialog; the app says what
+   * it has to say in its own UI.
+   */
+  async function save(patch: Record<string, unknown>): Promise<string | null> {
     try {
       if (editing === 'new') await window.api.sessions.create(patch)
       else if (editing) await window.api.sessions.update(editing.id, patch)
     } catch (error) {
-      await window.api.ui.alert({
-        title: editing === 'new' ? 'Session not added' : 'Not saved',
-        message: String(error)
-          .replace(/^Error: /, '')
-          .replace(/^Error invoking remote method '[^']+': (Error: )?/, ''),
-        detail: 'Nothing was written. What you typed is still in the form.'
-      })
-      return
+      return cleanError(error)
     }
     setEditing(null)
     await refresh()
+    return null
   }
 
   async function remove(row: SessionRow): Promise<void> {
@@ -2081,7 +2172,7 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
       {editing !== null && (
         <SessionForm
           row={editing === 'new' ? null : editing}
-          onSave={(patch) => void save(patch)}
+          onSave={save}
           onCancel={() => setEditing(null)}
         />
       )}
@@ -2094,6 +2185,10 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
               <th>Project</th>
               <th>Task</th>
               <th className="num">Planned</th>
+              <th className="num">Laps</th>
+              <th className="num" title="Planned × laps">
+                Total
+              </th>
               <th className="num">Actual</th>
               <th className="num">Output</th>
               <th>Source</th>
@@ -2116,20 +2211,21 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
                     Muted, because it is an absence rather than a value. */}
                 <td>{row.project_name ?? <span className="muted">Unlabeled</span>}</td>
                 <td>{row.task ?? <span className="muted">unlabeled</span>}</td>
-                {/* Planned is what the timer was set to - one lap. The lap
-                    count beside it says how many times it went round, so
-                    "2× 0.75 h" against 1.16 h run reads as a 45-minute goal
-                    that took two laps. */}
+                {/* Planned is what the timer was set to - the goal, which
+                    for these timers is deliberately a little less than the
+                    work seems to need. Laps and the total it makes sit
+                    beside it rather than inside one figure, so the goal can
+                    be read on its own against what it actually took. */}
+                <td className="num">{hours(row.planned_duration_s)}</td>
                 <td className="num">
-                  {row.laps > 1 && (
-                    <span
-                      className="muted"
-                      title={`${row.laps} laps of ${hours(row.planned_duration_s)}`}
-                    >
-                      {row.laps}&times;{' '}
-                    </span>
+                  {row.laps > 1 ? row.laps : <span className="muted">1</span>}
+                </td>
+                <td className="num">
+                  {row.laps > 1 ? (
+                    hours(row.planned_duration_s * row.laps)
+                  ) : (
+                    <span className="muted">{hours(row.planned_duration_s)}</span>
                   )}
-                  {hours(row.planned_duration_s)}
                 </td>
                 <td className="num">{hours(row.running_duration_s)}</td>
                 <td className="num">

@@ -132,9 +132,6 @@ const api = {
       ipcRenderer.invoke('app:preview')
   },
   ui: {
-    /** A one-button notice: something did not happen, and why. */
-    alert: (options: { title: string; message: string; detail?: string }): Promise<void> =>
-      ipcRenderer.invoke('ui:alert', options),
     confirm: (options: {
       title: string
       message: string

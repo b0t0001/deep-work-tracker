@@ -19,11 +19,15 @@ export interface SessionFields {
   task?: unknown
   planned_duration_s?: unknown
   running_duration_s?: unknown
+  /** Laps of a loop. Absent means one: the rule predates laps. */
+  laps?: unknown
 }
 
 const filled = (value: unknown): boolean => typeof value === 'string' && value.trim() !== ''
 const positive = (value: unknown): boolean =>
   typeof value === 'number' && Number.isFinite(value) && value > 0
+const wholeLaps = (value: unknown): boolean =>
+  value === undefined || (typeof value === 'number' && Number.isInteger(value) && value >= 1)
 
 /** The labels the form shows, in the order the form shows them. */
 export function missingForNewSession(fields: SessionFields): string[] {
@@ -33,6 +37,7 @@ export function missingForNewSession(fields: SessionFields): string[] {
   if (!filled(fields.project)) missing.push('Project')
   if (!filled(fields.task)) missing.push('Task')
   if (!positive(fields.planned_duration_s)) missing.push('Planned')
+  if (!wholeLaps(fields.laps)) missing.push('Laps')
   if (!positive(fields.running_duration_s)) missing.push('Actual')
   return missing
 }
@@ -42,6 +47,7 @@ export function missingForEdit(fields: SessionFields): string[] {
   const missing: string[] = []
   if (typeof fields.session_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(fields.session_date))
     missing.push('Date')
+  if (!wholeLaps(fields.laps)) missing.push('Laps')
   if (!positive(fields.running_duration_s)) missing.push('Actual')
   return missing
 }
