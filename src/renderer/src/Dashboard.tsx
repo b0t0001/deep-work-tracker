@@ -69,6 +69,8 @@ interface SessionRow {
   work_unit: string | null
   notes: string | null
   source: string
+  /** Laps of a loop; planned covers all of them. 1 for a single run. */
+  laps: number
 }
 
 interface ImportPreview {
@@ -227,8 +229,8 @@ function SettingsTab(): React.JSX.Element {
             <span>
               <strong>Loop</strong>
               <em>
-                On expiry, start another run of the same length. Each pass is recorded as its own
-                session.
+                On expiry, cue and start another lap of the same length. The whole loop is one
+                session, so what you get done is entered once and counted across all of it.
               </em>
             </span>
           </label>
@@ -1924,7 +1926,20 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
                     Muted, because it is an absence rather than a value. */}
                 <td>{row.project_name ?? <span className="muted">Unlabeled</span>}</td>
                 <td>{row.task ?? <span className="muted">unlabeled</span>}</td>
-                <td className="num">{hours(row.planned_duration_s)}</td>
+                {/* Planned is the whole loop's. The lap count says so, quietly,
+                    so 3.00 h planned against 2.35 h run reads as two 90-minute
+                    laps rather than one three-hour run cut short. */}
+                <td className="num">
+                  {row.laps > 1 && (
+                    <span
+                      className="muted"
+                      title={`${row.laps} laps of ${hours(row.planned_duration_s / row.laps)}`}
+                    >
+                      {row.laps}&times;{' '}
+                    </span>
+                  )}
+                  {hours(row.planned_duration_s)}
+                </td>
                 <td className="num">{hours(row.running_duration_s)}</td>
                 <td className="num">
                   {row.work_quantity == null ? '—' : `${row.work_quantity} ${row.work_unit ?? ''}`}

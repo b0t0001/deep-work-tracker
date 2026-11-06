@@ -184,8 +184,8 @@ export function restoreFromCsv(csv: string): RestoreResult {
          (id, project_id, tag_id, task, session_date, started_at, ended_at,
           planned_duration_s, running_duration_s, stop_reason, stop_reason_note,
           work_quantity, work_unit, unquantifiable, notes,
-          pace_target_qty, pace_target_interval_s, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          pace_target_qty, pace_target_interval_s, source, laps)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     const addPause = db.prepare(
       'INSERT INTO pauses (session_id, paused_at, resumed_at) VALUES (?, ?, ?)'
@@ -239,7 +239,10 @@ export function restoreFromCsv(csv: string): RestoreResult {
         text(at(row, 'notes')),
         num(at(row, 'pace_target_qty')),
         num(at(row, 'pace_target_interval_s')),
-        text(at(row, 'source')) ?? 'import'
+        text(at(row, 'source')) ?? 'import',
+        // Not in EXPECTED: a backup from before loops were one session has no
+        // laps column, and every row in it was a single run.
+        Math.max(1, num(at(row, 'laps')) ?? 1)
       )
 
       // `paused|resumed` pairs separated by semicolons; an open pause has an

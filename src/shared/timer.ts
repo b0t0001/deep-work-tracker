@@ -25,6 +25,13 @@ export interface TimerSnapshot {
   segmentStartedAt: number | null
   /** Epoch ms of the first start of this run. Null when idle. */
   startedAt: number | null
+  /**
+   * Laps of a loop already run to zero. A loop is one session, not one per lap:
+   * the user's output is entered once at stop and read as a rate across the
+   * whole loop, so splitting it gave each lap a share of nothing. The countdown
+   * shows the current lap; running time is the whole loop.
+   */
+  lapsCompleted: number
   /** How many times this run has been paused. */
   pauseCount: number
   /** Every paused stretch, so running time can be audited rather than trusted. */
@@ -52,6 +59,7 @@ export function idleTimer(): TimerSnapshot {
     bankedRunningMs: 0,
     segmentStartedAt: null,
     startedAt: null,
+    lapsCompleted: 0,
     pauseCount: 0,
     pauses: [],
     task: '',
@@ -71,19 +79,37 @@ export function runningMs(s: TimerSnapshot, now: number): number {
   return s.bankedRunningMs + live
 }
 
-/** Time left on the countdown, clamped at zero. */
-export function remainingMs(s: TimerSnapshot, now: number): number {
-  return Math.max(0, s.plannedMs - runningMs(s, now))
+/**
+ * Running time within the current lap. `plannedMs` is one lap's length, so the
+ * countdown, the dial and expiry all read against this rather than the whole
+ * loop's running time.
+ */
+export function lapRunningMs(s: TimerSnapshot, now: number): number {
+  return Math.max(0, runningMs(s, now) - s.lapsCompleted * s.plannedMs)
 }
 
-/** Fraction of the planned duration consumed, 0..1. */
+/** Time left on the current lap's countdown, clamped at zero. */
+export function remainingMs(s: TimerSnapshot, now: number): number {
+  return Math.max(0, s.plannedMs - lapRunningMs(s, now))
+}
+
+/** Fraction of the current lap consumed, 0..1. */
 export function progress(s: TimerSnapshot, now: number): number {
   if (s.plannedMs <= 0) return 0
-  return Math.min(1, runningMs(s, now) / s.plannedMs)
+  return Math.min(1, lapRunningMs(s, now) / s.plannedMs)
 }
 
 export function hasExpired(s: TimerSnapshot, now: number): boolean {
-  return s.plannedMs > 0 && runningMs(s, now) >= s.plannedMs
+  return s.plannedMs > 0 && lapRunningMs(s, now) >= s.plannedMs
+}
+
+/**
+ * Laps begun: the ones run to zero, plus the one in progress if any of it ran.
+ * Stopped ten minutes into a second 90-minute lap is two laps and three planned
+ * hours - what the user set out to do when that lap started.
+ */
+export function lapsBegun(s: TimerSnapshot, now: number): number {
+  return s.lapsCompleted + (lapRunningMs(s, now) > 0 ? 1 : 0)
 }
 
 /**

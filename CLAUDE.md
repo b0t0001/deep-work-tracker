@@ -92,14 +92,34 @@ ticks only to repaint; if renderer and main disagree, main wins.
 The user ran two Hourglass windows at once. The app reproduces that literally.
 
 **1. The session timer** — the countdown for the work session, one per timer
-window. On expiry it cues and auto-starts another run of the same length
-(Hourglass's loop, on by default). Each run is its own `sessions` row.
-No break interval — breaks are not tracked.
+window. On expiry it cues and starts another lap of the same length
+(Hourglass's loop, on by default). No break interval — breaks are not tracked.
 
-A run that reaches zero records **exactly its planned duration**, not the
-polling overshoot. Expiry is noticed by a 100 ms tick, so recording elapsed
-time would inflate every completed session by up to one tick — and those are
-the sessions whose duration is least in doubt.
+**A loop is one session, not one row per lap.** This is the reason the app
+exists rather than a hand count, in the user's words. Output is entered once,
+at stop, and read as a rate across the whole loop; a row per lap split a
+2.35-hour MATH 1410 loop into two rows and pinned the quantity on the last lap
+alone. So expiry with loop on does not end the session: the countdown restarts,
+and running time, pauses and the pace loop carry straight on. The row records
+`laps` (laps begun, so stopping ten minutes into lap two is two) and
+`planned_duration_s` is the whole loop's — laps × lap length. The Data tab
+shows `2×` beside such a planned figure.
+
+**A loop is saved at every lap**, then finished at stop. The engine emits
+`lap`; main writes the row on the first and updates the same row after
+(`loopSessionId` on the timer instance), and stop finishes it rather than
+writing a second. A loop written only at stop would be lost whole to a crash
+in its fifth hour. An update writes only what the timer knows - timing, laps,
+pauses, project, task, pace - never the stop prompt's quantity or reason, and a
+row deleted mid-loop is written afresh rather than the loop being dropped.
+
+Each lap ends on **exactly its planned length**, not the polling overshoot.
+Expiry is noticed by a 100 ms tick, so the next lap starts at the instant the
+last one ran out, and the overshoot belongs to it rather than being counted
+twice or lost. A loop switched off mid-lap ends when that lap reaches zero.
+`scripts/loop-check.ts` drives the engine through all of this with a fake
+clock; `scripts/loop-record-check.ts` covers the row, the migration and the
+backup round trip.
 
 **2. The pace loop** — a target rate such as "100 words per 20 minutes",
 expressed as **its own small circular window** beside the timer it belongs to.
@@ -477,7 +497,8 @@ rows record the literal value `unquantifiable`, which must stay representable.
 
 ## Data model
 
-`sessions` is the atomic unit: **one row per timer run**. Everything else is
+`sessions` is the atomic unit: **one row per session**, where a loop of
+several laps is one session. Everything else is
 derived. Record more per session rather than aggregating early — aggregation can
 be recomputed, lost detail cannot.
 
@@ -492,7 +513,8 @@ be recomputed, lost detail cannot.
   **session_date**, started_at, ended_at, planned_duration_s,
   **running_duration_s** (excludes paused time), stop_reason, stop_reason_note,
   work_quantity, work_unit, unquantifiable, notes, pace_target_qty,
-  pace_target_interval_s, source (`app` | `manual` | `import` | `test`)
+  pace_target_interval_s, source (`app` | `manual` | `import` | `test`),
+  **laps** (1 for a single run; planned covers every lap)
 
 `test` is what any unpackaged build writes (`app.isPackaged === false`), so a
 row written by `npm run dev` or a harness is marked automatically rather than
@@ -500,6 +522,10 @@ found later. It renders as an orange TEST badge in the Data tab, has its own
 Source filter option, and is excluded from every analytics query. Added
 2026-11-05 after five rows written by testing sessions had to be deleted from
 the real history.
+
+**The preview is the exception.** `npm run preview` writes the source that was
+meant, because what the user does there is real work that is copied into the
+real history - see "The preview saves what you enter".
 
 `session_date` is the local calendar date, separate from `started_at`.
 Imported rows know their date but not their time of day, so without it the date
@@ -1025,6 +1051,55 @@ be run, tested against and killed without touching it. Verified: a dev run
 created `deep-work-tracker-dev\deepwork.db` and left the real file at the same
 row count and `quick_check: ok`.
 
+### The preview saves what you enter
+
+`npm run preview` is a third profile, `deep-work-tracker-preview`: the current
+source running against a fresh snapshot of the real history, for trying a
+change on real data before it is installed.
+
+**It was built as disposable, and that was the bug.** Rows written there were
+marked `test` and the next run replaced the database, with a banner saying
+nothing was saved. On 2026-11-06 the user logged three real MATH 1410 sessions
+in it anyway - to them, a window showing their history *is* the app - and they
+survived only because they were noticed and copied across by hand. A build
+that looks exactly like the real one and quietly discards what is typed into
+it is a data-loss trap however clearly it is labeled. So it now keeps what it
+is given:
+
+- **The snapshot is kept as `baseline.db`**, and when the preview closes its
+  changes are copied into the real history (`scripts/preview-sync.ts`). If it
+  was killed rather than closed, the next `npm run preview` copies first and
+  snapshots second.
+- **Three-way, against the baseline.** The installed app may be used while a
+  preview is open, so neither side overwrites the other. Added rows are
+  inserted under fresh ids. An edit or delete is applied only if the real row
+  still matches the baseline; if both sides changed it, nothing is chosen - it
+  is reported as a conflict and the preview's version is kept in Recovery.
+- **Projects and tags are compared by name.** The two databases create projects
+  independently, so the same id can mean different projects in each.
+- **Source moves only if it was changed in the preview**, and a baseline row
+  marked `test` is compared ignoring source - that is a preview from before
+  this change, whose rows were given their proper source when copied by hand.
+- **More than 50 edits and deletes, or 200 additions, is refused** rather than
+  applied. Nobody does that by hand; it is a restore or an import, and the
+  preview database is left untouched so refusing loses nothing.
+- **One transaction, a copy first, a checkpoint after.** The real database is
+  written with `VACUUM INTO` to `Documents/Deep Work Tracker/Recovery/preview-*`
+  before the first change, beside the preview's own files and a `report.txt`.
+- **It refuses to start while a preview is open.** Chromium holds `lockfile` in
+  the profile for as long as the app runs, so opening it fails with `EBUSY`.
+  Copying from a database still being written and then replacing it under the
+  running app would lose whatever came after.
+- **After a copy the preview becomes its own baseline**, so relaunching the
+  preview build by hand keeps its data and a second copy finds nothing new.
+- **The banner says what the last copy did**, from `last-sync.json`, which is
+  written only when something changed - otherwise the run after a clean close
+  would replace the record before anyone had seen it.
+
+`scripts/preview-sync-check.ts` exercises every rule above on throwaway copies;
+`node out/preview/index.js --no-launch` with `APPDATA` and `USERPROFILE`
+pointed at stand-in folders runs the whole script without opening a window.
+
 ### One process, and a busy timeout
 
 Two copies of the app meant two SQLite connections competing for one file, and
@@ -1192,6 +1267,7 @@ npm run dev        # dev with hot reload
 npm run build      # typecheck + bundle all three processes
 npm run typecheck  # typecheck only (node + web configs)
 npm run dist       # package a Windows installer
+npm run preview    # current source against a snapshot of the real history; saves back on close
 npm run lint
 npm run format
 ```

@@ -64,6 +64,9 @@ function arg(name: string): string | null {
 const csvPath = arg('csv')
 const dbPath = arg('db')
 const failAnalytics = process.argv.includes('--fail-analytics')
+// `--preview` answers as `npm run preview` would, so the dashboard's preview
+// banner can be seen - including its worst line, a change it could not save.
+const asPreview = process.argv.includes('--preview')
 const outDir = resolve(arg('out') ?? join(process.cwd(), 'shots'))
 const only = arg('only')
   ?.split(',')
@@ -539,7 +542,32 @@ function registerHandlers(): void {
       stop: 'CommandOrControl+Shift+X',
       newTimer: 'CommandOrControl+Shift+N'
     }),
-    'window:isFullScreen': () => false
+    'window:isFullScreen': () => false,
+    'app:preview': () =>
+      asPreview
+        ? {
+            takenAt: '2026-11-06T06:00:00.000Z',
+            sessions: 2478,
+            lastSync: {
+              at: '2026-11-06T05:40:00.000Z',
+              added: 3,
+              edited: 1,
+              deleted: 0,
+              conflicts: 1,
+              // Joined on char 92 rather than written with backslashes, which
+              // have collapsed in transit to this file before.
+              recoveryDir: [
+                'C:',
+                'Users',
+                'jamwa',
+                'Documents',
+                'Deep Work Tracker',
+                'Recovery',
+                'preview-2026-11-06-0040'
+              ].join(String.fromCharCode(92))
+            }
+          }
+        : null
   }
 
   for (const [channel, read] of Object.entries(reads)) {

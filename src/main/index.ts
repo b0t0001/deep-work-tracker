@@ -76,6 +76,12 @@ interface TimerInstance {
   window: BrowserWindow
   engine: TimerEngine
   lastCompleted: { id: number; snapshot: TimerSnapshot } | null
+  /**
+   * The row a loop in progress has been saved to so far. A loop is one session,
+   * written at the end of each lap and finished at stop; this is how stop finds
+   * the row to finish rather than writing a second one.
+   */
+  loopSessionId: number | null
   minimum: { width: number; height: number }
   /**
    * The pace loop's own window: a small circle beside the timer it belongs to.
@@ -270,6 +276,7 @@ function createTimerWindow(): BrowserWindow {
     window,
     engine,
     lastCompleted: null,
+    loopSessionId: null,
     minimum: BAR_MIN,
     paceWindow: null,
     lastPace: null
@@ -296,13 +303,28 @@ function createTimerWindow(): BrowserWindow {
     // reported and the timer still stops cleanly.
     let id: number | null = null
     try {
-      id = recordSession(snapshot, engine.paceConfig())
+      id = recordSession(snapshot, engine.paceConfig(), instance.loopSessionId)
     } catch (error) {
       console.error('Could not record the session:', error)
       send(instance, 'timer:recordFailed', String(error))
     }
+    instance.loopSessionId = null
     instance.lastCompleted = id === null ? null : { id, snapshot }
     send(instance, 'timer:completed', null)
+  })
+
+  // A lap of a loop ran out and the next began. The session goes on, but what
+  // it has run so far is saved now: a loop written only at stop is lost whole
+  // if the app dies in its fifth hour. Same failure handling as `completed` -
+  // a lap that cannot be saved must not stop the clock - and the next lap or
+  // the stop tries again with the whole loop.
+  engine.on('lap', (snapshot: TimerSnapshot) => {
+    try {
+      instance.loopSessionId = recordSession(snapshot, engine.paceConfig(), instance.loopSessionId)
+    } catch (error) {
+      console.error('Could not save the loop so far:', error)
+      send(instance, 'timer:recordFailed', String(error))
+    }
   })
 
   // The pace window owns its own cue and flash: it is the thing that fires, so
@@ -675,9 +697,10 @@ function registerIpc(): void {
    *
    * The dashboard says so in its header, because a preview holds a copy of
    * the real history and is therefore the one build where the numbers look
-   * exactly right and are not the real ones. Anything the user does here is
-   * thrown away at the next `npm run preview`, and nothing warns them of that
-   * but this.
+   * exactly right and are not the live ones. What the user does here is
+   * copied into the real history when the preview closes, so the banner says
+   * that too, and what the last preview's copy did - `last-sync.json`, written
+   * by `scripts/preview.ts`.
    *
    * It is read from a file rather than passed in the environment so that it
    * survives relaunching the preview build by hand - the marker should not
@@ -689,13 +712,34 @@ function registerIpc(): void {
   ipcMain.handle('app:preview', () =>
     safely(() => {
       if (!isPreview) return null
-      const marker = join(app.getPath('userData'), 'preview-snapshot.json')
-      if (!existsSync(marker)) return { takenAt: null, sessions: null }
-      const read = JSON.parse(readFileSync(marker, 'utf8')) as {
-        takenAt?: string
-        sessions?: number
+      const readJson = <T>(name: string): T | null => {
+        const file = join(app.getPath('userData'), name)
+        return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as T) : null
       }
-      return { takenAt: read.takenAt ?? null, sessions: read.sessions ?? null }
+      const snapshot = readJson<{ takenAt?: string; sessions?: number }>('preview-snapshot.json')
+      const last = readJson<{
+        at?: string
+        added?: number
+        edited?: number
+        deleted?: number
+        conflicts?: number
+        recoveryDir?: string | null
+      }>('last-sync.json')
+      return {
+        takenAt: snapshot?.takenAt ?? null,
+        sessions: snapshot?.sessions ?? null,
+        lastSync:
+          last === null
+            ? null
+            : {
+                at: last.at ?? null,
+                added: last.added ?? 0,
+                edited: last.edited ?? 0,
+                deleted: last.deleted ?? 0,
+                conflicts: last.conflicts ?? 0,
+                recoveryDir: last.recoveryDir ?? null
+              }
+      }
     }, null)
   )
 
@@ -789,8 +833,10 @@ function registerShortcuts(): Record<ShortcutAction, boolean> {
  * session's test data.
  *
  * So `npm run preview` gets its own folder, filled from a snapshot by
- * `scripts/preview.ts`. It is a copy and is always treated as disposable;
- * nothing written here is ever copied back.
+ * `scripts/preview.ts`. It is a copy, but what the user does in it is not
+ * disposable: on 2026-11-06 real sessions were logged here, so the script
+ * copies the preview's changes into the real history when it closes. See
+ * `scripts/preview-sync.ts`.
  *
  * The variable is honoured only when unpackaged. A packaged build ignores it
  * entirely, so an environment variable can never move the real history's
