@@ -528,13 +528,16 @@ function registerHandlers(): void {
     // database.
     'analytics:get': () => (failAnalytics ? null : analytics()),
     'backup:status': () => backupStatus(),
-    // Both were missing and both rejected on every dashboard shot. Harmless -
-    // each is caught in the renderer by design - but a harness that prints two
-    // stack traces per run teaches you to ignore its output, which is the one
-    // thing a screenshot harness must not do. `app:preview` says this is not
-    // the preview profile; `layout:get` says nothing is stored, so the shots
-    // show the default arrangement.
-    'app:preview': () => null,
+    // `layout:get` was missing and rejected on every dashboard shot. Harmless -
+    // it is caught in the renderer by design - but a harness that prints a
+    // stack trace per run teaches you to ignore its output, which is the one
+    // thing a screenshot harness must not do. Null means nothing is stored,
+    // so the shots show the default arrangement.
+    //
+    // `app:preview` was added here twice, once on each side of a merge, and
+    // the later key silently won. The preview-aware one below is the one to
+    // keep; this note is here because a duplicate key in an object literal is
+    // not an error and the only thing that caught it was an esbuild warning.
     'layout:get': () => null,
     'import:existingCount': () => 2363,
     'shortcuts:get': () => ({

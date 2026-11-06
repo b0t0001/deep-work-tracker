@@ -79,18 +79,20 @@ export function sectionOf(id: PanelId): SectionId {
 /**
  * Things in the figure row that carry a range but are not panels.
  *
- * Only the fun fact, now. The average and the period comparison used to be
- * here and are gone with the tiles that held them - the comparison box
- * replaced all three, and it keeps its own choices in `compare` below rather
- * than borrowing a panel's range, because a range is one of the three things
- * it lets you set and the other two have nowhere else to live.
+ * The fun fact, and the baseline tile. The average and the period comparison
+ * used to be here and are gone with the tiles that held them - the comparison
+ * box replaced all three and keeps its own choices in `compare` below,
+ * because a range is one of the three things it lets you set.
  *
- * The baseline tile still has none. It compares the first year against the
- * last and both ends have to be fixed for that to mean anything: wired to a
- * control it read +321% on one setting and +295% on another, the same claim
- * with two numbers.
+ * **The baseline tile's range is the recent end only.** The first year stays
+ * fixed, which is the whole point of a baseline: a comparison with both ends
+ * moving is not a comparison. What the control chooses is which recent window
+ * is held against it. That makes +321% and +295% two honestly different
+ * claims rather than one claim with two numbers, which is what the earlier
+ * version got wrong - and it is why the caption has to name the window it
+ * used, not just say "now".
  */
-export const STAT_RANGE_IDS = ['fact'] as const
+export const STAT_RANGE_IDS = ['fact', 'baseline'] as const
 export type StatRangeId = (typeof STAT_RANGE_IDS)[number]
 
 /** Anything that carries its own range control. */
@@ -107,6 +109,7 @@ export type RangeTargetId = PanelId | StatRangeId
  */
 export const DEFAULT_RANGES: Record<RangeTargetId, WindowId> = {
   fact: 'all',
+  baseline: '1y',
   calendar: 'all',
   hoursPerWeek: '8w',
   projects: 'all',

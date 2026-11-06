@@ -8,6 +8,7 @@ import {
   aboveBaseline,
   averagePerDay,
   baseline,
+  windowDef,
   windowRange,
   type Range,
   type WindowId
@@ -564,6 +565,16 @@ const PANEL_RANGE_OPTIONS: Partial<Record<PanelId, readonly WindowId[]>> = {
 }
 
 /**
+ * What the baseline tile may be compared against.
+ *
+ * No "all time": it contains the first year, so the tile would be comparing
+ * the history partly against itself and the percentage would fall as the
+ * history grew, which reads as getting worse. No "2 years" for a weaker
+ * version of the same reason on a short history.
+ */
+const BASELINE_WINDOWS: readonly WindowId[] = ['1w', '1m', '3m', '1y']
+
+/**
  * The dates a target's range covers, or null for everything.
  *
  * `all` returns null rather than the range `windowRange` would give it,
@@ -1053,9 +1064,25 @@ function AnalyticsTab(): React.JSX.Element {
    * setting of the box produces that.
    */
   const base = baseline(data.daily, data.firstDate)
-  const recentYear = windowRange('1y', today, data.firstDate)
-  const above =
-    recentYear === null ? null : aboveBaseline(averagePerDay(data.daily, recentYear).perDay, base)
+  /*
+   * One end fixed, one end chosen.
+   *
+   * The baseline tile used to have no control at all, on the grounds that a
+   * comparison with both ends moving is not a comparison - wired to the old
+   * shared window it read +321% on "past week" and +295% on "past year", the
+   * same claim with two numbers. That reasoning was right about the first
+   * year and wrong about the recent end: those two figures are not one claim
+   * told badly, they are two different and equally true claims, and the only
+   * thing missing was a caption that said which window each was about.
+   *
+   * So the first year stays fixed and the control chooses what is held
+   * against it. "All time" is deliberately not offered: it contains the first
+   * year, so the comparison would be partly against itself.
+   */
+  const baselineRange = rangeFor(layout, 'baseline')
+  const recent = windowRange(baselineRange, today, data.firstDate)
+  const recentPerDay = recent === null ? null : averagePerDay(data.daily, recent).perDay
+  const above = recentPerDay === null ? null : aboveBaseline(recentPerDay, base)
 
   /*
    * The fun fact over its own range.
@@ -1168,11 +1195,22 @@ function AnalyticsTab(): React.JSX.Element {
               {Math.round(above)}%
             </strong>
             <span>
+              {/* The window is named rather than called "now". With a control
+                  on the recent end, "2.93 h now" would be the same three
+                  words over a figure that changes by a factor of two
+                  depending on a dropdown - which is exactly the ambiguity
+                  this tile was criticised for before it had one. */}
               against your first year &middot; {base?.perDay.toFixed(2)} h a day then,{' '}
-              {recentYear === null
+              {recentPerDay === null
                 ? ''
-                : `${averagePerDay(data.daily, recentYear).perDay.toFixed(2)} h now`}
+                : `${recentPerDay.toFixed(2)} h a day over the ${windowDef(baselineRange).label}`}
             </span>
+            <RangePicker
+              value={baselineRange}
+              onChange={(next) => setRange('baseline', next)}
+              label="the window compared with your first year"
+              options={BASELINE_WINDOWS}
+            />
           </div>
         )}
 
