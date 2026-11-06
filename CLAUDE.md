@@ -806,6 +806,21 @@ over the previous period of equal length, and over all time.
   period against the one before it, the baseline compares the present against
   a fixed point three years back, and no setting of the box produces that.
 
+**The baseline tile's range moves one end only.** It had none at first,
+because a comparison with both ends moving is not a comparison - wired to the
+old shared window it read +321% on "past week" and +295% on "past year", the
+same claim with two numbers. That was right about the first year and wrong
+about the recent end: those are two different and equally true claims, and
+what was missing was a caption saying which. So the first year stays fixed,
+the control chooses what is held against it, and the caption names it -
+"against your first year · 0.74 h a day then, 2.93 h a day over the past
+year". Measured across its four windows: +295% over the year, +314% over 90
+days, +472% over the month, +333% over the week, with the `0.74 h then`
+unchanged in all four. **All time is not offered**: it contains the first
+year, so the tile would be comparing the history partly against itself and
+the percentage would fall as the history grew, which reads as getting
+worse.
+
 **The fun fact says what was done, not just how much.** *"285 components means
 285 components CADded across XYZ sessions... it shouldn't just tell me '285
 components.'"* The verb map in `shared/facts.ts` is built from the user's own
