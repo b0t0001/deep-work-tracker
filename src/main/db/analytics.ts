@@ -289,21 +289,47 @@ export function analytics(): Analytics {
     )
     .all(MIN_SESSIONS_FOR_A_UNIT, MAX_UNITS) as Array<{ unit: string; n: number }>
   const units = unitRows.map((r) => r.unit)
+  /*
+   * Two exclusions beyond "has a quantity", both of which distort a rate
+   * rather than merely adding noise to it.
+   *
+   * A **manual** row is entered from memory afterwards - a six-hour club
+   * meeting recalled as "about six hours" - so its minutes are an estimate
+   * and its quantity usually absent. `CLAUDE.md` already says manual rows
+   * carry approximate times and should be weighted or excluded wherever
+   * timing is the point; a rate is minutes in the denominator, so it is
+   * exactly that case.
+   *
+   * A run **under five minutes** divides by a very small number, so one
+   * question finished in the last ninety seconds of a session reads as 0.67
+   * a minute against a real pace nearer 0.05. Measured on the history, those
+   * runs are where every impossible-looking rate comes from.
+   */
+  const MIN_RATE_SECONDS = 300
   const ratePoints = db.prepare(
     `SELECT session_date AS date,
+            task,
             work_quantity AS quantity,
             running_duration_s / 60.0 AS minutes
        FROM ${COUNTED} AS sessions
-      WHERE work_unit = ? AND work_quantity > 0 AND running_duration_s > 0
+      WHERE work_unit = ? AND work_quantity > 0
+        AND running_duration_s >= ${MIN_RATE_SECONDS}
+        AND source <> 'manual'
         AND unquantifiable = 0 AND session_date IS NOT NULL
       ORDER BY session_date`
   )
   const ratesByUnit: Record<string, RatePoint[]> = {}
   for (const unit of units) {
     ratesByUnit[unit] = (
-      ratePoints.all(unit) as Array<{ date: string; quantity: number; minutes: number }>
+      ratePoints.all(unit) as Array<{
+        date: string
+        task: string | null
+        quantity: number
+        minutes: number
+      }>
     ).map((row) => ({
       date: row.date,
+      task: row.task,
       quantity: Number(row.quantity),
       minutes: Number(row.minutes),
       rate: Number(row.quantity) / Number(row.minutes)

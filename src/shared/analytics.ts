@@ -46,6 +46,16 @@ export interface RatePoint {
   rate: number
   quantity: number
   minutes: number
+  /**
+   * The task it was recorded against, for `shared/courses.ts` to read a
+   * course code out of.
+   *
+   * A rate is only comparable within one unit *and* one subject, and the
+   * subject is not stored anywhere else yet: `tags` exists for course codes
+   * and nothing writes to it. So the task rides along and the code is parsed
+   * in the renderer. When tags are real this field stops being needed.
+   */
+  task: string | null
 }
 
 /**

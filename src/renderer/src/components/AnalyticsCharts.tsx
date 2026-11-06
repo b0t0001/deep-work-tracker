@@ -11,9 +11,13 @@
  */
 import { useLayoutEffect, useRef, useState } from 'react'
 import { RangePicker } from './RangePicker'
+import { ALL_COURSES, courseFrom, coursesIn } from '@shared/courses'
+import { rateBars, type RateGrain } from '@shared/ranges'
+import { formatCount, pluralUnit } from '@shared/facts'
 import {
   TICK_BASE_PX,
   VALUE_PX,
+  categoryAxisWidth,
   digitsProbe,
   rightMarginFor,
   topMarginFor,
@@ -34,8 +38,7 @@ import {
   ScatterChart,
   Tooltip,
   XAxis,
-  YAxis,
-  ZAxis
+  YAxis
 } from 'recharts'
 import { formatDate, formatMonthDay } from '@shared/dates'
 import { windowDef, type WindowId } from '@shared/windows'
@@ -744,7 +747,7 @@ export function ByProject({
                  normal size. At 1.6x text `Entrepreneurship` is half as wide
                  again and the name is what identifies the bar, so the axis
                  grows with the type instead. */
-                width={yAxisWidth(
+                width={categoryAxisWidth(
                   bars.map((bar) => bar.name),
                   tickPx
                 )}
@@ -1052,120 +1055,108 @@ function ratioBars(data: PlannedVsActualPoint[]): RatioBar[] {
  * counted and named in the caption rather than dropped. A busy top edge is
  * recoverable; a chart whose data sits in the bottom eighth says nothing.
  */
-/** The share of a series a percentile ceiling may push above the axis. */
-const MAX_CLIP_SHARE = 0.1
 
-function rateCeiling(rates: number[]): number {
-  if (rates.length === 0) return 1
-  const sorted = [...rates].sort((a, b) => a - b)
-  // Nearest-rank on a zero-indexed array, so the span is `length - 1`. The
-  // obvious `length * 0.98` reaches the last element for every n up to 50 -
-  // the "98th percentile" silently WAS the maximum, i.e. no clipping at all,
-  // in exactly the small series where one outlier distorts most. Six of the
-  // twelve real units were in that range.
-  //
-  // The rank lands one place short of the top however long the series is, so
-  // a percentile ceiling always costs exactly one point: 1.7% of `word`, and
-  // 50% of a series of two. Past MAX_CLIP_SHARE the axis stops being what the
-  // caption says it is, so a short series takes the plain maximum and clips
-  // nothing.
-  //
-  // `MIN_SESSIONS_FOR_A_UNIT` in `main/db/analytics.ts` is 10, so nothing
-  // below that reaches this chart today and the branch is unreachable. It is
-  // here anyway because that constant answers a different question - whether a
-  // unit is worth charting at all - and the two agreeing is a coincidence.
-  // Relying on it would make lowering it silently degrade this axis rather
-  // than break anything, which is the kind of change someone makes
-  // confidently.
-  const tooShortToClip = sorted.length * MAX_CLIP_SHARE < 1
-  const at = tooShortToClip
-    ? sorted[sorted.length - 1]
-    : sorted[Math.floor((sorted.length - 1) * 0.98)]
-  const top = Math.max(at, sorted[0])
-  return top > 0 ? top * 1.08 : 1
-}
-
-interface RateDot {
-  day: number
+interface RateBarRow {
+  label: string
   rate: number
-  minutes: number
   quantity: number
-  date: string
+  minutes: number
+  sessions: number
+  from: string
+  to: string
 }
 
 /**
- * Work rate over time, for one unit.
+ * How fast the work went, for one unit and one course, over time.
  *
- * One unit at a time is a correctness rule, not a layout choice: words per
- * minute and questions per minute are different quantities, so a shared axis
- * would invite an average that means nothing (CLAUDE.md, "Rates are only
- * comparable within a unit"). The selected unit is therefore named in the
- * heading, on the axis and in the picker, and only that unit's series is ever
- * drawn - there is no "all units" option to pick by accident.
+ * This was a scatter of every session, and the user could not read it:
+ * *"again, this data still doesn't make any sense. i love the FORMAT of the
+ * bar chart, but this graph doesn't tell me anything! i can't read any data
+ * points, are you trying to tell me if im getting more efficient? that
+ * doesn't make sense because right now you would be comparing MATH 1410
+ * questions to CIS 1200 questions"*.
  *
- * Scatter rather than a line: sessions land on irregular dates, so a
- * connecting stroke would draw a trend through weeks where nothing happened.
- * Dot area is the session's length, because a rate from two minutes of work is
- * far noisier than one from ninety and should not read as equally solid.
+ * Three separate faults, and the first is the one that mattered:
+ *
+ * - **A rate is only comparable within one unit AND one subject.** Keeping
+ *   the unit picker and nothing else meant 775 questions from Bio, CIS 1200
+ *   and the SAT on one axis, and no movement in that series could mean
+ *   anything. A course picker sits beside the unit picker now, and the title
+ *   names both.
+ * - **775 dots cannot be read.** Pooled into weekly or monthly bars with the
+ *   value written on each one, they can - which is the format the user said
+ *   they liked, from the Hours by project panel, so it is the same format.
+ * - **The tooltip said `day: 19884`**, a raw epoch-day index, next to a bare
+ *   `rate`. It now names the period in MM/DD/YYYY, the hours, the quantity
+ *   and the rate with its unit.
+ *
+ * The bar is the **pooled** rate - total quantity over total minutes - not
+ * the mean of each session's rate. See `RateBar`: those are different
+ * numbers, and the pooled one is what "average across the entire section"
+ * asks for.
  */
 export function RateTrend({
   ratesByUnit,
   units,
   accent,
-  control
+  control,
+  range
 }: {
   ratesByUnit: Record<string, RatePoint[]>
   units: string[]
   accent: string
   control?: React.ReactNode
+  /** Chooses the grain as well as the span: weeks up to a quarter, months beyond. */
+  range: WindowId
 }): React.JSX.Element {
-  const [chosen, setChosen] = useState('')
-  // Derived rather than stored in an effect, so a unit that disappears from the
-  // data cannot leave the chart showing an empty series for a stale name.
-  const unit = units.includes(chosen) ? chosen : (units[0] ?? '')
-  const points = unit === '' ? [] : (ratesByUnit[unit] ?? [])
+  const [chosenUnit, setChosenUnit] = useState('')
+  const [chosenCourse, setChosenCourse] = useState(ALL_COURSES)
 
-  const dots: RateDot[] = points.map((p) => ({
-    day: dayNumber(p.date),
-    rate: round(p.rate, 3),
-    minutes: round(p.minutes),
-    quantity: p.quantity,
-    date: p.date
+  // Derived rather than stored in an effect, so a unit that disappears from
+  // the data cannot leave the chart showing an empty series for a stale name.
+  const unit = units.includes(chosenUnit) ? chosenUnit : (units[0] ?? '')
+  const forUnit = unit === '' ? [] : (ratesByUnit[unit] ?? [])
+
+  /*
+   * The courses offered are the ones present *in this unit*, not in the
+   * history at large. Picking `words` and being offered `CIS 1200` - which
+   * is measured in questions - is an option that selects an empty chart.
+   */
+  const courses = coursesIn(forUnit.map((point) => point.task))
+  const course = courses.some((one) => one.course === chosenCourse) ? chosenCourse : ALL_COURSES
+  const points =
+    course === ALL_COURSES ? forUnit : forUnit.filter((point) => courseFrom(point.task) === course)
+
+  const days = windowDef(range).days
+  const grain: RateGrain = days !== null && days <= 92 ? 'week' : 'month'
+  const bars: RateBarRow[] = rateBars(points, grain).map((bar) => ({
+    label: grain === 'month' ? monthLabel(bar.from) : formatMonthDay(bar.from),
+    rate: round(bar.rate, 3),
+    quantity: bar.quantity,
+    minutes: bar.minutes,
+    sessions: bar.sessions,
+    from: bar.from,
+    to: bar.to
   }))
 
   const quantity = points.reduce((sum, p) => sum + p.quantity, 0)
   const minutes = points.reduce((sum, p) => sum + p.minutes, 0)
-  const mean = minutes > 0 ? quantity / minutes : null
+  const overall = minutes > 0 ? quantity / minutes : null
 
-  const days = dots.map((d) => d.day)
-  const low = days.length > 0 ? Math.min(...days) : 0
-  const high = days.length > 0 ? Math.max(...days) : 0
-  // A single point, or several on one day, would otherwise give a zero-width
-  // domain and nothing to plot against.
-  const pad = Math.max(3, (high - low) * 0.02)
+  const noun = unit === '' ? '' : pluralUnit(unit, 2)
+  const title =
+    unit === ''
+      ? 'Work rate over time'
+      : `${course === ALL_COURSES ? 'All courses' : course} · ${noun} per minute`
 
-  // The y axis is set by a high percentile, not by the maximum. One session at
-  // 16 question/min against a median near 0.5 made the axis run to 16 and
-  // squashed 773 of 774 points into the bottom eighth of the panel, so the
-  // chart showed an outlier and hid the data. Clipped points are counted and
-  // said in the caption rather than dropped - they are real sessions, and a
-  // chart that silently discards rows is worse than one with a busy top edge.
-  const ceiling = rateCeiling(dots.map((d) => d.rate))
-  const clipped = dots.filter((d) => d.rate > ceiling)
-  const plotted = dots.filter((d) => d.rate <= ceiling)
+  // One row per bucket, tall enough that every label fits without thinning.
+  const height = Math.max(180, bars.length * 24 + 36)
+  const valueOf = (bar: RateBarRow): string => `${round(bar.rate, 2)}`
 
   return (
     <Frame
-      title={
-        unit === ''
-          ? 'Work rate over time'
-          : `${unit.charAt(0).toUpperCase()}${unit.slice(1)}s per minute`
-      }
-      /* Two controls, and they are different kinds of thing: the unit decides
-         which quantity is being measured and the range decides over what
-         period. Rates are never comparable across units, so the unit picker
-         keeps its label and its border - it is a statement about what the
-         axis means, not a filter. */
+      title={title}
+      sub={bars.length > 0 ? `${count(bars.length, grain)} with work in ${noun}` : undefined}
       aside={
         <>
           {units.length > 0 ? (
@@ -1174,8 +1165,8 @@ export function RateTrend({
               <select
                 className="ac__unit"
                 value={unit}
-                onChange={(e) => setChosen(e.target.value)}
-                aria-label="Unit to trend"
+                onChange={(e) => setChosenUnit(e.target.value)}
+                aria-label="Unit to measure"
               >
                 {units.map((u) => (
                   <option key={u} value={u}>
@@ -1185,93 +1176,124 @@ export function RateTrend({
               </select>
             </label>
           ) : null}
+          {courses.length > 0 ? (
+            <label className="ac__note" style={{ margin: 0 }}>
+              Course{' '}
+              <select
+                className="ac__unit"
+                value={course}
+                onChange={(e) => setChosenCourse(e.target.value)}
+                aria-label="Course to measure"
+              >
+                <option value={ALL_COURSES}>All courses</option>
+                {courses.map((one) => (
+                  <option key={one.course} value={one.course}>
+                    {one.course}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           {control}
         </>
       }
       note={
-        unit === '' || mean === null
-          ? undefined
-          : `${round(mean, 2)} ${unit} per minute overall, across ${count(points.length, 'session')}.${
-              clipped.length > 0
-                ? ` ${count(clipped.length, 'session')} above ${round(ceiling, 2)}/min ${clipped.length === 1 ? 'sits' : 'sit'} off the top of the axis, which is scaled to the bulk of the data rather than to its fastest point.`
-                : ''
-            } Rates are never compared across units — switch the picker to see another.`
+        unit === '' || overall === null ? undefined : (
+          <>
+            {round(overall, 2)} {noun} per minute overall, across {count(points.length, 'session')}.{' '}
+            {course === ALL_COURSES ? (
+              <>
+                {/* Said plainly, because it is the thing that made the old
+                    chart meaningless and the user spotted it before we did. */}
+                <b>All courses mixes subjects</b> — {noun} for one course are not the same work as{' '}
+                {noun} for another, so read this as a rough overall pace and pick a course to
+                compare like with like.{' '}
+              </>
+            ) : (
+              ''
+            )}
+            Sessions under five minutes and sessions entered by hand are left out: a quantity
+            divided by two minutes, or by a remembered duration, is not a pace. Rates are never
+            compared across units.
+          </>
+        )
       }
     >
       {(tickPx) =>
-        units.length === 0 ? (
-          <Empty height={220}>
+        unit === '' ? (
+          <Empty height={180}>
             No sessions with a recorded quantity yet. A unit appears here once there is enough of it
-            to trend.
+            to measure.
           </Empty>
-        ) : dots.length === 0 ? (
-          <Empty height={220}>{`No rates recorded in ${unit}.`}</Empty>
+        ) : bars.length === 0 ? (
+          <Empty height={180}>
+            {`No ${noun} recorded${course === ALL_COURSES ? '' : ` for ${course}`} in this period.`}
+          </Empty>
         ) : (
-          <ResponsiveContainer width="100%" height={220}>
-            <ScatterChart
+          <ResponsiveContainer width="100%" height={height}>
+            <BarChart
+              data={bars}
+              layout="vertical"
               margin={{
-                top: topMarginFor(tickPx),
-                /* The last month label is centred on the final point, so half
-                 of `Nov '26` hung past the right edge - 11px of it at 1.6x
-                 text. Both ends are measured because the widest is not
-                 always the last. */
-                right: rightMarginFor(
-                  [monthLabel(isoDate(low)), monthLabel(isoDate(high))],
-                  tickPx,
-                  12
-                ),
+                top: 0,
+                right: Math.max(36, Math.ceil(widest(bars.map(valueOf), VALUE_PX)) + 14),
                 left: 0,
                 bottom: 0
               }}
             >
-              <CartesianGrid stroke={GRID} />
-              <XAxis
-                type="number"
-                dataKey="day"
-                domain={[low - pad, high + pad]}
-                tickLine={false}
-                tickFormatter={(value: string | number): string =>
-                  monthLabel(isoDate(Number(value)))
-                }
-              />
+              <CartesianGrid stroke={GRID} horizontal={false} />
+              <XAxis type="number" tickLine={false} />
+              {/* `interval={0}`: Recharts thins category ticks by default,
+                  and a bar whose period is not named is a bar nobody can
+                  read - which is the whole complaint this panel answers. */}
               <YAxis
-                type="number"
-                dataKey="rate"
-                /* `extra` is the rotated axis title, which costs its line
-                 height rather than its length because it is on its side. */
-                width={yAxisWidth([digitsProbe(ceiling, '.88')], tickPx, Math.ceil(tickPx * 1.4))}
+                type="category"
+                dataKey="label"
+                width={categoryAxisWidth(
+                  bars.map((bar) => bar.label),
+                  tickPx
+                )}
+                interval={0}
                 tickLine={false}
-                domain={[0, round(ceiling, 2)]}
-                allowDataOverflow
-                label={{ value: `${unit}/min`, angle: -90, position: 'insideLeft' }}
               />
-              <ZAxis type="number" dataKey="minutes" range={[18, 150]} name="Minutes" />
-              {mean === null ? null : (
-                // Labelled, because an unexplained dashed line across a chart
-                // that is filmed is debris rather than information.
-                <ReferenceLine
-                  y={round(mean, 3)}
-                  stroke={tint(accent, '80')}
-                  strokeDasharray="4 4"
-                  label={{ value: 'overall', position: 'insideBottomRight', fontSize: 10 }}
-                />
-              )}
               <Tooltip
                 {...TOOLTIP}
-                cursor={{ stroke: '#ffffff20' }}
+                cursor={{ fill: '#ffffff0a' }}
+                /* The old tooltip read `Minutes: 134, day: 19884, rate: 1.91`
+                   - an epoch-day index and a bare number. Everything here is
+                   named and in the app's own date format. */
                 labelFormatter={(_label: React.ReactNode, payload): string => {
-                  const row = payload?.[0]?.payload as RateDot | undefined
-                  return row ? `${formatDate(row.date)} — ${row.quantity} ${unit}` : ''
+                  const row = payload?.[0]?.payload as RateBarRow | undefined
+                  if (!row) return ''
+                  return grain === 'month'
+                    ? `${formatDate(row.from)} – ${formatDate(row.to)}`
+                    : `Week of ${formatDate(row.from)}`
+                }}
+                formatter={(_value: unknown, _name: unknown, item: unknown): [string, string] => {
+                  const row = (item as { payload?: RateBarRow } | undefined)?.payload
+                  if (!row) return ['', '']
+                  return [
+                    `${round(row.rate, 2)} ${noun}/min · ${formatCount(row.quantity)} ${noun} in ${round(row.minutes / 60, 1)} h · ${count(row.sessions, 'session')}`,
+                    'Pace'
+                  ]
                 }}
               />
-              <Scatter
-                name={`${unit} per minute`}
-                data={plotted}
-                fill={tint(accent, 'cc')}
-                stroke={accent}
+              <Bar
+                dataKey="rate"
+                name="Pace"
+                fill={accent}
+                radius={[0, 2, 2, 0]}
                 isAnimationActive={false}
-              />
-            </ScatterChart>
+              >
+                <LabelList
+                  dataKey="rate"
+                  position="right"
+                  offset={6}
+                  className="ac__value"
+                  formatter={(value: React.ReactNode) => `${round(Number(value), 2)}`}
+                />
+              </Bar>
+            </BarChart>
           </ResponsiveContainer>
         )
       }

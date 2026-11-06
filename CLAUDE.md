@@ -700,6 +700,58 @@ local.
   calendar — it would leave today's square unfilled on a grid whose whole job
   is to show that today is filled.
 
+**A rate is only comparable within one unit AND one subject.** The rate panel
+was a scatter of every session, and it was unreadable for a reason that was
+not about the scatter: *"this graph doesn't tell me anything! i can't read any
+data points, are you trying to tell me if im getting more efficient? that
+doesn't make sense because right now you would be comparing MATH 1410
+questions to CIS 1200 questions"*. The unit rule was already in this file; the
+subject half was missing, and without it no movement in the series could mean
+anything. There is now a course picker beside the unit picker, the title names
+both, and the sessions pool into weekly or monthly bars with the value written
+on each - the Hours-by-project format, which the user named as the one they
+can read.
+
+- **The bar is the pooled rate**, total quantity over total minutes, not the
+  mean of each session's rate. Those are different numbers: a ten-minute
+  session at 2 a minute and a two-hour session at 0.5 average to 1.25 one way
+  and 0.58 the other, and only the second answers "how many did I get through
+  per minute of work".
+- **Empty buckets are left out, not drawn as zero.** The hours chart does the
+  opposite and is right to - a week with no work really is zero hours. A week
+  with no sessions has no *rate*; a bar at zero would read as a collapse in
+  pace.
+- **Sessions under five minutes and manual sessions are excluded**, and the
+  caption says so. A quantity over two minutes is where every
+  impossible-looking rate in the history came from, and a manual row's
+  minutes are a remembered estimate - which `CLAUDE.md` already says to
+  exclude wherever timing is the point.
+
+**`shared/courses.ts` is a stand-in for tags, and should be deleted when tags
+are real.** Course codes live in the task text the user already types; `tags`
+exists in the schema for exactly this and nothing writes to it. When something
+does, this file is replaced by a join, not extended.
+
+The pattern is not the obvious one, and the difference is measured. Over the
+2,353 quantified sessions a naive `[A-Za-z]{2,5} ?\d{3,4}` found 24
+"courses" and **half were not courses**: `ALYZE 2022` from "Analyze 2022",
+`EVIEW 645` from "Princeton Review 645+", `RNELL 100` from "Cornell 100",
+`GRADE 2019`, `LANG 2018`, `PRING 2027`, `ST 1600` from a video title. Two
+rules remove all of them:
+
+- **The letters must be capitals as typed.** Every real code is written that
+  way; every false positive came from an ordinary word. This would need
+  revisiting if the user ever typed one in lower case.
+- **A number in 1900-2099 is a year, not a course number.** A real course
+  numbered in that span would be missed, which against twelve invented
+  courses is the right way round - and those sessions still appear under All
+  courses.
+
+Only 114 of 2,353 quantified sessions carry a code at all, so **All courses is
+the normal case and says plainly that it mixes subjects**. The picker lists
+only the courses present in the chosen unit: offering `CIS 1200` while
+`words` is selected is an option that selects an empty chart.
+
 **One comparison box, not three readings of one number.** The tab showed
 "3.21 h a day over the past week", "3.75 h a day worked in the past week" and
 a Stats table whose first row was 3.21 again. The difference was that the

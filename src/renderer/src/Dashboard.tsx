@@ -653,7 +653,15 @@ function panelFor(
        * there.
        */
       const units = data.units.filter((unit) => (ranged[unit] ?? []).length > 0)
-      return <RateTrend ratesByUnit={ranged} units={units} accent={accent} control={control} />
+      return (
+        <RateTrend
+          ratesByUnit={ranged}
+          units={units}
+          accent={accent}
+          control={control}
+          range={range}
+        />
+      )
     }
     case 'timeOfDay': {
       /*

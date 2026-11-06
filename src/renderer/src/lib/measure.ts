@@ -81,6 +81,29 @@ export function yAxisWidth(labels: readonly string[], px: number, extra = 0): nu
   return Math.ceil(widest(labels, px) + Y_AXIS_GAP + extra)
 }
 
+/** How much more room a category axis needs than a measured label. */
+const CATEGORY_SLACK = 10
+
+/**
+ * The same, for a **category** axis, which wraps rather than clipping.
+ *
+ * Recharts' `Text` breaks a tick onto a second line when it does not fit,
+ * instead of overflowing - so a category axis one pixel too narrow is not
+ * caught by the clip check at all. It shows up as `Sep` over `'26`, which is
+ * the fault CLAUDE.md records twice already: a wrapped label makes its row
+ * twice as tall as its neighbours.
+ *
+ * The slack is for the difference between this measurement and Recharts'
+ * own: it measures with its own assumptions about the font, and on a label
+ * with a space in it the two disagreeing by a fraction is the difference
+ * between one line and two. Ten pixels rather than two, because the cost of
+ * being generous is ten pixels of plot and the cost of being exact is a row
+ * twice as tall as its neighbours.
+ */
+export function categoryAxisWidth(labels: readonly string[], px: number): number {
+  return yAxisWidth(labels, px, CATEGORY_SLACK)
+}
+
 /**
  * Digits enough for any tick an auto-scaled axis might choose.
  *
