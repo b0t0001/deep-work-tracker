@@ -813,9 +813,9 @@ same claim with two numbers. That was right about the first year and wrong
 about the recent end: those are two different and equally true claims, and
 what was missing was a caption saying which. So the first year stays fixed,
 the control chooses what is held against it, and the caption names it -
-"against your first year · 0.74 h a day then, 2.93 h a day over the past
-year". Measured across its four windows: +295% over the year, +314% over 90
-days, +472% over the month, +333% over the week, with the `0.74 h then`
+"against your first year · 0.74 h a day then, 2.93 h a day over the past 12
+months". Measured across its four windows: +295% over 12 months, +314% over
+90 days, +472% over 30 days, +333% over the week, with the `0.74 h then`
 unchanged in all four. **All time is not offered**: it contains the first
 year, so the tile would be comparing the history partly against itself and
 the percentage would fall as the history grew, which reads as getting

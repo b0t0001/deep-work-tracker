@@ -29,14 +29,18 @@ export interface WindowDef {
 /**
  * The user's list for the average tile, plus two weeks from the hours chart.
  *
- * "Past month" is thirty days rather than the calendar month, so that it
- * covers the same length whatever day it is opened on - a calendar month read
- * on the 2nd would be two days long and always look like a collapse.
+ * **The labels say the duration, not the calendar unit.** `1m` is thirty days
+ * rather than the calendar month, so that it covers the same length whatever
+ * day it is opened on - a calendar month read on the 2nd would be two days
+ * long and always look like a collapse. It used to be labelled "past month",
+ * which quietly implied the other thing; it says "past 30 days" now, and `1y`
+ * says "past 12 months" for the same reason. The ids are untouched, so no
+ * stored choice moves.
  */
 export const WINDOWS: readonly WindowDef[] = [
   { id: '1w', label: 'past week', days: 7 },
   { id: '2w', label: 'past 2 weeks', days: 14 },
-  { id: '1m', label: 'past month', days: 30 },
+  { id: '1m', label: 'past 30 days', days: 30 },
   { id: '8w', label: 'past 8 weeks', days: 56 },
   // Added for the comparison box, which the user asked to be able to set to
   // 90 days. It joins the shared ladder rather than being a fourth private
@@ -44,7 +48,7 @@ export const WINDOWS: readonly WindowDef[] = [
   // argument of this file is that "past 90 days" must cover the same 90 days
   // wherever it is chosen.
   { id: '3m', label: 'past 90 days', days: 90 },
-  { id: '1y', label: 'past year', days: 365 },
+  { id: '1y', label: 'past 12 months', days: 365 },
   { id: '2y', label: 'past 2 years', days: 730 },
   { id: 'all', label: 'all time', days: null }
 ]
