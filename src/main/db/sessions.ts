@@ -207,7 +207,11 @@ export function recordSession(
     localDate(snapshot.startedAt),
     iso(snapshot.startedAt),
     iso(now),
-    Math.round((snapshot.plannedMs * laps) / 1000),
+    // What the timer was set to - one lap - not laps x lap. A loop of two
+    // 45-minute laps had a 45-minute goal; recording 1.5 h planned against
+    // 1.16 h run made overrunning the goal read as finishing early. `laps`
+    // says how many times it went round.
+    Math.round(snapshot.plannedMs / 1000),
     runningSeconds,
     laps,
     pace?.quantity ?? null,

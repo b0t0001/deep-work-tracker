@@ -31,7 +31,7 @@ Date.now = () => clock
 const db = openDatabase()
 const count = (): number => (db.prepare('SELECT COUNT(*) n FROM sessions').get() as { n: number }).n
 const migrations = (db.prepare('SELECT MAX(id) m FROM schema_migrations').get() as { m: number }).m
-eq('migration 5 applied', migrations, 5)
+eq('migrations through 6 applied', migrations, 6)
 eq(
   'every existing row is one lap',
   (db.prepare('SELECT COUNT(*) n FROM sessions WHERE laps <> 1').get() as { n: number }).n,
@@ -79,9 +79,9 @@ const finalId = recordSession(
 eq('stop finishes the same row', [finalId, count()], [id, before + 1])
 row = getSession(id)!
 eq(
-  'whole loop: 2 laps, 3 h planned, 2.35 h run',
+  'whole loop: 2 laps of a 1.5 h goal, 2.35 h run',
   [row.laps, row.planned_duration_s, row.running_duration_s],
-  [2, 10800, 8460]
+  [2, 5400, 8460]
 )
 eq(
   'filed under HW, not a new project',

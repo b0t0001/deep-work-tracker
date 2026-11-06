@@ -185,5 +185,20 @@ export const MIGRATIONS: Migration[] = [
       -- imported, manual or recorded - so 1 is true of all of them.
       ALTER TABLE sessions ADD COLUMN laps INTEGER NOT NULL DEFAULT 1 CHECK (laps >= 1);
     `
+  },
+  {
+    id: 6,
+    name: "a loop's planned time is one lap",
+    sql: `
+      -- Migration 5 recorded a loop's planned_duration_s as laps x lap length.
+      -- The user's reading, and the one every other row already has, is that
+      -- planned is what the timer was set to: two 45-minute laps had a
+      -- 45-minute goal, and 1.16 h run against it is an overrun, not 1.5 h
+      -- planned and finished early. Every looped row was written by
+      -- recordSession as exactly laps x lap, so dividing recovers the lap.
+      UPDATE sessions
+         SET planned_duration_s = CAST(ROUND(planned_duration_s * 1.0 / laps) AS INTEGER)
+       WHERE laps > 1;
+    `
   }
 ]

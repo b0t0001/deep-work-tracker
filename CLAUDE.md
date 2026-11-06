@@ -101,9 +101,18 @@ at stop, and read as a rate across the whole loop; a row per lap split a
 2.35-hour MATH 1410 loop into two rows and pinned the quantity on the last lap
 alone. So expiry with loop on does not end the session: the countdown restarts,
 and running time, pauses and the pace loop carry straight on. The row records
-`laps` (laps begun, so stopping ten minutes into lap two is two) and
-`planned_duration_s` is the whole loop's — laps × lap length. The Data tab
-shows `2×` beside such a planned figure.
+`laps` (laps begun, so stopping ten minutes into lap two is two).
+
+**`planned_duration_s` is one lap - what the timer was set to - never laps ×
+lap.** It was laps × lap for a day, and the user caught what that hid: two
+45-minute laps showed "1.5 h planned, 1.16 h run", which reads as a goal met
+early, when the goal was 45 minutes and the work took 70. Planned means what
+the timer was set to on every other row (an imported row's Start is exactly
+that), so a loop is the same setting gone round more than once. Migration 6
+divided the looped rows written under the old rule. The Data tab shows
+`2× 0.75 h`: two laps of a 45-minute goal. A loop therefore runs past 100% of
+planned, and "Are your timers the right length?" raises its ceiling above 100%
+when a length's runs average past it rather than clipping the overrun.
 
 **A loop is saved at every lap**, then finished at stop. The engine emits
 `lap`; main writes the row on the first and updates the same row after

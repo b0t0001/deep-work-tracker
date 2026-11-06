@@ -2116,14 +2116,15 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
                     Muted, because it is an absence rather than a value. */}
                 <td>{row.project_name ?? <span className="muted">Unlabeled</span>}</td>
                 <td>{row.task ?? <span className="muted">unlabeled</span>}</td>
-                {/* Planned is the whole loop's. The lap count says so, quietly,
-                    so 3.00 h planned against 2.35 h run reads as two 90-minute
-                    laps rather than one three-hour run cut short. */}
+                {/* Planned is what the timer was set to - one lap. The lap
+                    count beside it says how many times it went round, so
+                    "2× 0.75 h" against 1.16 h run reads as a 45-minute goal
+                    that took two laps. */}
                 <td className="num">
                   {row.laps > 1 && (
                     <span
                       className="muted"
-                      title={`${row.laps} laps of ${hours(row.planned_duration_s / row.laps)}`}
+                      title={`${row.laps} laps of ${hours(row.planned_duration_s)}`}
                     >
                       {row.laps}&times;{' '}
                     </span>

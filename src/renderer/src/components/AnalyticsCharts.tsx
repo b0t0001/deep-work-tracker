@@ -890,6 +890,10 @@ export function PlannedVsActual({
 }): React.JSX.Element {
   const all = ratioBars(data)
   const bars = all.filter((b) => b.sessions >= MIN_RUNS)
+  // 100% unless a length's runs average past it. A loop's planned time is
+  // one lap, so a 45-minute goal that took two laps runs well past 100%, and
+  // a fixed ceiling would clip exactly the overrun this chart is for.
+  const top = Math.max(100, Math.ceil(Math.max(0, ...bars.map((b) => b.ratio)) / 25) * 25)
   const dropped = all.length - bars.length
 
   const runsByLabel = new Map(bars.map((b) => [b.label, b.sessions]))
@@ -977,14 +981,14 @@ export function PlannedVsActual({
                   height={34}
                   tick={<RunsTick runs={runsByLabel} />}
                 />
-                {/* The domain is fixed at 0-100, so the widest label is known
-                exactly rather than probed: `100%`. At 1.6x text it needs 55px
-                and the typed 44 cut 11px off its left edge. */}
+                {/* The ceiling is known before drawing - 100%, or the next 25%
+                above the longest bar - so the widest label is too, and the
+                axis is sized to it. At 1.6x text `100%` alone needs 55px. */}
                 <YAxis
-                  width={yAxisWidth(['100%'], tickPx)}
+                  width={yAxisWidth([`${top}%`], tickPx)}
                   unit="%"
                   tickLine={false}
-                  domain={[0, 100]}
+                  domain={[0, top]}
                   allowDataOverflow
                 />
                 <Tooltip
