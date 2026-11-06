@@ -96,7 +96,8 @@ eq(
     hidden: ['timeOfDay'],
     fontScale: 1.25,
     ranges: { projects: '1y', timeOfDay: '8w' },
-    compare: { statistic: 'median', grain: 'week', range: '3m' }
+    customRanges: { projects: '45 days' },
+    compare: { statistic: 'median', grain: 'week', range: '3m', custom: '' }
   }
   eq('a full custom layout round-trips', parseLayout(serialiseLayout(mine)), mine)
 }
@@ -221,7 +222,7 @@ eq('nothing stored means the defaults', resolveLayout({}).compare, DEFAULT_COMPA
 eq(
   'one bad value does not take the other two with it',
   resolveLayout({ compare: { statistic: 'mode', grain: 'week', range: '1y' } }).compare,
-  { statistic: DEFAULT_COMPARE.statistic, grain: 'week', range: '1y' }
+  { statistic: DEFAULT_COMPARE.statistic, grain: 'week', range: '1y', custom: '' }
 )
 eq(
   'a window that no longer exists falls back',
@@ -230,14 +231,41 @@ eq(
   DEFAULT_COMPARE.range
 )
 eq(
+  'a typed span survives storage as typed, not as a day count',
+  parseLayout(serialiseLayout({ ...defaultLayout(), customRanges: { projects: '3 weeks' } }))
+    .customRanges,
+  { projects: '3 weeks' }
+)
+eq(
+  'a span for a target that no longer exists is dropped',
+  resolveLayout({ customRanges: { stats: '3 weeks', projects: '1 week' } }).customRanges,
+  { projects: '1 week' }
+)
+eq(
+  'and a span that is not text is dropped rather than coerced',
+  resolveLayout({ customRanges: { projects: 45 } }).customRanges,
+  {}
+)
+eq(
+  'an unparseable span is still stored - it is their text, and the panel says why',
+  resolveLayout({ customRanges: { projects: 'about three weeks' } }).customRanges,
+  { projects: 'about three weeks' }
+)
+eq(
+  'the comparison box keeps its span with its other two choices',
+  resolveLayout({ compare: { statistic: 'mean', grain: 'day', range: 'custom', custom: '90d' } })
+    .compare.custom,
+  '90d'
+)
+eq(
   'and a complete choice round-trips',
   parseLayout(
     serialiseLayout({
       ...defaultLayout(),
-      compare: { statistic: 'median', grain: 'month', range: '3m' }
+      compare: { statistic: 'median', grain: 'month', range: '3m', custom: '' }
     })
   ).compare,
-  { statistic: 'median', grain: 'month', range: '3m' }
+  { statistic: 'median', grain: 'month', range: '3m', custom: '' }
 )
 
 console.log('')
@@ -250,7 +278,8 @@ eq('an unwritten layout reads as defaults', readLayout(), defaultLayout())
     hidden: ['projects'],
     fontScale: 1.5,
     ranges: { pace: '1m', projects: '2y' },
-    compare: { statistic: 'mean', grain: 'month', range: '1y' }
+    customRanges: { pace: '3 weeks' },
+    compare: { statistic: 'mean', grain: 'month', range: 'custom', custom: '10 months' }
   }
   eq('what is written is what is read back', writeLayout(mine), mine)
   eq('and it survives a reopen', readLayout(), mine)

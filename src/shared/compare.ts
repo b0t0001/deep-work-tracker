@@ -22,7 +22,7 @@
  * is here is the choosing and the comparing.
  */
 import { periodStats, type DayTotal } from './analytics'
-import type { Range, WindowId } from './windows'
+import type { Range } from './windows'
 
 /** Mean or median. Median is the one that survives a single enormous day. */
 export type Statistic = 'mean' | 'median'
@@ -40,9 +40,6 @@ export const GRAINS: readonly { id: Grain; label: string; days: number }[] = [
   { id: 'week', label: 'week', days: 7 },
   { id: 'month', label: 'month', days: 30 }
 ]
-
-/** The windows the box offers. Short enough to be a sentence, long enough to compare. */
-export const COMPARE_WINDOWS: readonly WindowId[] = ['1w', '1m', '3m', '1y', 'all']
 
 /**
  * The grains a range is long enough to answer in.

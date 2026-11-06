@@ -276,9 +276,16 @@ app.whenReady().then(async () => {
       )
       .join('; ')
   )
+  /*
+   * `custom` is in this list because an untyped custom span resolves to all
+   * time - the safe direction, documented in `windowDefFor` - so on the
+   * narrow window it shrinks exactly as all time does. It is not an
+   * exception to the rule above, it is the rule applying to a window whose
+   * length happens to be the whole history.
+   */
   check(
     'and the ones that shrank are the long ranges on the narrow window',
-    shrunk.every((r) => r.width === 1150 && ['1y', '2y', 'all'].includes(r.range)),
+    shrunk.every((r) => r.width === 1150 && ['1y', '2y', 'all', 'custom'].includes(r.range)),
     shrunk.map((r) => `${r.range} at ${r.width}px`).join('; ')
   )
 

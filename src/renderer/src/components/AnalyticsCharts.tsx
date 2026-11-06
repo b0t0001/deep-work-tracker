@@ -10,7 +10,6 @@
  * reliably resolved, while a CSS declaration always is.
  */
 import { useLayoutEffect, useRef, useState } from 'react'
-import { RangePicker } from './RangePicker'
 import { ALL_COURSES, courseFrom, coursesIn } from '@shared/courses'
 import { rateBars, type RateGrain } from '@shared/ranges'
 import { formatCount, pluralUnit } from '@shared/facts'
@@ -25,8 +24,6 @@ import {
   yAxisWidth
 } from '../lib/measure'
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -41,7 +38,7 @@ import {
   YAxis
 } from 'recharts'
 import { formatDate, formatMonthDay } from '@shared/dates'
-import { windowDef, type WindowId } from '@shared/windows'
+import { windowDef, windowDefFor, type WindowId } from '@shared/windows'
 import { plannedFit } from '@shared/analytics'
 import type {
   DayTotal,
@@ -374,8 +371,79 @@ function Empty({ height, children }: { height: number; children: string }): Reac
  * gap, not be closed up into a continuous run of work that never happened.
  */
 
-/** Daily cuts stay legible to about eight weeks; past that the week is the unit. */
-const DAILY_LIMIT_DAYS = 56
+/**
+ * How finely a range is cut, chosen so **every bar can carry its value**.
+ *
+ * "numbers still don't display on this chart" - at past 8 weeks the chart
+ * drew 56 daily points and labelled exactly one of them, the peak, because
+ * 56 labels would have collided. The user had already said that a chart
+ * whose data points they cannot read tells them nothing, so the right answer
+ * is not to thin the labels harder: it is to draw fewer, bigger buckets.
+ *
+ * The thresholds are set from the narrow window, 1,150px, because a grain
+ * that only works at full screen is a grain that breaks when the window is
+ * resized. At that width a panel has about 1,090px of plot, so:
+ *
+ *   grain    worst case        bars   px per bar
+ *   day      30 days             30         ~36
+ *   week     120 days            18         ~60
+ *   month    the whole history   44         ~25
+ *
+ * and a value label is 2-5 characters of tabular 10.5px type, about 12-31px.
+ * The month row is the tight one and is what `scripts/label-overlap-check.ts`
+ * exists to keep honest.
+ *
+ * Chosen from the range's length rather than from the measured width on
+ * purpose: the title says which grain is in use ("Hours per week"), and a
+ * grain that changed as you dragged the window edge would make that title
+ * flicker between two truths.
+ */
+type Grain = 'day' | 'week' | 'month' | 'quarter'
+
+/**
+ * The most bars that can each carry a readable number at 1,150px.
+ *
+ * A panel has about 1,090px of plot there, so 32 bars is 34px each against a
+ * value label of 2-5 characters of tabular 10.5px type - 12 to 31px wide.
+ *
+ * Found by measuring, not by reasoning. The first rule picked the grain from
+ * fixed day thresholds and put all time on 45 monthly bars, where the closest
+ * pair of labels had **0.8px** between them. That passes an overlap test and
+ * is still two numbers read as one, which is the fault this panel exists to
+ * fix.
+ */
+const MAX_BARS = 32
+
+/** Rough days per bucket, for choosing between grains. */
+const GRAIN_DAYS: Record<Grain, number> = { day: 1, week: 7, month: 30.44, quarter: 91.3 }
+
+/**
+ * The finest cut whose bars can each still be labelled.
+ *
+ * Walking from finest to coarsest and taking the first that fits is better
+ * than a table of day thresholds in two ways: a custom span of any length
+ * lands somewhere sensible without a rule being written for it, and the
+ * thing being guaranteed - that every bar carries a readable value - is the
+ * thing the condition actually tests.
+ *
+ * `historyDays` matters as well as the window's length: "all time" on
+ * eighteen months of data is eighteen months, and choosing from the window
+ * alone would cut a short history into quarters for no reason.
+ */
+function grainFor(days: number | null, historyDays: number): Grain {
+  const span = days === null ? historyDays : Math.min(days, historyDays)
+  for (const grain of ['day', 'week', 'month'] as const) {
+    if (Math.ceil(span / GRAIN_DAYS[grain]) <= MAX_BARS) return grain
+  }
+  return 'quarter'
+}
+
+const GRAIN_NOUN: Record<Grain, string> = {
+  day: 'day',
+  week: 'week',
+  month: 'month',
+  quarter: 'quarter'
+}
 
 interface Point {
   /** Epoch day of the bucket's first day, for ordering. */
@@ -390,7 +458,7 @@ interface Point {
    * put every blank-tick day into one band - see the XAxis below.
    */
   tick: string
-  /** The value drawn on the point, or blank where it would collide. */
+  /** The value drawn on the bar. Every bar has one - see `valueLabels`. */
   label: string
 }
 
@@ -398,7 +466,8 @@ export function HoursOverTime({
   daily,
   accent,
   range,
-  onRange
+  customDays,
+  control
 }: {
   daily: DayTotal[]
   accent: string
@@ -412,31 +481,34 @@ export function HoursOverTime({
    * the rest exist.
    */
   range: WindowId
-  onRange: (next: WindowId) => void
+  /** Days, when the range is a typed one; null for every preset. */
+  customDays: number | null
+  control?: React.ReactNode
 }): React.JSX.Element {
-  const chosen = windowDef(range)
-  const byDay = chosen.days !== null && chosen.days <= DAILY_LIMIT_DAYS
-  const points = seriesFor(daily, chosen.days, byDay)
-  const unit = byDay ? 'day' : 'week'
+  const chosen = windowDefFor(range, customDays)
+  const historyDays =
+    daily.length === 0 ? 0 : dayNumber(daily[daily.length - 1].date) - dayNumber(daily[0].date) + 1
+  const grain = grainFor(chosen.days, historyDays)
+  const points = seriesFor(daily, chosen.days, grain)
+  const unit = GRAIN_NOUN[grain]
   /** Axis text by bucket, so the scale can be keyed on something unique. */
   const tickText = new Map(points.map((point) => [point.from, point.tick]))
 
   return (
     <Frame
-      title={byDay ? 'Hours per day' : 'Hours per week'}
+      /* The grain is in the title because it changes with the range, and a
+         bar's value means a different thing at each one. "12.4" under "Hours
+         per day" and under "Hours per month" are not the same claim. */
+      title={`Hours per ${unit}`}
       sub={
         points.length > 0
-          ? `${points.length} ${unit}${points.length === 1 ? '' : 's'}${byDay ? '' : ', Monday to Sunday'}`
+          ? `${points.length} ${unit}${points.length === 1 ? '' : 's'}${grain === 'week' ? ', Monday to Sunday' : ''}`
           : undefined
       }
-      aside={
-        daily.length > 0 ? (
-          <RangePicker value={range} onChange={onRange} label="hours over time" />
-        ) : undefined
-      }
+      aside={control}
       note={
         points.length > 0
-          ? `Running time only; paused time is never counted. Empty ${unit}s are drawn as zero rather than closed up, so a gap reads as a gap.`
+          ? `Every bar carries its hours — one decimal under 100, whole above it. Running time only; paused time is never counted. Empty ${unit}s are drawn as zero rather than closed up, so a gap reads as a gap.`
           : undefined
       }
     >
@@ -451,7 +523,7 @@ export function HoursOverTime({
                 point you most want named - and the right margin carries the
                 half of the last date label that hangs past the final point.
                 `Thu 5` was cut by 12px at 1.6x text before this. */}
-            <AreaChart
+            <BarChart
               data={points}
               margin={{
                 top: topMarginFor(tickPx, 7),
@@ -502,31 +574,33 @@ export function HoursOverTime({
                 labelFormatter={(_label: React.ReactNode, payload): string => {
                   const row = payload?.[0]?.payload as Point | undefined
                   if (!row) return ''
-                  return byDay ? formatDate(row.from) : `Week of ${formatDate(row.from)}`
+                  if (grain === 'day') return formatDate(row.from)
+                  return grain === 'week' ? `Week of ${formatDate(row.from)}` : monthLabel(row.from)
                 }}
               />
-              {/* A flat fill, not a gradient. The area is there to give the line
-                a body and to make a run of empty days read as a trough; a
-                vertical fade would be decoration and this app has none. */}
-              <Area
-                type="monotone"
+              {/* Bars rather than an area, at the user's request: they named
+                the Hours-by-project panel as the format they can read, and
+                the thing that makes it readable is that every bar carries
+                its number. An area has points, not slots, so there is
+                nowhere for a label to sit that is unambiguously one day's.
+
+                The fill does not fade with value. A second encoding of the
+                same number would be decoration, and the height already says
+                it twice over with the label. */}
+              <Bar
                 dataKey="hours"
                 name="Hours"
                 unit=" h"
-                stroke={accent}
-                strokeWidth={1.6}
                 fill={accent}
-                fillOpacity={0.16}
-                dot={false}
-                activeDot={{ r: 3, strokeWidth: 0 }}
+                radius={[2, 2, 0, 0]}
                 isAnimationActive={false}
               >
-                {/* The value on the point, the way a spreadsheet does it. Accent
+                {/* The value on the bar, the way a spreadsheet does it. Accent
                   rather than --text-dim: it is the series speaking, not a
                   caption about it. */}
-                <LabelList dataKey="label" position="top" offset={7} className="ac__value" />
-              </Area>
-            </AreaChart>
+                <LabelList dataKey="label" position="top" offset={5} className="ac__value" />
+              </Bar>
+            </BarChart>
           </ResponsiveContainer>
         )
       }
@@ -542,9 +616,13 @@ export function HoursOverTime({
  * happened. That matters more for an area than it did for bars, because an
  * area connects its points and would draw a slope straight across the gap.
  */
-function seriesFor(daily: DayTotal[], days: number | null, byDay: boolean): Point[] {
+function seriesFor(daily: DayTotal[], days: number | null, grain: Grain): Point[] {
   if (daily.length === 0) return []
+  if (grain === 'month' || grain === 'quarter') {
+    return monthSeries(daily, days, grain === 'quarter' ? 3 : 1)
+  }
 
+  const byDay = grain === 'day'
   const totals = new Map<number, { hours: number; sessions: number }>()
   let last = -Infinity
   for (const row of daily) {
@@ -580,32 +658,119 @@ function seriesFor(daily: DayTotal[], days: number | null, byDay: boolean): Poin
       label: ''
     })
   }
-  return valueLabels(label(out, byDay))
+  return valueLabels(label(out, grain))
 }
 
 /**
- * Which points carry their value on the chart.
+ * The same, cut into calendar months.
  *
- * All of them while they fit - a fortnight of daily points is 14 numbers
- * and reads like the spreadsheet this replaces. Past that they collide,
- * and the honest thinning is to keep the peak rather than every nth: an
- * arbitrary sample labels whichever days happen to land on the stride,
- * which tells the reader nothing about why those and not others.
- *
- * Zeroes never carry a label. A run of empty days would otherwise be a row
- * of `0 h` along the axis, which is the loudest possible way to say nothing
- * happened.
+ * Months cannot be walked in a fixed number of days, so they are enumerated
+ * by name rather than by arithmetic on epoch days - stepping 30 or 31 at a
+ * time drifts and eventually lands two buckets in one month. Empty months
+ * are still filled, for the same reason empty days are: a term off has to
+ * read as a gap rather than be closed up.
  */
-const LABEL_ALL_UP_TO = 16
+function monthSeries(daily: DayTotal[], days: number | null, step: number): Point[] {
+  const totals = new Map<string, { hours: number; sessions: number }>()
+  for (const row of daily) {
+    const key = row.date.slice(0, 7)
+    const found = totals.get(key)
+    if (found) {
+      found.hours += row.hours
+      found.sessions += row.sessions
+    } else {
+      totals.set(key, { hours: row.hours, sessions: row.sessions })
+    }
+  }
+  if (totals.size === 0) return []
+
+  const keys = [...totals.keys()].sort()
+  const lastKey = keys[keys.length - 1]
+  // The cut-off is a date, so it is compared as one: the first month that
+  // contains any day of the range. A range of 365 days ending in November
+  // starts in the previous December, and that part-month is included - it
+  // is a month the range really touches, and dropping it would lose work.
+  const earliestKey = keys[0]
+  const startKey =
+    days === null
+      ? earliestKey
+      : (() => {
+          const end = dayNumber(lastDayOf(lastKey))
+          const wanted = isoDate(end - days + 1).slice(0, 7)
+          return wanted > earliestKey ? wanted : earliestKey
+        })()
+
+  const out: Point[] = []
+  let [year, month] = startKey.split('-').map(Number)
+  for (;;) {
+    const key = `${year}-${String(month).padStart(2, '0')}`
+    if (key > lastKey) break
+    // A quarter is three of these summed, so it is the same walk with a
+    // longer stride rather than a second function: the only difference
+    // between the two grains is how many months land in one bar.
+    let hours = 0
+    let sessions = 0
+    let scanYear = year
+    let scanMonth = month
+    for (let i = 0; i < step; i += 1) {
+      const part = `${scanYear}-${String(scanMonth).padStart(2, '0')}`
+      const found = totals.get(part)
+      if (found) {
+        hours += found.hours
+        sessions += found.sessions
+      }
+      scanMonth += 1
+      if (scanMonth > 12) {
+        scanMonth = 1
+        scanYear += 1
+      }
+    }
+    out.push({
+      day: dayNumber(`${key}-01`),
+      hours: round(hours, 2),
+      sessions,
+      from: `${key}-01`,
+      tick: '',
+      label: ''
+    })
+    month += step
+    while (month > 12) {
+      month -= 12
+      year += 1
+    }
+  }
+  return valueLabels(label(out, step === 3 ? 'quarter' : 'month'))
+}
+
+/** Last day of a `YYYY-MM`, so a month's range can be compared as a date. */
+function lastDayOf(key: string): string {
+  const [year, month] = key.split('-').map(Number)
+  return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10)
+}
 
 function valueLabels(points: Point[]): Point[] {
-  if (points.length === 0) return points
-  const show = (hours: number): string => (hours > 0 ? round(hours, 1).toString() : '')
-  if (points.length <= LABEL_ALL_UP_TO) {
-    return points.map((point) => ({ ...point, label: show(point.hours) }))
-  }
-  const peak = points.reduce((best, point) => (point.hours > best.hours ? point : best))
-  return points.map((point) => (point === peak ? { ...point, label: show(point.hours) } : point))
+  return points.map((point) => ({ ...point, label: hoursLabel(point.hours) }))
+}
+
+/**
+ * The number written on a bar.
+ *
+ * One decimal under a hundred and none above it, which is not cosmetic: at
+ * the month grain a bar can read 150, and `150.3` is five characters in a
+ * 25px slot while `150` is three. The tenth it drops is a tenth of a percent
+ * of the figure, and keeping it is what would push the labels into each
+ * other.
+ *
+ * A zero bar is labelled `0` rather than left blank. Blank was the obvious
+ * choice - a bar of no height says zero by itself - but this chart exists
+ * because the user could not tell a value they could not read from a value
+ * that was not there, and an unlabelled bar in a row of labelled ones is
+ * exactly that ambiguity again. `0` is one character and never collides.
+ */
+function hoursLabel(hours: number): string {
+  if (hours <= 0) return '0'
+  if (hours >= 100) return String(Math.round(hours))
+  return round(hours, 1).toString()
 }
 
 /**
@@ -616,8 +781,9 @@ function valueLabels(points: Point[]): Point[] {
  * without either needing its own rule. Recharts thins ticks on its own
  * otherwise, and thins the wrong ones.
  */
-function label(points: Point[], byDay: boolean): Point[] {
+function label(points: Point[], grain: Grain): Point[] {
   if (points.length === 0) return points
+  const byDay = grain === 'day'
   const every = Math.max(1, Math.round(points.length / 6))
   // The weekday earns its place only when every label is a different day of
   // the week you can orient by. Past a fortnight the labels land on arbitrary
@@ -632,7 +798,9 @@ function label(points: Point[], byDay: boolean): Point[] {
             ? withWeekday
               ? dayLabel(point.from)
               : shortDate(point.from)
-            : monthLabel(point.from)
+            : grain === 'week'
+              ? shortDate(point.from)
+              : monthLabel(point.from)
         }
       : point
   )

@@ -146,6 +146,19 @@ export interface Layout {
    */
   ranges: Partial<Record<RangeTargetId, WindowId>>
   /**
+   * What was typed into a target's Custom field, as typed.
+   *
+   * The text rather than the parsed day count, so the field shows back what
+   * the user wrote - someone who typed "3 weeks" should not reopen the panel
+   * to find "21 days". It is parsed on every read, which is cheap, and means
+   * a stored value that stops parsing degrades to all time rather than to a
+   * number nobody can account for.
+   *
+   * Kept even while the target is set to a preset, so switching to Custom
+   * and back does not lose it.
+   */
+  customRanges: Partial<Record<RangeTargetId, string>>
+  /**
    * The comparison box's three choices.
    *
    * Complete rather than sparse, unlike `ranges`. These are not preferences
@@ -161,12 +174,22 @@ export interface CompareChoice {
   statistic: Statistic
   grain: Grain
   range: WindowId
+  /**
+   * What its Custom field holds, as typed.
+   *
+   * Here rather than in `customRanges` because the box is not a range
+   * target: its range lives in this object with the other two choices, and
+   * splitting the typed span away from the id it belongs to would be two
+   * places to keep in step for no gain.
+   */
+  custom: string
 }
 
 export const DEFAULT_COMPARE: CompareChoice = {
   statistic: 'mean',
   grain: 'day',
-  range: '1w'
+  range: '1w',
+  custom: ''
 }
 
 /** What a user who has never touched anything sees. */
@@ -176,6 +199,7 @@ export function defaultLayout(): Layout {
     hidden: [],
     fontScale: 1,
     ranges: {},
+    customRanges: {},
     compare: { ...DEFAULT_COMPARE }
   }
 }
@@ -188,6 +212,16 @@ export function rangeFor(layout: Layout, target: RangeTargetId): WindowId {
 /** A layout with one target's range changed. */
 export function withRange(layout: Layout, target: RangeTargetId, range: WindowId): Layout {
   return { ...layout, ranges: { ...layout.ranges, [target]: range } }
+}
+
+/** What a target's Custom field holds, as typed. */
+export function customTextFor(layout: Layout, target: RangeTargetId): string {
+  return layout.customRanges[target] ?? ''
+}
+
+/** A layout with one target's typed span changed. */
+export function withCustomRange(layout: Layout, target: RangeTargetId, text: string): Layout {
+  return { ...layout, customRanges: { ...layout.customRanges, [target]: text } }
 }
 
 function isRangeTarget(value: unknown): value is RangeTargetId {
@@ -294,10 +328,27 @@ export function resolveLayout(stored: unknown): Layout {
     grain: GRAINS.some((option) => option.id === storedCompare.grain)
       ? (storedCompare.grain as Grain)
       : DEFAULT_COMPARE.grain,
-    range: isWindowId(storedCompare.range) ? storedCompare.range : DEFAULT_COMPARE.range
+    range: isWindowId(storedCompare.range) ? storedCompare.range : DEFAULT_COMPARE.range,
+    custom: typeof storedCompare.custom === 'string' ? storedCompare.custom : ''
   }
 
-  return { order, hidden, fontScale: clampScale(raw.fontScale), ranges, compare }
+  /*
+   * The typed spans are kept as text and not validated here beyond being
+   * text. Parsing belongs to `shared/span.ts` and happens at read time, so a
+   * value that stops parsing - because the grammar changed, say - shows its
+   * own error in the field rather than vanishing from storage, which would
+   * leave the user retyping something they already entered.
+   */
+  const customIn =
+    raw.customRanges !== null && typeof raw.customRanges === 'object'
+      ? (raw.customRanges as Record<string, unknown>)
+      : {}
+  const customRanges: Partial<Record<RangeTargetId, string>> = {}
+  for (const [target, text] of Object.entries(customIn)) {
+    if (isRangeTarget(target) && typeof text === 'string') customRanges[target] = text
+  }
+
+  return { order, hidden, fontScale: clampScale(raw.fontScale), ranges, customRanges, compare }
 }
 
 /** The JSON that goes into `app_settings`. Resolved first, so what is stored is always valid. */

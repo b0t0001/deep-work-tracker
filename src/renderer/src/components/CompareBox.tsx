@@ -23,17 +23,17 @@
  *   by your standards rather than in the abstract. A third would start
  *   rebuilding the table.
  */
-import {
-  COMPARE_WINDOWS,
-  GRAINS,
-  STATISTICS,
-  compare,
-  grainsFor,
-  type Grain,
-  type Statistic
-} from '@shared/compare'
+import { GRAINS, STATISTICS, compare, grainsFor, type Grain, type Statistic } from '@shared/compare'
 import type { CompareChoice } from '@shared/layout'
-import { WINDOWS, windowDef, windowRange, type WindowId } from '@shared/windows'
+import { parseSpan } from '@shared/span'
+import {
+  CUSTOM_WINDOW,
+  WINDOWS,
+  rangeOf,
+  windowDefFor,
+  windowRange,
+  type WindowId
+} from '@shared/windows'
 import type { DayTotal } from '@shared/analytics'
 
 export const COMPARE_CSS = `
@@ -74,6 +74,39 @@ export const COMPARE_CSS = `
   background: var(--surface-raised);
   color: var(--text);
 }
+.an-compare__custom {
+  display: inline-flex;
+  position: relative;
+}
+.an-compare__custom input {
+  width: 8em;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: calc(12px * var(--an-fs, 1));
+  padding: 1px 5px;
+}
+.an-compare__custom input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.an-compare__custom input.is-bad {
+  border-color: #fca5a5;
+}
+/* Absolute, so a message appearing does not reflow the sentence above the
+   figure while it is still being typed. */
+.an-compare__problem {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 3px;
+  color: #fca5a5;
+  font-size: 10.5px;
+  width: 16em;
+  z-index: 3;
+}
 .an-compare__answer {
   display: block;
   font-size: calc(31px * var(--an-fs, 1));
@@ -110,17 +143,24 @@ export function CompareBox({
   today,
   firstDate,
   choice,
-  onChoice
+  onChoice,
+  customText,
+  onCustomText
 }: {
   daily: DayTotal[]
   today: string
   firstDate: string | null
   choice: CompareChoice
   onChoice: (next: CompareChoice) => void
+  /** The box's own typed span, as typed. */
+  customText: string
+  onCustomText: (next: string) => void
 }): React.JSX.Element {
-  const range = windowRange(choice.range, today, firstDate)
+  const typed = parseSpan(customText)
+  const def = windowDefFor(choice.range, typed.days)
+  const range = rangeOf(def, today, firstDate)
   const all = windowRange('all', today, firstDate)
-  const allowed = grainsFor(windowDef(choice.range).days)
+  const allowed = grainsFor(def.days)
 
   const figures =
     range === null || all === null
@@ -129,7 +169,7 @@ export function CompareBox({
 
   const grain = figures?.grain ?? choice.grain
   const grainLabel = GRAINS.find((g) => g.id === grain)?.label ?? 'day'
-  const windowLabel = windowDef(choice.range).label
+  const windowLabel = def.label
 
   const ask = (
     <div className="an-compare__ask">
@@ -153,8 +193,23 @@ export function CompareBox({
         aria-label="Per day, week or month"
         onChange={(event) => onChoice({ ...choice, grain: event.target.value as Grain })}
       >
-        {GRAINS.filter((option) => allowed.includes(option.id)).map((option) => (
-          <option key={option.id} value={option.id}>
+        {/* Disabled rather than filtered out, for the same reason the range
+            lists every window: a menu that changes length as you use it is
+            a menu you cannot learn. The title says why this one is off -
+            `periodStats` counts whole periods back from the end, so a
+            seven-day range holds no whole month and the figure would be the
+            em dash the old table printed. */}
+        {GRAINS.map((option) => (
+          <option
+            key={option.id}
+            value={option.id}
+            disabled={!allowed.includes(option.id)}
+            title={
+              allowed.includes(option.id)
+                ? undefined
+                : `The chosen period is shorter than one ${option.label}`
+            }
+          >
             {option.label}
           </option>
         ))}
@@ -165,12 +220,28 @@ export function CompareBox({
         aria-label="Over how long"
         onChange={(event) => onChoice({ ...choice, range: event.target.value as WindowId })}
       >
-        {WINDOWS.filter((option) => COMPARE_WINDOWS.includes(option.id)).map((option) => (
+        {WINDOWS.map((option) => (
           <option key={option.id} value={option.id}>
-            {option.label.replace(/^past /, '')}
+            {option.id === CUSTOM_WINDOW ? 'custom…' : option.label.replace(/^past /, '')}
           </option>
         ))}
       </select>
+      {choice.range === CUSTOM_WINDOW ? (
+        <span className="an-compare__custom">
+          <input
+            value={customText}
+            aria-label="Custom period"
+            placeholder="45 days"
+            className={typed.problem === '' ? undefined : 'is-bad'}
+            onChange={(event) => onCustomText(event.target.value)}
+          />
+          {typed.problem === '' ? null : (
+            <span className="an-compare__problem" role="status">
+              {typed.problem}
+            </span>
+          )}
+        </span>
+      ) : null}
     </div>
   )
 
