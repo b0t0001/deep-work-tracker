@@ -2,13 +2,12 @@ import { useEffect, useState } from 'react'
 import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
-import { periodOverPeriod, previousDay, type Analytics } from '@shared/analytics'
+import type { Analytics } from '@shared/analytics'
 import { buildFacts, pickFact, type Fact } from '@shared/facts'
 import {
   aboveBaseline,
   averagePerDay,
   baseline,
-  windowDef,
   windowRange,
   type Range,
   type WindowId
@@ -27,7 +26,13 @@ import {
   type PanelId,
   type RangeTargetId
 } from '@shared/layout'
-import { hourTotalsIn, plannedVsActualIn, projectTotalsIn, within } from '@shared/ranges'
+import {
+  hourTotalsIn,
+  plannedVsActualIn,
+  projectTotalsIn,
+  unitTotalsIn,
+  within
+} from '@shared/ranges'
 import Icon from './components/Icon'
 import { useLayout } from './lib/layout'
 import { useAccentSync } from './lib/accent'
@@ -38,10 +43,10 @@ import {
   PlannedVsActual,
   RateTrend
 } from './components/AnalyticsCharts'
-import { StatsTable } from './components/StatsTable'
 import { CalendarHeatmap, TimeOfDayHeatmap } from './components/Heatmaps'
 import { PreviewBanner } from './components/PreviewBanner'
 import { RangePicker } from './components/RangePicker'
+import { CompareBox } from './components/CompareBox'
 
 type Tab = 'settings' | 'data' | 'analytics' | 'import'
 
@@ -536,11 +541,6 @@ function hoursLabel(value: number): string {
  */
 const PANELS: Record<PanelId, { label: string; full: boolean }> = {
   calendar: { label: 'Every day', full: true },
-  // Full width although it is only three columns. Half width would leave it
-  // paired with a chart, and the odd number of half-width panels would then
-  // strand one of them alone on a row; the table caps its own width in CSS so
-  // the figures stay together rather than drifting to opposite edges.
-  stats: { label: 'Stats', full: true },
   hoursPerWeek: { label: 'Hours per week', full: true },
   projects: { label: 'Hours by project', full: false },
   plannedRatio: { label: 'Are your timers the right length?', full: false },
@@ -621,10 +621,6 @@ function panelFor(
   switch (id) {
     case 'calendar':
       return <CalendarHeatmap daily={within(data.daily, span)} accent={accent} control={control} />
-    case 'stats':
-      return (
-        <StatsTable data={data} today={today} window={range} accent={accent} control={control} />
-      )
     case 'hoursPerWeek':
       return <HoursOverTime daily={data.daily} accent={accent} range={range} onRange={set} />
     case 'projects':
@@ -659,7 +655,15 @@ function panelFor(
        * there.
        */
       const units = data.units.filter((unit) => (ranged[unit] ?? []).length > 0)
-      return <RateTrend ratesByUnit={ranged} units={units} accent={accent} control={control} />
+      return (
+        <RateTrend
+          ratesByUnit={ranged}
+          units={units}
+          accent={accent}
+          control={control}
+          range={range}
+        />
+      )
     }
     case 'timeOfDay': {
       /*
@@ -944,7 +948,18 @@ function AnalyticsTab(): React.JSX.Element {
    * render path, and `setFact` batches with `setData`, so the tile arrives
    * with the rest of the row rather than a frame after it.
    */
-  const [fact, setFact] = useState<Fact | null>(null)
+  /*
+   * The *id* is chosen once, not the fact.
+   *
+   * The tile now has its own range control, so the list of facts changes
+   * under it - a unit with nothing in the past week drops out entirely. The
+   * choice still has to be made off the render path, because it involves
+   * `Math.random` and a `localStorage` write, so what is held is the id and
+   * the fact is looked up from whatever the current range supports. Same
+   * fact across a range change where it survives, a sensible one where it
+   * does not, and no impurity in render either way.
+   */
+  const [factId, setFactId] = useState<string | null>(null)
   const [data, setData] = useState<Analytics | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading')
 
@@ -963,7 +978,7 @@ function AnalyticsTab(): React.JSX.Element {
           return
         }
         setData(payload as Analytics)
-        setFact(chooseFact(payload as Analytics))
+        setFactId(chooseFact(payload as Analytics)?.id ?? null)
         setState('ready')
       })
       .catch(() => {
@@ -1019,36 +1034,58 @@ function AnalyticsTab(): React.JSX.Element {
   }
 
   /*
-   * The two tiles that a range can move now carry one each.
+   * What is left of the figure row's own arithmetic.
    *
-   * They used to share the tab's single `Averages over` picker, along with
-   * every panel below. The user rejected that - "it shouldn't be one central
-   * control" - so the average and the period comparison are set separately,
-   * and either can be read against a different length of history than the
-   * other. That is the point: "2.1 h a day this month" and "up 9% on last
-   * week" are two questions.
+   * The average and the period comparison used to be computed here, each
+   * with its own picker. Both are gone into `CompareBox`, which asks the
+   * same questions better: they were two of the three readings of one number
+   * the user could not tell apart.
    *
-   * The other two tiles deliberately have no control. See `STAT_RANGE_IDS`.
-   */
-  const averagesId = rangeFor(layout, 'averages')
-  const periodId = rangeFor(layout, 'period')
-  const range = windowRange(averagesId, today, data.firstDate)
-  const average = range === null ? null : averagePerDay(data.daily, range)
-  const base = baseline(data.daily, data.firstDate)
-  /*
-   * The baseline tile does NOT follow the picker.
-   *
-   * It compares the last year against the first, and both ends have to be
-   * fixed for that to mean anything. Wired to the window it read +321% on
-   * "past week" and +295% on "past year" - the same claim, two numbers,
-   * depending on a control that says nothing about the comparison. A figure
+   * The baseline tile stays, and it does NOT follow any picker. It compares
+   * the last year against the first, and both ends have to be fixed for that
+   * to mean anything - wired to a window it read +321% on "past week" and
+   * +295% on "past year", the same claim with two numbers. A figure
    * captioned "against your first year" has to choose its own other end.
+   *
+   * It is not a duplicate of the box, which was worth checking before
+   * keeping it: the box compares a period against the one before it, this
+   * compares the present against a fixed point three years back, and no
+   * setting of the box produces that.
    */
+  const base = baseline(data.daily, data.firstDate)
   const recentYear = windowRange('1y', today, data.firstDate)
   const above =
     recentYear === null ? null : aboveBaseline(averagePerDay(data.daily, recentYear).perDay, base)
-  const periodRange = windowRange(periodId, today, data.firstDate)
-  const period = periodOverPeriod(data.daily, previousDay(today), periodRange?.days ?? 0)
+
+  /*
+   * The fun fact over its own range.
+   *
+   * Rebuilt here rather than held in state, because the range can change it:
+   * 292,358 words all time is 1,400 words in the past week, and the unit may
+   * not clear the thresholds in a short window at all. The id chosen on load
+   * is used when the new list still has it, so moving the range does not
+   * also reshuffle which fact you are looking at.
+   */
+  const factRange = rangeFor(layout, 'fact')
+  const factSpan = spanOf(factRange, today, data.firstDate)
+  const everyFact = buildFacts({
+    ...data,
+    unitTotals: unitTotalsIn(data.unitDays, factSpan)
+  })
+  /*
+   * On a narrowed range, only the facts that narrowed with it.
+   *
+   * The output facts follow the control because `unitTotals` is recomputed
+   * above; the rest - lifetime hours, the longest session ever, the
+   * most-worked project - do not, and cannot without dating aggregates that
+   * have no date. Left in, the tile could answer a dropdown reading "past
+   * month" with "2,755 h of deep work since 03/27/2023", which is a control
+   * that visibly does nothing to the thing beside it. They come back at all
+   * time, where they are exactly right.
+   */
+  const facts =
+    factSpan === null ? everyFact : everyFact.filter((one) => one.id.startsWith('unit:'))
+  const fact = facts.find((one) => one.id === factId) ?? facts[0] ?? null
 
   return (
     // The text scale lives here rather than on the panel grid, because the
@@ -1113,27 +1150,14 @@ function AnalyticsTab(): React.JSX.Element {
       <h3 className="an-section__title an-section__title--first">{SECTIONS[0].title}</h3>
 
       <div className="an-stats">
-        <div className="an-stat an-stat--lead">
-          <strong>{average === null ? '—' : `${average.perDay.toFixed(2)} h`}</strong>
-          <span>
-            {/* "over the all time" is not a sentence; the whole history gets
-                its own phrasing rather than a label that has to read after
-                "the" in every other panel too. */}
-            {windowDef(averagesId).days === null
-              ? 'a day, all time'
-              : `a day over the ${windowDef(averagesId).label}`}
-            {/* Every day counted, not only the ones worked. Dividing by worked
-                days answers "how long is a working day", which flatters a
-                fortnight off into nothing - settled in CLAUDE.md before this
-                control existed, and the control must not unsettle it. */}
-            {average === null ? '' : ` · all ${average.days} days counted`}
-          </span>
-          <RangePicker
-            value={averagesId}
-            onChange={(next) => setRange('averages', next)}
-            label="the daily average"
-          />
-        </div>
+        {/* The box, in the place the two tiles it replaces used to take. */}
+        <CompareBox
+          daily={data.daily}
+          today={today}
+          firstDate={data.firstDate}
+          choice={layout.compare}
+          onChoice={(next) => update((prev) => ({ ...prev, compare: next }))}
+        />
 
         {/* Hidden rather than shown as nothing when the history is under a
             year: a baseline needs a first year to be a baseline. */}
@@ -1157,69 +1181,12 @@ function AnalyticsTab(): React.JSX.Element {
             <strong>{fact.value}</strong>
             <span>
               {fact.label}
-              {fact.detail === '' ? '' : ` · ${fact.detail}`}
-            </span>
-          </div>
-        )}
-
-        {/* No worked day in the window means the record stops, not that the
-            work did - every row here can arrive by import, so a quiet window
-            may only mean the spreadsheet has not been brought in. "0.00 h,
-            down 100%" would be a collapse the data cannot support, so say
-            which it is instead. This was settled before the window control
-            existed and the control must not undo it. */}
-        {period.thisWeekDays === 0 ? (
-          <div className="an-stat">
-            <strong>&mdash;</strong>
-            <span>
-              {data.lastDate
-                ? `no sessions logged in the ${windowDef(periodId).label}; the last was ${formatDate(data.lastDate)}`
-                : 'no sessions logged yet'}
+              {fact.detail === '' ? '' : ` ${fact.detail}`}
             </span>
             <RangePicker
-              value={periodId}
-              onChange={(next) => setRange('period', next)}
-              label="the period comparison"
-            />
-          </div>
-        ) : (
-          <div className="an-stat">
-            <strong>{period.thisWeekPerDay.toFixed(2)} h</strong>
-            <span>
-              {/* "average daily hours worked", at the user's request, in place
-                  of "a day worked".
-
-                  The old phrasing leaned on the figure above it to supply the
-                  noun - "3.75 h" then "a day worked" - which reads as a
-                  sentence only if you take the two together in that order,
-                  and the tile beside it already says "a day" about a
-                  different number. Naming the quantity costs three words and
-                  makes the tile legible on its own. */}
-              average daily hours worked{' '}
-              {windowDef(periodId).days === null
-                ? 'all time'
-                : `in the ${windowDef(periodId).label}`}
-              {/* `all` has nothing before it to compare against, so the clause
-                  is dropped rather than rendered as a null percentage. */}
-              {period.perDayChangePercent === null ? (
-                ''
-              ) : (
-                <>
-                  {', '}
-                  <span className={period.perDayChangePercent >= 0 ? 'is-up' : 'is-down'}>
-                    {period.perDayChangePercent >= 0 ? 'up' : 'down'}{' '}
-                    {Math.abs(Math.round(period.perDayChangePercent))}%
-                  </span>{' '}
-                  {/* Named, because "on the one before" made the reader work
-                      out what "one" was: "from the 2 weeks before". */}
-                  from the {windowDef(periodId).label.replace(/^past /, '')} before
-                </>
-              )}
-            </span>
-            <RangePicker
-              value={periodId}
-              onChange={(next) => setRange('period', next)}
-              label="the period comparison"
+              value={factRange}
+              onChange={(next) => setRange('fact', next)}
+              label="the fun fact"
             />
           </div>
         )}

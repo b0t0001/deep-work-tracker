@@ -6,16 +6,22 @@
  * below is the whole point of the file - a stored layout outlives the panel
  * list it was written against, so reading it is a merge rather than a load.
  */
+import { GRAINS, STATISTICS, type Grain, type Statistic } from './compare'
 import { WINDOWS, type WindowId } from './windows'
 
 /** Panel ids, named for what a panel is rather than where it sits. */
 export const PANEL_IDS = [
   'calendar',
-  // Second, under the figure row whose window it shares. It is the thing the
-  // user said they look at most, and it is the only panel that is read rather
-  // than looked at, so it goes where the eye already is before the charts
-  // start.
-  'stats',
+  /*
+   * `stats` used to sit here, second, as the thing the user said they looked
+   * at most. It is gone, at their request: its first row repeated the figure
+   * in the tile above it and its right-hand column repeated the one beside
+   * that, which is what "look at how much redundant data there is" was
+   * about. The comparison box in the figure row answers the same questions
+   * with one number at a time. A stored layout naming `stats` resolves
+   * cleanly - `resolveLayout` drops an id that no longer exists, which is
+   * exactly this case.
+   */
   'hoursPerWeek',
   'projects',
   'plannedRatio',
@@ -51,7 +57,7 @@ export const SECTIONS = [
   {
     id: 'hours',
     title: 'Hours and consistency',
-    panels: ['calendar', 'stats', 'hoursPerWeek']
+    panels: ['calendar', 'hoursPerWeek']
   },
   { id: 'habits', title: 'Habits', panels: ['timeOfDay', 'plannedRatio'] },
   { id: 'output', title: 'Projects and output', panels: ['projects', 'rateTrend', 'pace'] }
@@ -71,21 +77,20 @@ export function sectionOf(id: PanelId): SectionId {
 }
 
 /**
- * The two figures in the stat row that a range can move.
+ * Things in the figure row that carry a range but are not panels.
  *
- * They take range ids of their own rather than sharing a panel's, because they
- * are not panels: they cannot be hidden or dragged, and the stored layout has
- * to be able to tell "the average tile is set to 30 days" from "the stats
- * table is".
+ * Only the fun fact, now. The average and the period comparison used to be
+ * here and are gone with the tiles that held them - the comparison box
+ * replaced all three, and it keeps its own choices in `compare` below rather
+ * than borrowing a panel's range, because a range is one of the three things
+ * it lets you set and the other two have nowhere else to live.
  *
- * The other two tiles deliberately have none. The baseline tile compares the
- * first year against the last and both ends have to be fixed for that to mean
- * anything - wired to a control it read +321% on one setting and +295% on
- * another, the same claim with two numbers. The fun fact is drawn from the
- * whole history by construction. A dropdown that cannot change the figure
- * beside it is worse than no dropdown.
+ * The baseline tile still has none. It compares the first year against the
+ * last and both ends have to be fixed for that to mean anything: wired to a
+ * control it read +321% on one setting and +295% on another, the same claim
+ * with two numbers.
  */
-export const STAT_RANGE_IDS = ['averages', 'period'] as const
+export const STAT_RANGE_IDS = ['fact'] as const
 export type StatRangeId = (typeof STAT_RANGE_IDS)[number]
 
 /** Anything that carries its own range control. */
@@ -101,14 +106,16 @@ export type RangeTargetId = PanelId | StatRangeId
  * change.
  */
 export const DEFAULT_RANGES: Record<RangeTargetId, WindowId> = {
-  averages: '1w',
-  period: '1w',
+  fact: 'all',
   calendar: 'all',
-  stats: '1w',
   hoursPerWeek: '8w',
   projects: 'all',
   plannedRatio: 'all',
-  rateTrend: 'all',
+  // A year rather than all time: at all time this draws a bar a month for
+  // 42 months, which is honest and is a lot of panel to scroll past on the
+  // way to the next one. Twelve bars is the shape the chart was rebuilt to
+  // be readable at, and the control is right there for the rest.
+  rateTrend: '1y',
   timeOfDay: 'all',
   pace: 'all'
 }
@@ -135,11 +142,39 @@ export interface Layout {
    * The same argument as `resolveLayout` appending an unknown panel.
    */
   ranges: Partial<Record<RangeTargetId, WindowId>>
+  /**
+   * The comparison box's three choices.
+   *
+   * Complete rather than sparse, unlike `ranges`. These are not preferences
+   * about things that may come and go - there will always be exactly three,
+   * and all three are always showing - so there is nothing for a missing
+   * entry to mean.
+   */
+  compare: CompareChoice
+}
+
+/** What the comparison box is set to: statistic, grain, and over how long. */
+export interface CompareChoice {
+  statistic: Statistic
+  grain: Grain
+  range: WindowId
+}
+
+export const DEFAULT_COMPARE: CompareChoice = {
+  statistic: 'mean',
+  grain: 'day',
+  range: '1w'
 }
 
 /** What a user who has never touched anything sees. */
 export function defaultLayout(): Layout {
-  return { order: [...PANEL_IDS], hidden: [], fontScale: 1, ranges: {} }
+  return {
+    order: [...PANEL_IDS],
+    hidden: [],
+    fontScale: 1,
+    ranges: {},
+    compare: { ...DEFAULT_COMPARE }
+  }
 }
 
 /** The range a target is actually showing: what was stored, or its default. */
@@ -240,7 +275,26 @@ export function resolveLayout(stored: unknown): Layout {
     if (isRangeTarget(target) && isWindowId(range)) ranges[target] = range
   }
 
-  return { order, hidden, fontScale: clampScale(raw.fontScale), ranges }
+  /*
+   * Each of the three is checked on its own, so one bad value does not throw
+   * away the other two - a stored grain that no longer exists should not
+   * also reset the statistic the user chose.
+   */
+  const storedCompare =
+    raw.compare !== null && typeof raw.compare === 'object'
+      ? (raw.compare as Record<string, unknown>)
+      : {}
+  const compare: CompareChoice = {
+    statistic: STATISTICS.some((option) => option.id === storedCompare.statistic)
+      ? (storedCompare.statistic as Statistic)
+      : DEFAULT_COMPARE.statistic,
+    grain: GRAINS.some((option) => option.id === storedCompare.grain)
+      ? (storedCompare.grain as Grain)
+      : DEFAULT_COMPARE.grain,
+    range: isWindowId(storedCompare.range) ? storedCompare.range : DEFAULT_COMPARE.range
+  }
+
+  return { order, hidden, fontScale: clampScale(raw.fontScale), ranges, compare }
 }
 
 /** The JSON that goes into `app_settings`. Resolved first, so what is stored is always valid. */

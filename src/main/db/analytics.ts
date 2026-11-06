@@ -8,7 +8,13 @@ import {
   type PlannedVsActual,
   type RatePoint
 } from '../../shared/analytics'
-import { bucketMinutes, type HourDay, type PlannedRun, type ProjectDay } from '../../shared/ranges'
+import {
+  bucketMinutes,
+  type HourDay,
+  type PlannedRun,
+  type ProjectDay,
+  type UnitDay
+} from '../../shared/ranges'
 /**
  * Every figure the Analytics tab shows, aggregated in SQL.
  *
@@ -84,7 +90,9 @@ export function analytics(): Analytics {
     editingHours: 0,
     projectDays: [],
     hourDays: [],
-    plannedRuns: []
+    plannedRuns: [],
+    unitDays: [],
+    unitTasks: {}
   }
   if (span.first === null || span.last === null || Number(span.sessions) === 0) return empty
   const rawDaily = (
@@ -281,21 +289,47 @@ export function analytics(): Analytics {
     )
     .all(MIN_SESSIONS_FOR_A_UNIT, MAX_UNITS) as Array<{ unit: string; n: number }>
   const units = unitRows.map((r) => r.unit)
+  /*
+   * Two exclusions beyond "has a quantity", both of which distort a rate
+   * rather than merely adding noise to it.
+   *
+   * A **manual** row is entered from memory afterwards - a six-hour club
+   * meeting recalled as "about six hours" - so its minutes are an estimate
+   * and its quantity usually absent. `CLAUDE.md` already says manual rows
+   * carry approximate times and should be weighted or excluded wherever
+   * timing is the point; a rate is minutes in the denominator, so it is
+   * exactly that case.
+   *
+   * A run **under five minutes** divides by a very small number, so one
+   * question finished in the last ninety seconds of a session reads as 0.67
+   * a minute against a real pace nearer 0.05. Measured on the history, those
+   * runs are where every impossible-looking rate comes from.
+   */
+  const MIN_RATE_SECONDS = 300
   const ratePoints = db.prepare(
     `SELECT session_date AS date,
+            task,
             work_quantity AS quantity,
             running_duration_s / 60.0 AS minutes
        FROM ${COUNTED} AS sessions
-      WHERE work_unit = ? AND work_quantity > 0 AND running_duration_s > 0
+      WHERE work_unit = ? AND work_quantity > 0
+        AND running_duration_s >= ${MIN_RATE_SECONDS}
+        AND source <> 'manual'
         AND unquantifiable = 0 AND session_date IS NOT NULL
       ORDER BY session_date`
   )
   const ratesByUnit: Record<string, RatePoint[]> = {}
   for (const unit of units) {
     ratesByUnit[unit] = (
-      ratePoints.all(unit) as Array<{ date: string; quantity: number; minutes: number }>
+      ratePoints.all(unit) as Array<{
+        date: string
+        task: string | null
+        quantity: number
+        minutes: number
+      }>
     ).map((row) => ({
       date: row.date,
+      task: row.task,
       quantity: Number(row.quantity),
       minutes: Number(row.minutes),
       rate: Number(row.quantity) / Number(row.minutes)
@@ -361,6 +395,40 @@ export function analytics(): Analytics {
       .all() as Array<{ unit: string; quantity: number; sessions: number }>
   ).map((r) => ({ unit: r.unit, quantity: Number(r.quantity), sessions: Number(r.sessions) }))
 
+  // By day as well, so the fun fact can follow its own range control, and a
+  // sample of the tasks each unit was recorded against, so it can say what
+  // was done rather than only how much. Same conditions as `unitTotals`, so
+  // a ranged reading can never include a row the all-time one excludes.
+  const unitDays: UnitDay[] = (
+    db
+      .prepare(
+        `SELECT session_date AS date, work_unit AS unit,
+                SUM(work_quantity) AS quantity, COUNT(*) AS sessions
+           FROM ${COUNTED} AS sessions
+          WHERE work_unit IS NOT NULL AND work_unit <> ''
+            AND work_quantity IS NOT NULL AND unquantifiable = 0
+            AND session_date IS NOT NULL
+          GROUP BY session_date, work_unit
+          ORDER BY session_date`
+      )
+      .all() as Array<{ date: string; unit: string; quantity: number; sessions: number }>
+  ).map((row) => ({
+    date: row.date,
+    unit: row.unit,
+    quantity: Number(row.quantity),
+    sessions: Number(row.sessions)
+  }))
+
+  const taskRows = db.prepare(
+    `SELECT DISTINCT task FROM ${COUNTED} AS sessions
+      WHERE work_unit = ? AND task IS NOT NULL AND task <> ''
+      LIMIT 12`
+  )
+  const unitTasks: Record<string, string[]> = {}
+  for (const row of unitTotals) {
+    unitTasks[row.unit] = (taskRows.all(row.unit) as Array<{ task: string }>).map((t) => t.task)
+  }
+
   const longestRow = db
     .prepare(
       `SELECT s.session_date AS date, s.task AS task, p.name AS project,
@@ -422,6 +490,8 @@ export function analytics(): Analytics {
     editingHours,
     projectDays,
     hourDays,
-    plannedRuns
+    plannedRuns,
+    unitDays,
+    unitTasks
   }
 }

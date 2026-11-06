@@ -42,6 +42,7 @@ export type FactSource = Pick<
   | 'editingHours'
   | 'totalHours'
   | 'firstDate'
+  | 'unitTasks'
 >
 
 /**
@@ -73,19 +74,115 @@ export const MAX_UNIT_FACTS = 20
 const TIME_UNITS = new Set(['second', 'sec', 'minute', 'min', 'hour', 'hr'])
 
 /**
- * What doing a unit is called, where there is one obvious verb.
+ * What doing a unit is called.
  *
- * Deliberately short. A wrong verb is worse than none - "pages read" for pages
- * that were written would be a small lie - so anything ambiguous stays a bare
- * count.
+ * *"for the fun fact, it should take in context. for example, 285 components
+ * means 285 components CADded across XYZ sessions... it shouldn't just tell
+ * me '285 components.' i get that i didn't specify the units as 'components
+ * CADded' in the actual data, but you should be able to infer this"*
+ *
+ * This was six entries and everything else fell through to a bare noun. It is
+ * now built from the user's own history rather than from guesses about what
+ * the words might mean: the distinct `work_unit` values were listed by
+ * frequency against a copy of the real database, and for each frequent one a
+ * sample of the tasks it was recorded against was read. That is where
+ * `components` → CADded comes from - every one of its 49 sessions is a task
+ * beginning "CAD" - and it is why `cell` is "filled" rather than "written",
+ * since those are morphology charts and college spreadsheets.
+ *
+ * A wrong verb is still worse than a vague one. Where the work genuinely goes
+ * two ways the entry is `null` and `verbFor` decides from the tasks; where it
+ * is a judgement nobody could check, the fallback is "done", which is honest
+ * and never a bare noun.
+ *
+ * Ordered by how much of the history each covers, so the comment doubles as
+ * the evidence. Counts are sessions in the 2,478-row history as of
+ * 2026-11-06.
  */
-const VERBS: Record<string, string> = {
-  word: 'written',
-  sentence: 'written',
-  question: 'answered',
-  problem: 'solved',
-  cell: 'filled',
-  slide: 'made'
+const VERBS: Record<string, string | null> = {
+  question: 'answered', // 775 — Bio, A2TH, worksheets
+  word: 'written', // 526 — English, essays, applications
+  slide: 'made', // 167 — notes, projects, Google Slides
+  meeting: 'attended', // 90 — JPL and Scioly build meetings
+  page: null, // 63 — a novel in Chinese and a Bio workbook: see verbFor
+  cell: 'filled', // 52 — morphology charts, college research sheets
+  component: 'CADded', // 49 — every task begins "CAD"
+  video: 'made', // 42 — "Create a Video", "Record 2 Videos"
+  sentence: 'written', // 33 — Chinese flipgrids and practice
+  section: 'written', // 23 — resumes, applications, notes
+  lab: 'completed', // 18 — CSA and AP Biology labs
+  assignment: 'completed', // 16
+  thumbnail: 'designed', // 15 — "Create Thumbnail for ..."
+  test: null, // 13 — some taken, some graded: see verbFor
+  term: 'studied', // 13 — vocabulary
+  line: 'written', // 13
+  task: 'completed', // 12
+  competition: 'entered', // 10
+  character: 'written', // 10 — Chinese characters
+  problem: 'solved', // 9
+  internship: 'applied to', // 9
+  document: 'written', // 8
+  activitie: 'completed', // 8 — the import's singular of "activities"
+  step: 'completed', // 7
+  part: 'made', // 7
+  form: 'filled in', // 6
+  email: 'sent', // 6
+  concept: 'learned', // 6
+  'cad model': 'made', // 6
+  vocab: 'learned', // 5
+  edit: 'made', // 5
+  article: 'read', // 5
+  timeline: 'made', // 5
+  topic: 'covered', // 4
+  paragraph: 'written', // 4
+  idea: 'generated', // 4
+  event: 'attended' // 4
+}
+
+/** Tasks that mean the unit was consumed rather than produced. */
+const READING = /(^|[^a-z])(read|reading|skim|review|annotate)|读/i
+
+/** Tasks that mean it was produced. */
+const WRITING = /(^|[^a-z])(write|writing|essay|draft|outline|notes?|report|journal)/i
+
+/** Tasks that mean a test was marked rather than sat. */
+const GRADING = /(^|[^a-z])(grade|grading|mark|marking|score|scoring)/i
+
+/**
+ * The verb for a unit, using the work it was recorded against where the unit
+ * alone cannot say.
+ *
+ * `page` is the case this exists for. The real history has 63 of them, split
+ * between reading a novel in Chinese - `Read 三体`, `读三体` - and working
+ * through a Bio workbook. One verb for both would be wrong about half the
+ * card's appearances, and "pages" with no verb is what the user objected to.
+ *
+ * It decides by which kind of task is in the majority, not by the first match,
+ * because a single `Review Answers` among sixty written pages should not flip
+ * the sentence. A tie, or nothing recognisable, falls through to the default.
+ */
+export function verbFor(unit: string, tasks: readonly string[] = []): string {
+  const key = unit.trim().toLowerCase()
+  const known = VERBS[key]
+  if (typeof known === 'string') return known
+  // A unit typed as a phrase - `seconds edited`, `questions reviewed` - was
+  // written whole by the user and already contains its verb.
+  if (/\s/.test(key)) return ''
+  if (!(key in VERBS)) return 'done'
+
+  let reading = 0
+  let writing = 0
+  let grading = 0
+  for (const task of tasks) {
+    if (READING.test(task)) reading += 1
+    if (WRITING.test(task)) writing += 1
+    if (GRADING.test(task)) grading += 1
+  }
+
+  if (key === 'test') return grading > 0 && grading >= tasks.length - grading ? 'graded' : 'taken'
+  if (reading > writing) return 'read'
+  if (writing > reading) return 'written'
+  return 'done'
 }
 
 /**
@@ -105,9 +202,21 @@ export function pluralUnit(unit: string, quantity: number): string {
   return u + 's'
 }
 
-/** `1,976` - whole numbers, US grouping. A fractional slide is not a fact. */
+/**
+ * The number exactly as recorded, grouped.
+ *
+ * *"no. big numbers should always be exact"*, in as many words, after a first
+ * version rounded 296,412 words to "nearly 300k". The abbreviation read well
+ * and threw away the thing the card is for: the user knows roughly how much
+ * they have written, and the point of seeing it is the actual figure.
+ *
+ * It used to round to whole numbers too, on the reasoning that a fractional
+ * slide is not a fact. Some of them are - 1,975.5 slides and 2,158 cells are
+ * both really in the history, and half a slide is half a slide. Trailing
+ * zeros are trimmed, so a whole number still prints as one.
+ */
 export function formatCount(n: number): string {
-  return Math.round(n).toLocaleString('en-US')
+  return n.toLocaleString('en-US', { maximumFractionDigits: 2 })
 }
 
 /** `15 h` for a long figure, `2.5 h` for a short one where the decimal matters. */
@@ -140,11 +249,17 @@ export function buildFacts(a: FactSource): Fact[] {
     .slice(0, MAX_UNIT_FACTS)
   for (const u of units) {
     const noun = pluralUnit(u.unit, u.quantity)
-    const verb = VERBS[u.unit.trim().toLowerCase()]
+    // Never a bare noun. "285 components" was the complaint; the worst this
+    // can now say is "285 components done", which at least names an action.
+    // Optional-chained although the type says it is there. A payload from a
+    // main process built before this field existed has no `unitTasks`, and a
+    // fun fact is the least important thing on the tab - it must not be able
+    // to throw the whole Analytics tab away on first paint.
+    const verb = verbFor(u.unit, a.unitTasks?.[u.unit] ?? [])
     facts.push({
       id: `unit:${u.unit}`,
       value: formatCount(u.quantity),
-      label: verb ? `${noun} ${verb}` : noun,
+      label: verb === '' ? noun : `${noun} ${verb}`,
       detail: sessions(u.sessions)
     })
   }

@@ -27,7 +27,7 @@
  * open-ended `to` and dropped by a `from`, so it appears or vanishes
  * depending on which end of the range was typed.
  */
-import type { HourTotal, PlannedVsActual, ProjectTotal } from './analytics'
+import type { HourTotal, PlannedVsActual, ProjectTotal, UnitTotal } from './analytics'
 import type { Range } from './windows'
 
 /** Hours on one project on one day. The dated form of `ProjectTotal`. */
@@ -60,6 +60,14 @@ export interface PlannedRun {
   /** Seconds, as stored. */
   planned: number
   actual: number
+}
+
+/** A unit's output on one day. The dated form of `UnitTotal`. */
+export interface UnitDay {
+  date: string
+  unit: string
+  quantity: number
+  sessions: number
 }
 
 /**
@@ -148,4 +156,104 @@ export function plannedVsActualIn(
       actualMinutes: v.actualSeconds / 60 / v.sessions
     }))
     .sort((a, b) => a.plannedMinutes - b.plannedMinutes)
+}
+
+/** Output by unit over a range, most sessions first - the shape the fun fact reads. */
+export function unitTotalsIn(unitDays: readonly UnitDay[], range: Range | null): UnitTotal[] {
+  const totals = new Map<string, UnitTotal>()
+  for (const row of within(unitDays, range)) {
+    const found = totals.get(row.unit)
+    if (found) {
+      found.quantity += row.quantity
+      found.sessions += row.sessions
+    } else {
+      totals.set(row.unit, { unit: row.unit, quantity: row.quantity, sessions: row.sessions })
+    }
+  }
+  return [...totals.values()].sort((a, b) => b.sessions - a.sessions || b.quantity - a.quantity)
+}
+
+/**
+ * A rate over one bucket of time: the question "how fast was I at this, then".
+ *
+ * `rate` is the **pooled** rate - total quantity over total minutes - not the
+ * mean of each session's rate. Those are different numbers and only the first
+ * is the one being asked for: a ten-minute session at 2 a minute and a
+ * two-hour session at 0.5 a minute average to 1.25 if you average the rates,
+ * and to 0.58 if you ask how many you got through per minute of work. The
+ * second is what "average across the entire section" means.
+ */
+export interface RateBar {
+  /** First day of the bucket, `YYYY-MM-DD`. */
+  from: string
+  /** Last day of the bucket, inclusive. */
+  to: string
+  rate: number
+  quantity: number
+  minutes: number
+  sessions: number
+}
+
+/** Weekly buckets up to a quarter, monthly beyond it. */
+export type RateGrain = 'week' | 'month'
+
+function monthKey(date: string): string {
+  return date.slice(0, 7)
+}
+
+function weekKey(date: string): string {
+  // Monday-anchored, matching the hours chart, so "a week" is one thing in
+  // this app rather than two.
+  const [y, m, d] = date.split('-').map(Number)
+  const at = Date.UTC(y, m - 1, d)
+  const weekday = (new Date(at).getUTCDay() + 6) % 7
+  return new Date(at - weekday * 86_400_000).toISOString().slice(0, 10)
+}
+
+function lastDayOfMonth(key: string): string {
+  const [y, m] = key.split('-').map(Number)
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+}
+
+/**
+ * Sessions pooled into weekly or monthly bars.
+ *
+ * **Empty buckets are left out, not drawn as zero.** The hours chart does the
+ * opposite and is right to: a week with no work really is zero hours. A week
+ * with no sessions has no *rate* at all - it is not "zero questions a minute",
+ * it is a week the question does not apply to - and a bar at zero would read
+ * as a collapse in pace. This is the same distinction as a missing session
+ * versus a zero-length one in the import.
+ */
+export function rateBars(
+  points: readonly { date: string; quantity: number; minutes: number }[],
+  grain: RateGrain
+): RateBar[] {
+  const buckets = new Map<string, { quantity: number; minutes: number; sessions: number }>()
+  for (const point of points) {
+    if (point.minutes <= 0) continue
+    const key = grain === 'month' ? monthKey(point.date) : weekKey(point.date)
+    const found = buckets.get(key) ?? { quantity: 0, minutes: 0, sessions: 0 }
+    found.quantity += point.quantity
+    found.minutes += point.minutes
+    found.sessions += 1
+    buckets.set(key, found)
+  }
+  return [...buckets.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([key, v]) => {
+      const from = grain === 'month' ? `${key}-01` : key
+      const to =
+        grain === 'month'
+          ? lastDayOfMonth(key)
+          : new Date(Date.parse(`${key}T00:00:00Z`) + 6 * 86_400_000).toISOString().slice(0, 10)
+      return {
+        from,
+        to,
+        rate: v.quantity / v.minutes,
+        quantity: v.quantity,
+        minutes: v.minutes,
+        sessions: v.sessions
+      }
+    })
 }

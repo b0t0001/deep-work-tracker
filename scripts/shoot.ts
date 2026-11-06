@@ -432,6 +432,58 @@ const SHOTS: Shot[] = [
     note: 'The header and the figure row: Modify panels at the right edge, a range on two tiles.'
   },
   {
+    id: 'rate-math1410-1150',
+    width: 1150,
+    height: 900,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const panel = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes('per minute') || el.textContent.includes('Work rate'));
+      const setSel = (sel, value) => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, value);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const pick = (label) => [...panel.querySelectorAll('select')]
+        .find((s) => (s.getAttribute('aria-label') || '').includes(label));
+      setSel(pick('Unit'), 'question'); await wait(500);
+      setSel(pick('Course'), 'MATH 1410'); await wait(900);
+      for (const p of document.querySelectorAll('.an-slot')) {
+        if (!p.contains(panel)) p.style.display = 'none';
+      }
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      document.querySelector('.an-stats').style.display = 'none';
+      await wait(600);
+    `,
+    note: 'The rate panel for MATH 1410 questions: one bar a month, each labelled.'
+  },
+  {
+    id: 'rate-writ0580-1900',
+    width: 1900,
+    height: 900,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const panel = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes('per minute') || el.textContent.includes('Work rate'));
+      const setSel = (sel, value) => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, value);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const pick = (label) => [...panel.querySelectorAll('select')]
+        .find((s) => (s.getAttribute('aria-label') || '').includes(label));
+      setSel(pick('Unit'), 'word'); await wait(500);
+      setSel(pick('Course'), 'WRIT 0580'); await wait(900);
+      for (const p of document.querySelectorAll('.an-slot')) {
+        if (!p.contains(panel)) p.style.display = 'none';
+      }
+      for (const h of document.querySelectorAll('.an-section__title')) h.style.display = 'none';
+      document.querySelector('.an-stats').style.display = 'none';
+      await wait(600);
+    `,
+    note: 'A second course and unit: WRIT 0580 words per minute, at full width.'
+  },
+  {
     id: 'dash-analytics-tall',
     width: 1280,
     // Tall enough that the whole tab fits with nothing scrolled away. The

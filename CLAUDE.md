@@ -726,6 +726,146 @@ local.
   calendar — it would leave today's square unfilled on a grid whose whole job
   is to show that today is filled.
 
+**A rate is only comparable within one unit AND one subject.** The rate panel
+was a scatter of every session, and it was unreadable for a reason that was
+not about the scatter: *"this graph doesn't tell me anything! i can't read any
+data points, are you trying to tell me if im getting more efficient? that
+doesn't make sense because right now you would be comparing MATH 1410
+questions to CIS 1200 questions"*. The unit rule was already in this file; the
+subject half was missing, and without it no movement in the series could mean
+anything. There is now a course picker beside the unit picker, the title names
+both, and the sessions pool into weekly or monthly bars with the value written
+on each - the Hours-by-project format, which the user named as the one they
+can read.
+
+- **The bar is the pooled rate**, total quantity over total minutes, not the
+  mean of each session's rate. Those are different numbers: a ten-minute
+  session at 2 a minute and a two-hour session at 0.5 average to 1.25 one way
+  and 0.58 the other, and only the second answers "how many did I get through
+  per minute of work".
+- **Empty buckets are left out, not drawn as zero.** The hours chart does the
+  opposite and is right to - a week with no work really is zero hours. A week
+  with no sessions has no *rate*; a bar at zero would read as a collapse in
+  pace.
+- **Sessions under five minutes and manual sessions are excluded**, and the
+  caption says so. A quantity over two minutes is where every
+  impossible-looking rate in the history came from, and a manual row's
+  minutes are a remembered estimate - which `CLAUDE.md` already says to
+  exclude wherever timing is the point.
+
+**`shared/courses.ts` is a stand-in for tags, and should be deleted when tags
+are real.** Course codes live in the task text the user already types; `tags`
+exists in the schema for exactly this and nothing writes to it. When something
+does, this file is replaced by a join, not extended.
+
+The pattern is not the obvious one, and the difference is measured. Over the
+2,353 quantified sessions a naive `[A-Za-z]{2,5} ?\d{3,4}` found 24
+"courses" and **half were not courses**: `ALYZE 2022` from "Analyze 2022",
+`EVIEW 645` from "Princeton Review 645+", `RNELL 100` from "Cornell 100",
+`GRADE 2019`, `LANG 2018`, `PRING 2027`, `ST 1600` from a video title. Two
+rules remove all of them:
+
+- **The letters must be capitals as typed.** Every real code is written that
+  way; every false positive came from an ordinary word. This would need
+  revisiting if the user ever typed one in lower case.
+- **A number in 1900-2099 is a year, not a course number.** A real course
+  numbered in that span would be missed, which against twelve invented
+  courses is the right way round - and those sessions still appear under All
+  courses.
+
+Only 114 of 2,353 quantified sessions carry a code at all, so **All courses is
+the normal case and says plainly that it mixes subjects**. The picker lists
+only the courses present in the chosen unit: offering `CIS 1200` while
+`words` is selected is an option that selects an empty chart.
+
+**One comparison box, not three readings of one number.** The tab showed
+"3.21 h a day over the past week", "3.75 h a day worked in the past week" and
+a Stats table whose first row was 3.21 again. The difference was that the
+first divided 22.5 hours by 7 calendar days and the second divided the same
+22.5 by the 6 days that had work on them - defensible separately, indefensible
+together, and the user said so: *"look at how much redundant data there is...
+I want ONE general box that i can quickly do comparisons on."* Both tiles and
+the whole Stats panel are gone. `CompareBox` asks [Average|Median] hours per
+[day|week|month] over [range] and answers with one figure, the same statistic
+over the previous period of equal length, and over all time.
+
+- **Only the calendar-day reading survives**, which `CLAUDE.md` had already
+  settled: dividing by worked days answers how long a working day is, not how
+  much gets done. The percentage moved from -31% to -41% as a result, because
+  the worked-day version was comparing 6 days against 7.
+- **An option that can only answer "—" is not offered.** `grainsFor` lists
+  only the grains a range is long enough to fill, so "hours a month over the
+  past week" is not in the menu rather than in the menu printing an em dash.
+- **A grain that stops fitting is not forgotten**, only unused. Shortening the
+  range falls back to the longest grain that fits and widening it returns to
+  what was chosen.
+- **All time has no previous period**, so there is no percentage. Comparing it
+  against the stretch before the first session would be comparing against
+  zero, and "up ∞%" is the loudest possible way to say nothing.
+- The baseline tile stays and is **not** a duplicate: the box compares a
+  period against the one before it, the baseline compares the present against
+  a fixed point three years back, and no setting of the box produces that.
+
+**The fun fact says what was done, not just how much.** *"285 components means
+285 components CADded across XYZ sessions... it shouldn't just tell me '285
+components.'"* The verb map in `shared/facts.ts` is built from the user's own
+history - the distinct `work_unit` values listed by frequency against a copy
+of the real database, and for each frequent one a sample of its tasks read -
+not from guesses about what the words might mean. That is where `components`
+→ CADded comes from: all 49 of its sessions are tasks beginning "CAD".
+
+- **Where the work genuinely goes two ways, the tasks decide.** `page` is the
+  case: 63 of them, split between a novel read in Chinese (`Read 三体`,
+  `读三体`) and a Bio workbook worked through. `verbFor` counts which kind of
+  task dominates rather than taking the first match, so one `Review Answers`
+  among sixty written pages does not flip the sentence. The payload carries a
+  sample of tasks per unit for this; a unit typed as a phrase (`seconds
+  edited`) already contains its verb and is left alone.
+- **Never a bare noun.** The fallback is "done".
+- **Numbers are exact.** An earlier version wrote "nearly 300k words", which
+  reads well and throws away the figure the card exists to show - *"no. big
+  numbers should always be exact"*. 292,358, and a fractional quantity keeps
+  its real precision with trailing zeros trimmed.
+- **On a narrowed range, only the facts that narrowed with it.** Lifetime
+  hours and the longest session ever cannot follow a range control, so they
+  drop out rather than answering "past month" with a figure since 2023.
+
+**Axis sizes are measured, never typed.** Every `YAxis width` and chart
+`margin` was a number chosen while looking at one chart with one set of data,
+and both of those change underneath it: a range control can swap a two-digit
+axis for a three-digit one, and the Modify panels A+ button scales every tick
+to 1.6x while the typed width stays put. `scripts/axis-clip-check.ts` sweeps
+every panel against every timescale at two window widths and two text sizes
+and compares each label's box against the chart's svg: 216 states, 42 clipped
+labels in four places. `renderer/src/lib/measure.ts` sizes them from the
+widest label the chart is about to draw, at the size it is about to draw it,
+using the browser's own text measurement rather than characters times a
+constant - this is a proportional face, and `11/05` and `Nov '26` are not the
+same width for the same character count. Same sweep after: zero.
+
+Three things that are easy to get wrong here:
+
+- **A y axis sized for its labels still needs a right margin**, because the
+  last x tick is centred on the final point and half of it hangs past the
+  plot. That is `Thu 5` and `Nov '26` being cut.
+- **The top tick is centred on the top gridline**, so half its line box is
+  above the plot too - `margin.top` is not only for value labels.
+- **The tick size is read from the live `--an-fs`**, not passed down from the
+  layout. The scale is a custom property on an ancestor, so a prop would be a
+  second copy of it; `Frame` reads its own computed value and hands it to the
+  chart body through a **render prop**, not a context - the chart body is
+  written inside the same component that renders the frame, so it would sit
+  outside any provider that component set up and read the default forever.
+
+**A `<select>` needs its own focus rule** - the suppressor above does not
+reach it, and that is only visible by measuring. Clicked with a real mouse, a
+button and an svg report `:focus-visible` **false** while a select reports
+**true**, because a select takes keyboard input once focused and the spec says
+such a control always matches. So `:focus:not(:focus-visible)` is exactly the
+wrong key for it, and the range dropdowns kept the amber ring after the chart
+fix was signed off. `.dashboard select:focus` drops the outline and tints the
+border instead.
+
 **Panels sit in named sections: At a glance, Hours and consistency, Habits,
 Projects and output.** A section is a property of a panel, like its width, not
 a second arrangement the user maintains — otherwise a heading describes
