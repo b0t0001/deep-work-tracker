@@ -161,6 +161,14 @@ export function syncPreview(options: SyncOptions): SyncReport {
     }
     const read = (schema: string, id: number): Row | null => readers.get(schema)!(id)
     const same = (a: Row | null, b: Row | null): boolean => JSON.stringify(a) === JSON.stringify(b)
+    // Whether the real row is still what the preview started from. A baseline
+    // row marked `test` was written by a preview from before 2026-11-06, and
+    // its real copy was given its proper source when it was carried across -
+    // that difference is the carrying, not a change made in the desktop app.
+    const unchangedSince = (real: Row, base: Row): boolean =>
+      base['source'] === 'test'
+        ? same({ ...real, source: null }, { ...base, source: null })
+        : same(real, base)
 
     const ids = (schema: string): number[] =>
       (
@@ -299,10 +307,14 @@ export function syncPreview(options: SyncOptions): SyncReport {
           report.conflicts.push(line(id, prev, null, 'deleted in the desktop app since'))
           continue
         }
-        if (!same(real, base)) {
+        if (!unchangedSince(real, base)) {
           report.conflicts.push(line(id, prev, id, 'also changed in the desktop app'))
           continue
         }
+        // Source travels only if it was changed in the preview. A preview from
+        // before 2026-11-06 wrote `test` on its own rows, and an edit to one of
+        // those must not stamp `test` over the `app` the real row carries.
+        if (prev['source'] === base['source']) prev['source'] = real['source']
         const tag = tagId(prev)
         db.prepare(
           `UPDATE main.sessions SET project_id = ?, tag_id = ?, ${cols.map((c) => `${c} = ?`).join(', ')}
@@ -321,7 +333,7 @@ export function syncPreview(options: SyncOptions): SyncReport {
           report.alreadyThere.push(line(id, base, null))
           continue
         }
-        if (!same(real, base)) {
+        if (!unchangedSince(real, base)) {
           report.conflicts.push(
             line(id, base, id, 'deleted in the preview, changed in the desktop app')
           )
