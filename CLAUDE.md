@@ -700,6 +700,42 @@ local.
   calendar — it would leave today's square unfilled on a grid whose whole job
   is to show that today is filled.
 
+**Axis sizes are measured, never typed.** Every `YAxis width` and chart
+`margin` was a number chosen while looking at one chart with one set of data,
+and both of those change underneath it: a range control can swap a two-digit
+axis for a three-digit one, and the Modify panels A+ button scales every tick
+to 1.6x while the typed width stays put. `scripts/axis-clip-check.ts` sweeps
+every panel against every timescale at two window widths and two text sizes
+and compares each label's box against the chart's svg: 216 states, 42 clipped
+labels in four places. `renderer/src/lib/measure.ts` sizes them from the
+widest label the chart is about to draw, at the size it is about to draw it,
+using the browser's own text measurement rather than characters times a
+constant - this is a proportional face, and `11/05` and `Nov '26` are not the
+same width for the same character count. Same sweep after: zero.
+
+Three things that are easy to get wrong here:
+
+- **A y axis sized for its labels still needs a right margin**, because the
+  last x tick is centred on the final point and half of it hangs past the
+  plot. That is `Thu 5` and `Nov '26` being cut.
+- **The top tick is centred on the top gridline**, so half its line box is
+  above the plot too - `margin.top` is not only for value labels.
+- **The tick size is read from the live `--an-fs`**, not passed down from the
+  layout. The scale is a custom property on an ancestor, so a prop would be a
+  second copy of it; `Frame` reads its own computed value and hands it to the
+  chart body through a **render prop**, not a context - the chart body is
+  written inside the same component that renders the frame, so it would sit
+  outside any provider that component set up and read the default forever.
+
+**A `<select>` needs its own focus rule** - the suppressor above does not
+reach it, and that is only visible by measuring. Clicked with a real mouse, a
+button and an svg report `:focus-visible` **false** while a select reports
+**true**, because a select takes keyboard input once focused and the spec says
+such a control always matches. So `:focus:not(:focus-visible)` is exactly the
+wrong key for it, and the range dropdowns kept the amber ring after the chart
+fix was signed off. `.dashboard select:focus` drops the outline and tints the
+border instead.
+
 **Panels sit in named sections: At a glance, Hours and consistency, Habits,
 Projects and output.** A section is a property of a panel, like its width, not
 a second arrangement the user maintains — otherwise a heading describes

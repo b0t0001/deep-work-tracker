@@ -9,8 +9,17 @@
  * attribute on the tick: `var()` inside an SVG presentation attribute is not
  * reliably resolved, while a CSS declaration always is.
  */
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { RangePicker } from './RangePicker'
+import {
+  TICK_BASE_PX,
+  VALUE_PX,
+  digitsProbe,
+  rightMarginFor,
+  topMarginFor,
+  widest,
+  yAxisWidth
+} from '../lib/measure'
 import {
   Area,
   AreaChart,
@@ -223,12 +232,49 @@ function Frame({
   title: string
   sub?: string
   aside?: React.ReactNode
-  children: React.ReactNode
+  /**
+   * The panel's contents, or a function of the size its axis ticks will be
+   * drawn at.
+   *
+   * A function rather than a context, because the thing that needs the
+   * number is the chart body, and the chart body is written inside the same
+   * component that renders this frame - so it would sit *outside* any
+   * provider this component could set up, and read the default forever. A
+   * render prop hands the measured value to exactly the code that uses it.
+   */
+  children: React.ReactNode | ((tickPx: number) => React.ReactNode)
   note?: React.ReactNode
   hero?: boolean
 }): React.JSX.Element {
+  const box = useRef<HTMLDivElement>(null)
+  const [tickPx, setTickPx] = useState(TICK_BASE_PX)
+
+  /*
+   * Measured after layout, every render, which is deliberate.
+   *
+   * The scale changes through a custom property on an ancestor, and a custom
+   * property changing is not a prop changing - there is nothing for a
+   * dependency array to watch. Pressing A+ re-renders this component through
+   * the layout state it also changes, so running on every commit is enough,
+   * and `setTickPx` is guarded so an unchanged value cannot loop.
+   */
+  // No dependency array on purpose, and the rule's warning is the right
+  // warning for the wrong case: it guards against an effect that sets state
+  // on every commit looping forever. This one cannot, because `setTickPx`
+  // returns the previous value unless the measurement actually changed, and
+  // React bails out of a re-render when the state is identical.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    const el = box.current
+    if (el === null) return
+    const raw = getComputedStyle(el).getPropertyValue('--an-fs').trim()
+    const scale = raw === '' ? 1 : Number(raw)
+    const next = Number.isFinite(scale) && scale > 0 ? TICK_BASE_PX * scale : TICK_BASE_PX
+    setTickPx((prev) => (Math.abs(prev - next) < 0.01 ? prev : next))
+  })
+
   return (
-    <div className={`ac an-panel${hero ? ' an-panel--hero' : ''}`}>
+    <div className={`ac an-panel${hero ? ' an-panel--hero' : ''}`} ref={box}>
       <style>{CHART_CSS}</style>
       <div className="an-panel__head">
         <h4 className="an-panel__title">
@@ -237,7 +283,7 @@ function Frame({
         </h4>
         {aside}
       </div>
-      {children}
+      {typeof children === 'function' ? children(tickPx) : children}
       {note ? <p className="an-panel__note">{note}</p> : null}
     </div>
   )
@@ -391,16 +437,28 @@ export function HoursOverTime({
           : undefined
       }
     >
-      {points.length === 0 ? (
-        <Empty height={220}>No sessions recorded yet.</Empty>
-      ) : (
-        <ResponsiveContainer width="100%" height={220}>
-          {/* Top margin carries the value labels. At 4 the peak sits on the
-              axis ceiling and its own label is clipped off the top - which is
-              the one point you most want named. */}
-          <AreaChart data={points} margin={{ top: 18, right: 10, left: 0, bottom: 0 }}>
-            <CartesianGrid stroke={GRID} vertical={false} />
-            {/* Keyed on `from`, which is unique per bucket, with the tick text
+      {(tickPx) =>
+        points.length === 0 ? (
+          <Empty height={220}>No sessions recorded yet.</Empty>
+        ) : (
+          <ResponsiveContainer width="100%" height={220}>
+            {/* Every number here is measured rather than typed. The top
+                margin carries the value labels - at 4 the peak sat on the
+                axis ceiling and its own label was clipped, which is the one
+                point you most want named - and the right margin carries the
+                half of the last date label that hangs past the final point.
+                `Thu 5` was cut by 12px at 1.6x text before this. */}
+            <AreaChart
+              data={points}
+              margin={{
+                top: topMarginFor(tickPx, 7),
+                right: rightMarginFor([...tickText.values()], tickPx, 10),
+                left: 0,
+                bottom: 0
+              }}
+            >
+              <CartesianGrid stroke={GRID} vertical={false} />
+              {/* Keyed on `from`, which is unique per bucket, with the tick text
                 supplied by the formatter.
 
                 `dataKey="tick"` is the bug this replaces, and it was not a
@@ -422,46 +480,53 @@ export function HoursOverTime({
                 labels and the axis text are all placed by index while only
                 the tooltip resolves by value. Nothing but hovering it could
                 have shown this. */}
-            <XAxis
-              dataKey="from"
-              interval={0}
-              tickLine={false}
-              tickFormatter={(value: string): string => tickText.get(value) ?? ''}
-            />
-            <YAxis width={36} tickLine={false} />
-            <Tooltip
-              {...TOOLTIP}
-              cursor={{ stroke: '#ffffff20' }}
-              labelFormatter={(_label: React.ReactNode, payload): string => {
-                const row = payload?.[0]?.payload as Point | undefined
-                if (!row) return ''
-                return byDay ? formatDate(row.from) : `Week of ${formatDate(row.from)}`
-              }}
-            />
-            {/* A flat fill, not a gradient. The area is there to give the line
+              <XAxis
+                dataKey="from"
+                interval={0}
+                tickLine={false}
+                tickFormatter={(value: string): string => tickText.get(value) ?? ''}
+              />
+              <YAxis
+                width={yAxisWidth(
+                  [digitsProbe(Math.max(0, ...points.map((point) => point.hours)))],
+                  tickPx
+                )}
+                tickLine={false}
+              />
+              <Tooltip
+                {...TOOLTIP}
+                cursor={{ stroke: '#ffffff20' }}
+                labelFormatter={(_label: React.ReactNode, payload): string => {
+                  const row = payload?.[0]?.payload as Point | undefined
+                  if (!row) return ''
+                  return byDay ? formatDate(row.from) : `Week of ${formatDate(row.from)}`
+                }}
+              />
+              {/* A flat fill, not a gradient. The area is there to give the line
                 a body and to make a run of empty days read as a trough; a
                 vertical fade would be decoration and this app has none. */}
-            <Area
-              type="monotone"
-              dataKey="hours"
-              name="Hours"
-              unit=" h"
-              stroke={accent}
-              strokeWidth={1.6}
-              fill={accent}
-              fillOpacity={0.16}
-              dot={false}
-              activeDot={{ r: 3, strokeWidth: 0 }}
-              isAnimationActive={false}
-            >
-              {/* The value on the point, the way a spreadsheet does it. Accent
+              <Area
+                type="monotone"
+                dataKey="hours"
+                name="Hours"
+                unit=" h"
+                stroke={accent}
+                strokeWidth={1.6}
+                fill={accent}
+                fillOpacity={0.16}
+                dot={false}
+                activeDot={{ r: 3, strokeWidth: 0 }}
+                isAnimationActive={false}
+              >
+                {/* The value on the point, the way a spreadsheet does it. Accent
                   rather than --text-dim: it is the series speaking, not a
                   caption about it. */}
-              <LabelList dataKey="label" position="top" offset={7} className="ac__value" />
-            </Area>
-          </AreaChart>
-        </ResponsiveContainer>
-      )}
+                <LabelList dataKey="label" position="top" offset={7} className="ac__value" />
+              </Area>
+            </AreaChart>
+          </ResponsiveContainer>
+        )
+      }
     </Frame>
   )
 }
@@ -628,59 +693,89 @@ export function ByProject({
 
   return (
     <Frame title="Hours by project" aside={control}>
-      {bars.length === 0 ? (
-        <Empty height={160}>No projects with recorded time yet.</Empty>
-      ) : (
-        <ResponsiveContainer width="100%" height={height}>
-          {/*
-           * The right margin is for the value labels, not for air.
-           *
-           * Recharts gives each label a `width` equal to the room left between
-           * it and the edge of the svg, and its `Text` *wraps* when the string
-           * does not fit - svg text cannot wrap on its own, so this is Recharts
-           * doing it deliberately. At `right: 16` the longest bar left 25.6px
-           * for a `760 h` that measures 26, and it broke into `760` over `h`:
-           * one row twice the height of its neighbours, from a third of a pixel.
-           * Measured in the running app rather than inferred from the markup.
-           *
-           * 48 leaves about 42px, which clears four digits. The bars lose the
-           * same 32px, which at this width is invisible.
-           */}
-          <BarChart
-            data={bars}
-            layout="vertical"
-            margin={{ top: 0, right: 48, left: 0, bottom: 0 }}
-          >
-            <CartesianGrid stroke={GRID} horizontal={false} />
-            <XAxis type="number" tickLine={false} unit=" h" />
-            {/* `interval={0}`: Recharts thins category ticks by default, which
+      {(tickPx) =>
+        bars.length === 0 ? (
+          <Empty height={160}>No projects with recorded time yet.</Empty>
+        ) : (
+          <ResponsiveContainer width="100%" height={height}>
+            {/*
+             * The right margin is for the value labels, not for air.
+             *
+             * Recharts gives each label a `width` equal to the room left between
+             * it and the edge of the svg, and its `Text` *wraps* when the string
+             * does not fit - svg text cannot wrap on its own, so this is Recharts
+             * doing it deliberately. At `right: 16` the longest bar left 25.6px
+             * for a `760 h` that measures 26, and it broke into `760` over `h`:
+             * one row twice the height of its neighbours, from a third of a pixel.
+             * Measured in the running app rather than inferred from the markup.
+             *
+             * 48 leaves about 42px, which clears four digits. The bars lose the
+             * same 32px, which at this width is invisible.
+             */}
+            <BarChart
+              data={bars}
+              layout="vertical"
+              margin={{
+                top: 0,
+                // Value labels sit outside the bar end, so the right margin has
+                // to hold a whole one rather than half a tick.
+                right: Math.max(
+                  48,
+                  Math.ceil(
+                    widest(
+                      bars.map((bar) => `${Math.round(bar.hours)} h`),
+                      VALUE_PX
+                    )
+                  ) + 12
+                ),
+                left: 0,
+                bottom: 0
+              }}
+            >
+              <CartesianGrid stroke={GRID} horizontal={false} />
+              <XAxis type="number" tickLine={false} unit=" h" />
+              {/* `interval={0}`: Recharts thins category ticks by default, which
                 dropped every other project name and left bars no one could
                 identify. A bar without its label is not a chart. */}
-            <YAxis type="category" dataKey="name" width={150} interval={0} tickLine={false} />
-            <Tooltip {...TOOLTIP} cursor={{ fill: '#ffffff0a' }} />
-            <Bar
-              dataKey="hours"
-              name="Hours"
-              unit=" h"
-              fill={accent}
-              radius={[0, 2, 2, 0]}
-              isAnimationActive={false}
-            >
-              {/* Eleven bars, so every one carries its value. Outside the bar
+              <YAxis
+                type="category"
+                dataKey="name"
+                /* 150 was the typed figure, and it fits the real names at
+                 normal size. At 1.6x text `Entrepreneurship` is half as wide
+                 again and the name is what identifies the bar, so the axis
+                 grows with the type instead. */
+                width={yAxisWidth(
+                  bars.map((bar) => bar.name),
+                  tickPx
+                )}
+                interval={0}
+                tickLine={false}
+              />
+              <Tooltip {...TOOLTIP} cursor={{ fill: '#ffffff0a' }} />
+              <Bar
+                dataKey="hours"
+                name="Hours"
+                unit=" h"
+                fill={accent}
+                radius={[0, 2, 2, 0]}
+                isAnimationActive={false}
+              >
+                {/* Eleven bars, so every one carries its value. Outside the bar
                   end rather than inside it: the shortest bars have no room
                   within them, and a label that sometimes sits inside and
                   sometimes outside reads as two different things. */}
-              <LabelList
-                dataKey="hours"
-                position="right"
-                offset={6}
-                className="ac__value"
-                formatter={(value: React.ReactNode) => `${Math.round(Number(value))} h`}
-              />
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      )}
+                <LabelList
+                  dataKey="hours"
+                  position="right"
+                  offset={6}
+                  className="ac__value"
+                  formatter={(value: React.ReactNode) => `${Math.round(Number(value))} h`}
+                />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )
+      }
     </Frame>
   )
 }
@@ -820,77 +915,102 @@ export function PlannedVsActual({
         )
       }
     >
-      {/*
-       * What the chart is for, said in one sentence from the data.
-       *
-       * The panel was liked and unused - "I LOVE how it looks, but I need you
-       * to figure out how it could be USEFUL" - and a chart nobody acts on is
-       * furniture. The bars show the shortfall; this names the one length it
-       * is worth changing, which is the length set most often.
-       *
-       * It compares distances and stops there. `plannedFit` has the mean and
-       * nothing else, so it can say that 45 is nearer a 45-minute average than
-       * 60 is; it cannot say a 45 would usually run to the end, and on the real
-       * history it would not - 52% of 60-minute runs reach 45. A panel that
-       * overstates once is a panel that gets checked and then ignored.
-       */}
-      {fit !== null && (
-        <p className="an-panel__lead">
-          You set <b>{fit.plannedMinutes} minutes</b> more often than any other length, and those{' '}
-          {count(fit.sessions, 'run')} average{' '}
-          {/* A decimal, because the suggestion is this figure rounded to the
+      {(tickPx) => (
+        <>
+          {/*
+           * What the chart is for, said in one sentence from the data.
+           *
+           * The panel was liked and unused - "I LOVE how it looks, but I need you
+           * to figure out how it could be USEFUL" - and a chart nobody acts on is
+           * furniture. The bars show the shortfall; this names the one length it
+           * is worth changing, which is the length set most often.
+           *
+           * It compares distances and stops there. `plannedFit` has the mean and
+           * nothing else, so it can say that 45 is nearer a 45-minute average than
+           * 60 is; it cannot say a 45 would usually run to the end, and on the real
+           * history it would not - 52% of 60-minute runs reach 45. A panel that
+           * overstates once is a panel that gets checked and then ignored.
+           */}
+          {fit !== null && (
+            <p className="an-panel__lead">
+              You set <b>{fit.plannedMinutes} minutes</b> more often than any other length, and
+              those {count(fit.sessions, 'run')} average{' '}
+              {/* A decimal, because the suggestion is this figure rounded to the
               nearest five: printed whole they collide and the sentence reads
               "average 45, so a 45 fits better", which says nothing. */}
-          <b>{fit.actualMinutes.toFixed(1)} minutes</b>
-          {fit.suggestedMinutes === fit.plannedMinutes ? (
-            ' — about right.'
-          ) : (
-            <>
-              {' — so a '}
-              <b>{fit.suggestedMinutes}</b> fits them better than a {fit.plannedMinutes}.
-            </>
+              <b>{fit.actualMinutes.toFixed(1)} minutes</b>
+              {fit.suggestedMinutes === fit.plannedMinutes ? (
+                ' — about right.'
+              ) : (
+                <>
+                  {' — so a '}
+                  <b>{fit.suggestedMinutes}</b> fits them better than a {fit.plannedMinutes}.
+                </>
+              )}
+            </p>
           )}
-        </p>
-      )}
-      {bars.length === 0 ? (
-        <Empty height={220}>No completed runs to compare yet.</Empty>
-      ) : (
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={bars} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-            <CartesianGrid stroke={GRID} vertical={false} />
-            <XAxis
-              dataKey="label"
-              interval={0}
-              tickLine={false}
-              height={34}
-              tick={<RunsTick runs={runsByLabel} />}
-            />
-            <YAxis width={44} unit="%" tickLine={false} domain={[0, 100]} allowDataOverflow />
-            <Tooltip
-              {...TOOLTIP}
-              cursor={{ fill: '#ffffff0a' }}
-              labelFormatter={(label: React.ReactNode, payload): string => {
-                const row = payload?.[0]?.payload as RatioBar | undefined
-                return row ? `${label} — ${count(row.sessions, 'run')}` : String(label ?? '')
-              }}
-            />
-            {/* The whole point of the chart is distance from this line, so it
+          {bars.length === 0 ? (
+            <Empty height={220}>No completed runs to compare yet.</Empty>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart
+                data={bars}
+                margin={{
+                  top: topMarginFor(tickPx),
+                  right: rightMarginFor(
+                    bars.map((bar) => bar.label),
+                    tickPx,
+                    8
+                  ),
+                  left: 0,
+                  bottom: 4
+                }}
+              >
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  interval={0}
+                  tickLine={false}
+                  height={34}
+                  tick={<RunsTick runs={runsByLabel} />}
+                />
+                {/* The domain is fixed at 0-100, so the widest label is known
+                exactly rather than probed: `100%`. At 1.6x text it needs 55px
+                and the typed 44 cut 11px off its left edge. */}
+                <YAxis
+                  width={yAxisWidth(['100%'], tickPx)}
+                  unit="%"
+                  tickLine={false}
+                  domain={[0, 100]}
+                  allowDataOverflow
+                />
+                <Tooltip
+                  {...TOOLTIP}
+                  cursor={{ fill: '#ffffff0a' }}
+                  labelFormatter={(label: React.ReactNode, payload): string => {
+                    const row = payload?.[0]?.payload as RatioBar | undefined
+                    return row ? `${label} — ${count(row.sessions, 'run')}` : String(label ?? '')
+                  }}
+                />
+                {/* The whole point of the chart is distance from this line, so it
                 is drawn rather than left to the axis. Neutral, because it is a
                 reference and not a second series. */}
-            <ReferenceLine y={100} stroke="#ffffff59" strokeDasharray="4 3" />
-            <Bar
-              dataKey="ratio"
-              name="Share of the plan run"
-              unit="%"
-              radius={[2, 2, 0, 0]}
-              isAnimationActive={false}
-            >
-              {bars.map((bar) => (
-                <Cell key={bar.label} fill={accent} fillOpacity={bar.weight} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+                <ReferenceLine y={100} stroke="#ffffff59" strokeDasharray="4 3" />
+                <Bar
+                  dataKey="ratio"
+                  name="Share of the plan run"
+                  unit="%"
+                  radius={[2, 2, 0, 0]}
+                  isAnimationActive={false}
+                >
+                  {bars.map((bar) => (
+                    <Cell key={bar.label} fill={accent} fillOpacity={bar.weight} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </>
       )}
     </Frame>
   )
@@ -1078,62 +1198,83 @@ export function RateTrend({
             } Rates are never compared across units — switch the picker to see another.`
       }
     >
-      {units.length === 0 ? (
-        <Empty height={220}>
-          No sessions with a recorded quantity yet. A unit appears here once there is enough of it
-          to trend.
-        </Empty>
-      ) : dots.length === 0 ? (
-        <Empty height={220}>{`No rates recorded in ${unit}.`}</Empty>
-      ) : (
-        <ResponsiveContainer width="100%" height={220}>
-          <ScatterChart margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
-            <CartesianGrid stroke={GRID} />
-            <XAxis
-              type="number"
-              dataKey="day"
-              domain={[low - pad, high + pad]}
-              tickLine={false}
-              tickFormatter={(value: string | number): string => monthLabel(isoDate(Number(value)))}
-            />
-            <YAxis
-              type="number"
-              dataKey="rate"
-              width={48}
-              tickLine={false}
-              domain={[0, round(ceiling, 2)]}
-              allowDataOverflow
-              label={{ value: `${unit}/min`, angle: -90, position: 'insideLeft' }}
-            />
-            <ZAxis type="number" dataKey="minutes" range={[18, 150]} name="Minutes" />
-            {mean === null ? null : (
-              // Labelled, because an unexplained dashed line across a chart
-              // that is filmed is debris rather than information.
-              <ReferenceLine
-                y={round(mean, 3)}
-                stroke={tint(accent, '80')}
-                strokeDasharray="4 4"
-                label={{ value: 'overall', position: 'insideBottomRight', fontSize: 10 }}
-              />
-            )}
-            <Tooltip
-              {...TOOLTIP}
-              cursor={{ stroke: '#ffffff20' }}
-              labelFormatter={(_label: React.ReactNode, payload): string => {
-                const row = payload?.[0]?.payload as RateDot | undefined
-                return row ? `${formatDate(row.date)} — ${row.quantity} ${unit}` : ''
+      {(tickPx) =>
+        units.length === 0 ? (
+          <Empty height={220}>
+            No sessions with a recorded quantity yet. A unit appears here once there is enough of it
+            to trend.
+          </Empty>
+        ) : dots.length === 0 ? (
+          <Empty height={220}>{`No rates recorded in ${unit}.`}</Empty>
+        ) : (
+          <ResponsiveContainer width="100%" height={220}>
+            <ScatterChart
+              margin={{
+                top: topMarginFor(tickPx),
+                /* The last month label is centred on the final point, so half
+                 of `Nov '26` hung past the right edge - 11px of it at 1.6x
+                 text. Both ends are measured because the widest is not
+                 always the last. */
+                right: rightMarginFor(
+                  [monthLabel(isoDate(low)), monthLabel(isoDate(high))],
+                  tickPx,
+                  12
+                ),
+                left: 0,
+                bottom: 0
               }}
-            />
-            <Scatter
-              name={`${unit} per minute`}
-              data={plotted}
-              fill={tint(accent, 'cc')}
-              stroke={accent}
-              isAnimationActive={false}
-            />
-          </ScatterChart>
-        </ResponsiveContainer>
-      )}
+            >
+              <CartesianGrid stroke={GRID} />
+              <XAxis
+                type="number"
+                dataKey="day"
+                domain={[low - pad, high + pad]}
+                tickLine={false}
+                tickFormatter={(value: string | number): string =>
+                  monthLabel(isoDate(Number(value)))
+                }
+              />
+              <YAxis
+                type="number"
+                dataKey="rate"
+                /* `extra` is the rotated axis title, which costs its line
+                 height rather than its length because it is on its side. */
+                width={yAxisWidth([digitsProbe(ceiling, '.88')], tickPx, Math.ceil(tickPx * 1.4))}
+                tickLine={false}
+                domain={[0, round(ceiling, 2)]}
+                allowDataOverflow
+                label={{ value: `${unit}/min`, angle: -90, position: 'insideLeft' }}
+              />
+              <ZAxis type="number" dataKey="minutes" range={[18, 150]} name="Minutes" />
+              {mean === null ? null : (
+                // Labelled, because an unexplained dashed line across a chart
+                // that is filmed is debris rather than information.
+                <ReferenceLine
+                  y={round(mean, 3)}
+                  stroke={tint(accent, '80')}
+                  strokeDasharray="4 4"
+                  label={{ value: 'overall', position: 'insideBottomRight', fontSize: 10 }}
+                />
+              )}
+              <Tooltip
+                {...TOOLTIP}
+                cursor={{ stroke: '#ffffff20' }}
+                labelFormatter={(_label: React.ReactNode, payload): string => {
+                  const row = payload?.[0]?.payload as RateDot | undefined
+                  return row ? `${formatDate(row.date)} — ${row.quantity} ${unit}` : ''
+                }}
+              />
+              <Scatter
+                name={`${unit} per minute`}
+                data={plotted}
+                fill={tint(accent, 'cc')}
+                stroke={accent}
+                isAnimationActive={false}
+              />
+            </ScatterChart>
+          </ResponsiveContainer>
+        )
+      }
     </Frame>
   )
 }
@@ -1272,56 +1413,74 @@ export function PaceAccuracy({
       aside={control}
       note={`${count(dots.length, 'paced session')}, ${met} at or above target. Mean ${round(mean, 2)}× what was aimed at; the dashed line at 1.0 is where a prediction landed exactly. The ratio is unit-free, so sessions counted in words and in questions belong on one axis — the absolute amounts never would.`}
     >
-      <ResponsiveContainer width="100%" height={220}>
-        <ScatterChart margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
-          <CartesianGrid stroke={GRID} />
-          <XAxis
-            type="number"
-            dataKey="day"
-            domain={[low - pad, high + pad]}
-            tickLine={false}
-            tickFormatter={(value: string | number): string =>
-              spanLabel(isoDate(Number(value)), high - low)
-            }
-          />
-          <YAxis
-            type="number"
-            dataKey="ratio"
-            width={48}
-            tickLine={false}
-            domain={[0, ceiling]}
-            ticks={ticks}
-            allowDataOverflow
-            tickFormatter={(value: string | number): string => `${Number(value)}×`}
-          />
-          {/* Labelled: an unexplained line across a chart that gets filmed is
+      {(tickPx) => (
+        <ResponsiveContainer width="100%" height={220}>
+          <ScatterChart
+            margin={{
+              top: topMarginFor(tickPx),
+              right: rightMarginFor(
+                [spanLabel(isoDate(low), high - low), spanLabel(isoDate(high), high - low)],
+                tickPx,
+                12
+              ),
+              left: 0,
+              bottom: 0
+            }}
+          >
+            <CartesianGrid stroke={GRID} />
+            <XAxis
+              type="number"
+              dataKey="day"
+              domain={[low - pad, high + pad]}
+              tickLine={false}
+              tickFormatter={(value: string | number): string =>
+                spanLabel(isoDate(Number(value)), high - low)
+              }
+            />
+            {/* The ticks are given explicitly here, so the widest label is
+              known exactly rather than probed for. */}
+            <YAxis
+              type="number"
+              dataKey="ratio"
+              width={yAxisWidth(
+                ticks.map((tick) => `${tick}×`),
+                tickPx
+              )}
+              tickLine={false}
+              domain={[0, ceiling]}
+              ticks={ticks}
+              allowDataOverflow
+              tickFormatter={(value: string | number): string => `${Number(value)}×`}
+            />
+            {/* Labelled: an unexplained line across a chart that gets filmed is
               debris. This is the whole point of the panel - above it you beat
               the target, below it you missed. */}
-          <ReferenceLine
-            y={1}
-            stroke={tint(accent, '80')}
-            strokeDasharray="4 4"
-            label={{ value: 'target', position: 'insideBottomRight', fontSize: 10 }}
-          />
-          <Tooltip
-            {...TOOLTIP}
-            cursor={{ stroke: '#ffffff20' }}
-            labelFormatter={(_label: React.ReactNode, payload): string => {
-              const row = payload?.[0]?.payload as PaceDot | undefined
-              return row
-                ? `${formatDate(row.date)} — ${row.actual} of ${row.target} ${row.unit}`
-                : ''
-            }}
-          />
-          <Scatter
-            name="Share of target"
-            data={dots}
-            fill={tint(accent, 'cc')}
-            stroke={accent}
-            isAnimationActive={false}
-          />
-        </ScatterChart>
-      </ResponsiveContainer>
+            <ReferenceLine
+              y={1}
+              stroke={tint(accent, '80')}
+              strokeDasharray="4 4"
+              label={{ value: 'target', position: 'insideBottomRight', fontSize: 10 }}
+            />
+            <Tooltip
+              {...TOOLTIP}
+              cursor={{ stroke: '#ffffff20' }}
+              labelFormatter={(_label: React.ReactNode, payload): string => {
+                const row = payload?.[0]?.payload as PaceDot | undefined
+                return row
+                  ? `${formatDate(row.date)} — ${row.actual} of ${row.target} ${row.unit}`
+                  : ''
+              }}
+            />
+            <Scatter
+              name="Share of target"
+              data={dots}
+              fill={tint(accent, 'cc')}
+              stroke={accent}
+              isAnimationActive={false}
+            />
+          </ScatterChart>
+        </ResponsiveContainer>
+      )}
     </Frame>
   )
 }

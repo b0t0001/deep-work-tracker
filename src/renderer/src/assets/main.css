@@ -3003,6 +3003,33 @@ code {
   outline-offset: 2px;
 }
 
+/*
+ * A <select> needs its own rule, and finding that out took measuring it.
+ *
+ * The suppressor above was expected to cover the range dropdowns too - the
+ * user's screenshot shows the amber ring on one. It does not. Clicked with a
+ * real mouse through CDP:
+ *
+ *   SELECT in .an-range   outline auto 0.8px rgb(229, 151, 0)
+ *   :focus true, :focus-visible TRUE, caught by the suppressor: false
+ *
+ * A button and an svg report `:focus-visible` false on a pointer click; a
+ * select reports true, because it takes keyboard input once focused - you can
+ * type to jump to an option - and the spec says such a control always matches.
+ * So `:focus:not(:focus-visible)` is exactly the wrong key for it, and would
+ * have been signed off as working on the strength of the button case.
+ *
+ * The ring goes and the border takes over the job, which is both quieter than
+ * a 2px ring on a control that is meant to be the least loud thing in a panel
+ * head, and literally what was asked for: no box. Still a clear, deliberate
+ * state change, so a keyboard user can see where they are.
+ */
+.dashboard select:focus,
+.dashboard select:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
 /* ---------- Settings: columns, not one tall strip ---------- */
 
 /*
