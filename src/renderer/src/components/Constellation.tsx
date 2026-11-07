@@ -1726,12 +1726,20 @@ export default function Constellation({
       <p className="an-panel__note">
         Every star is a session. <b>Distance from the centre</b> is hours worked up to it, so each
         ring marks where a {ringWord} began and a wide band is a productive one. <b>Angle</b> is the
-        project, each arm as wide as its share of the hours; <b>height</b> is session length, on a
-        log scale. Size is output, ranked only against sessions in the same unit, and brightness is
-        recency. Lines join one sitting: the same day with under {SITTING_GAP_MINUTES} minutes
-        between sessions, or - for imported rows, which have no clock times - consecutive rows of
-        the same day and project. Drag to turn, double-click to reset, click a project to isolate
-        it.
+        project, each arm as wide as its share of the hours;{' '}
+        {projection === 'sphere' ? (
+          <>
+            <b>latitude</b> is session length - short in the south, long in the north.
+          </>
+        ) : (
+          <>
+            <b>height</b> is session length, on a log scale.
+          </>
+        )}{' '}
+        Size is output, ranked only against sessions in the same unit, and brightness is recency.
+        Lines join one sitting: the same day with under {SITTING_GAP_MINUTES} minutes between
+        sessions, or - for imported rows, which have no clock times - consecutive rows of the same
+        day and project. Drag to turn, double-click to reset, click a project to isolate it.
       </p>
     </div>
   )
