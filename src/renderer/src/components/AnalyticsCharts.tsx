@@ -109,17 +109,127 @@ function tint(accent: string, alpha: string): string {
 }
 
 const GRID = '#ffffff12'
-const TOOLTIP = {
-  contentStyle: {
-    background: 'var(--surface-raised)',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    fontSize: 12,
-    color: 'var(--text)'
-  },
-  labelStyle: { color: 'var(--text-dim)', marginBottom: 2 },
-  itemStyle: { color: 'var(--text)' }
+/**
+ * One tooltip for every chart: a quiet caption and a loud number.
+ *
+ * *"just make whatever the text is like gray and then make the font size
+ * smaller. The actual statistic should be white and it should pop out and it
+ * should be in a bigger font size."*
+ *
+ * Recharts' default draws `Hours : 10.51 h` - one line, one size, the label
+ * and the figure given equal weight and joined by a colon. The figure is the
+ * only part anyone hovers for, so it is now 17px and white and the words
+ * around it are 10.5px and dim. The colon is gone with the single line: a
+ * label above its value needs no punctuation to join them.
+ *
+ * It is a `content` component rather than the style props, because the style
+ * props can only colour the default markup - they cannot put the name and
+ * the value on separate lines or give them different sizes.
+ *
+ * No font family anywhere here. The app is on one face and the chart text
+ * inherits it; naming it again would be a second place to change it.
+ */
+export const TOOLTIP_CSS = `
+.ac-tip {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 8px 11px 9px;
+  box-shadow: 0 6px 18px #00000055;
+  pointer-events: none;
 }
+.ac-tip__when {
+  display: block;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+}
+.ac-tip__name {
+  display: block;
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+.ac-tip__value {
+  display: block;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 620;
+  line-height: 1.2;
+  letter-spacing: -0.2px;
+  font-variant-numeric: tabular-nums;
+}
+.ac-tip__row + .ac-tip__row {
+  margin-top: 6px;
+}
+`
+
+interface TipEntry {
+  name?: string
+  value?: number | string
+  unit?: string
+  payload?: unknown
+}
+
+export interface TipRow {
+  name: string
+  value: string
+}
+
+/**
+ * `when` is the caption - the period being hovered - and `rows` overrides
+ * what is listed under it. Both are given the payload, because every caption
+ * in this file is built from the row rather than from the axis label: the
+ * axis is thinned, so its label is blank on most buckets.
+ */
+export function ChartTip({
+  active,
+  payload,
+  label,
+  when,
+  rows
+}: {
+  active?: boolean
+  payload?: TipEntry[]
+  label?: React.ReactNode
+  when?: (label: React.ReactNode, payload: TipEntry[]) => string
+  rows?: (payload: TipEntry[]) => TipRow[]
+}): React.JSX.Element | null {
+  if (active !== true || payload === undefined || payload.length === 0) return null
+  const caption = when === undefined ? String(label ?? '') : when(label, payload)
+  const lines =
+    rows === undefined
+      ? payload.map((entry) => ({
+          name: entry.name ?? '',
+          value: `${entry.value ?? ''}${entry.unit ?? ''}`
+        }))
+      : rows(payload)
+
+  return (
+    <div className="ac-tip">
+      <style>{TOOLTIP_CSS}</style>
+      {caption === '' ? null : <span className="ac-tip__when">{caption}</span>}
+      {lines.map((line, index) => (
+        <span className="ac-tip__row" key={`${line.name}-${index}`}>
+          {line.name === '' ? null : <span className="ac-tip__name">{line.name}</span>}
+          <span className="ac-tip__value">{line.value}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/*
+ * `cursor={false}` on every chart, and it is not a style choice.
+ *
+ * "I hate this highlight effect. Get rid of it. it shouldn't highlight it in
+ * gray" - the full-height grey rectangle Recharts paints behind the hovered
+ * band. On a bar chart it is a second rectangle behind the bar, which reads
+ * as a selection the user did not make; on this tab it also sat over the
+ * value labels that were added so the bars could be read without hovering at
+ * all. The tooltip itself says which bucket is being read.
+ */
+const NO_CURSOR = { cursor: false } as const
 
 const CHART_CSS = `
 .ac {
@@ -569,14 +679,19 @@ export function HoursOverTime({
                 tickLine={false}
               />
               <Tooltip
-                {...TOOLTIP}
-                cursor={{ stroke: '#ffffff20' }}
-                labelFormatter={(_label: React.ReactNode, payload): string => {
-                  const row = payload?.[0]?.payload as Point | undefined
-                  if (!row) return ''
-                  if (grain === 'day') return formatDate(row.from)
-                  return grain === 'week' ? `Week of ${formatDate(row.from)}` : monthLabel(row.from)
-                }}
+                {...NO_CURSOR}
+                content={
+                  <ChartTip
+                    when={(_label, payload) => {
+                      const row = payload?.[0]?.payload as Point | undefined
+                      if (!row) return ''
+                      if (grain === 'day') return formatDate(row.from)
+                      return grain === 'week'
+                        ? `Week of ${formatDate(row.from)}`
+                        : monthLabel(row.from)
+                    }}
+                  />
+                }
               />
               {/* Bars rather than an area, at the user's request: they named
                 the Hours-by-project panel as the format they can read, and
@@ -922,7 +1037,7 @@ export function ByProject({
                 interval={0}
                 tickLine={false}
               />
-              <Tooltip {...TOOLTIP} cursor={{ fill: '#ffffff0a' }} />
+              <Tooltip {...NO_CURSOR} content={<ChartTip />} />
               <Bar
                 dataKey="hours"
                 name="Hours"
@@ -1160,12 +1275,17 @@ export function PlannedVsActual({
                   allowDataOverflow
                 />
                 <Tooltip
-                  {...TOOLTIP}
-                  cursor={{ fill: '#ffffff0a' }}
-                  labelFormatter={(label: React.ReactNode, payload): string => {
-                    const row = payload?.[0]?.payload as RatioBar | undefined
-                    return row ? `${label} — ${count(row.sessions, 'run')}` : String(label ?? '')
-                  }}
+                  {...NO_CURSOR}
+                  content={
+                    <ChartTip
+                      when={(label, payload) => {
+                        const row = payload?.[0]?.payload as RatioBar | undefined
+                        return row
+                          ? `${label} — ${count(row.sessions, 'run')}`
+                          : String(label ?? '')
+                      }}
+                    />
+                  }
                 />
                 {/* The whole point of the chart is distance from this line, so it
                 is drawn rather than left to the axis. Neutral, because it is a
@@ -1428,27 +1548,34 @@ export function RateTrend({
                 interval={0}
                 tickLine={false}
               />
+              {/* The old tooltip read `Minutes: 134, day: 19884, rate: 1.91`
+                  - an epoch-day index and a bare number. The pace leads now,
+                  large and white, with what it was computed from under it in
+                  the caption's size. */}
               <Tooltip
-                {...TOOLTIP}
-                cursor={{ fill: '#ffffff0a' }}
-                /* The old tooltip read `Minutes: 134, day: 19884, rate: 1.91`
-                   - an epoch-day index and a bare number. Everything here is
-                   named and in the app's own date format. */
-                labelFormatter={(_label: React.ReactNode, payload): string => {
-                  const row = payload?.[0]?.payload as RateBarRow | undefined
-                  if (!row) return ''
-                  return grain === 'month'
-                    ? `${formatDate(row.from)} – ${formatDate(row.to)}`
-                    : `Week of ${formatDate(row.from)}`
-                }}
-                formatter={(_value: unknown, _name: unknown, item: unknown): [string, string] => {
-                  const row = (item as { payload?: RateBarRow } | undefined)?.payload
-                  if (!row) return ['', '']
-                  return [
-                    `${round(row.rate, 2)} ${noun}/min · ${formatCount(row.quantity)} ${noun} in ${round(row.minutes / 60, 1)} h · ${count(row.sessions, 'session')}`,
-                    'Pace'
-                  ]
-                }}
+                {...NO_CURSOR}
+                content={
+                  <ChartTip
+                    when={(_label, payload) => {
+                      const row = payload?.[0]?.payload as RateBarRow | undefined
+                      if (!row) return ''
+                      return grain === 'month'
+                        ? `${formatDate(row.from)} – ${formatDate(row.to)}`
+                        : `Week of ${formatDate(row.from)}`
+                    }}
+                    rows={(payload) => {
+                      const row = payload?.[0]?.payload as RateBarRow | undefined
+                      if (!row) return []
+                      return [
+                        { name: `${noun} per minute`, value: `${round(row.rate, 2)}` },
+                        {
+                          name: `${formatCount(row.quantity)} ${noun} in ${round(row.minutes / 60, 1)} h`,
+                          value: count(row.sessions, 'session')
+                        }
+                      ]
+                    }}
+                  />
+                }
               />
               <Bar
                 dataKey="rate"
@@ -1656,14 +1783,26 @@ export function PaceAccuracy({
               label={{ value: 'target', position: 'insideBottomRight', fontSize: 10 }}
             />
             <Tooltip
-              {...TOOLTIP}
-              cursor={{ stroke: '#ffffff20' }}
-              labelFormatter={(_label: React.ReactNode, payload): string => {
-                const row = payload?.[0]?.payload as PaceDot | undefined
-                return row
-                  ? `${formatDate(row.date)} — ${row.actual} of ${row.target} ${row.unit}`
-                  : ''
-              }}
+              {...NO_CURSOR}
+              content={
+                <ChartTip
+                  when={(_label, payload) => {
+                    const row = payload?.[0]?.payload as PaceDot | undefined
+                    return row === undefined ? '' : formatDate(row.date)
+                  }}
+                  rows={(payload) => {
+                    const row = payload?.[0]?.payload as PaceDot | undefined
+                    if (row === undefined) return []
+                    return [
+                      {
+                        name: `of the ${row.target} ${row.unit} aimed at`,
+                        value: `${round(row.ratio, 2)}×`
+                      },
+                      { name: 'produced', value: `${row.actual} ${row.unit}` }
+                    ]
+                  }}
+                />
+              }
             />
             <Scatter
               name="Share of target"

@@ -936,6 +936,39 @@ not from guesses about what the words might mean. That is where `components`
   hours and the longest session ever cannot follow a range control, so they
   drop out rather than answering "past month" with a figure since 2023.
 
+**One tooltip for every chart: a quiet caption and a loud number.** *"just
+make whatever the text is like gray and then make the font size smaller. The
+actual statistic should be white and it should pop out and it should be in a
+bigger font size."* Recharts' default draws `Hours : 10.51 h` - one line, one
+size, the label and the figure given equal weight and joined by a colon. The
+figure is the only part anyone hovers for, so it is 17px and white and the
+words around it are 10.5px and dim; the colon went with the single line,
+because a label above its value needs no punctuation to join them.
+
+It is a `content` component (`ChartTip`), not the `contentStyle` /
+`labelStyle` props, because those can only colour the default markup - they
+cannot put the name and the value on separate lines at different sizes. It
+names no font family: the app is on one face and chart text inherits it, so
+naming it again would be a second place to change it.
+
+**No hover highlight anywhere.** *"I hate this highlight effect. Get rid of
+it."* `cursor={false}` on every chart. The grey band Recharts paints behind
+the hovered band reads as a selection the user did not make, and on this tab
+it also sat over the value labels that exist so the bars can be read without
+hovering at all.
+
+**The heatmaps are not affected and cannot be.** Their hover text is an SVG
+`<title>` element, which the OS draws - there is no Recharts tooltip and no
+cursor rectangle to remove, and the native tooltip takes no styling. Making
+those match would mean building a hover layer for them, which is a separate
+piece of work and was not asked for.
+
+`scripts/tooltip-check.ts` hovers a bar on all four bar charts through CDP
+and reads the **computed** size and colour of the value against the words
+around it, rather than trusting that a class was applied - and asserts that
+no `.recharts-tooltip-cursor` exists while a tooltip is open, which is the
+only way to tell `cursor={false}` from a cursor that is merely transparent.
+
 **Sections and panels are dragged with pointer events, and the rest of the
 page moves out of the way as you go.** *"when I'm modifying the layout of the
 analytics tab, I should be able to move the headers around. And also, I want
