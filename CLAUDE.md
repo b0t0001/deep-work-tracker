@@ -1282,6 +1282,21 @@ because a bar's value means a different thing at each one. A zero bar is
 labelled `0` rather than left blank: an unlabelled bar among labelled ones is
 exactly the ambiguity the panel exists to remove.
 
+**The calendar's colour is a fixed target, not relative to the user's
+history.** *"I shouldn't be grading myself based off the maximum... if you do
+three or four hours of work every single day, that's great... what we want to
+reward is consistency."* `shared/dayShade.ts`: 0-4 h ramps from just above an
+empty day to the full accent; above 4 h the accent only lightens, capped at 8
+h. It replaced four levels off the 90th percentile, under which a run of long
+days pushed an ordinary three-hour day to a middling shade. Absolute also
+means a day never changes colour when a record day is added.
+
+**Superstar days get a ring.** More than two standard deviations above the
+average *worked* day, over the whole history (empty days would drag the mean
+to zero): on the real history 7.5 h, 46 of 939 worked days. A white ring and
+an accent glow, static - a pulse would keep the page repainting. The hover
+box names it and the cutoff; the key has a swatch.
+
 **The calendar grid's zoom is bounded, and a day is always the same size.**
 The grid is an svg with a viewBox and `width: 100%`, which is what makes it
 the first thing you see at 12 months - and, unbounded, what made a 30-day
