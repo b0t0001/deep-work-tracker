@@ -227,7 +227,7 @@ const INSIGHT_SHOTS: Shot[] = [
  */
 const CST_OPEN = `
   // The shape is remembered per viewer, and the profile outlives a shot.
-  try { localStorage.removeItem('dwt.constellation.shape') } catch {}
+  try { localStorage.removeItem('dwt.constellation.shape'); localStorage.removeItem('dwt.constellation.mode') } catch {}
   click('.tabs .tab:nth-child(3)'); await wait(2800);
   const stage = document.querySelector('.cst__stage');
   stage.closest('.an-section').scrollIntoView({ block: 'start' });
@@ -281,6 +281,41 @@ const CONSTELLATION_SHOTS: Shot[] = [
   ),
   cstShot('probe-cst-hover-1150', 1150, CST_HOVER),
   cstShot(
+    'cst-lidar-1900',
+    1900,
+    `const lidar = stage.closest('.an-panel').querySelector('.cst__shape').querySelectorAll('button')[1]; lidar.click(); await wait(700);`,
+    1000
+  ),
+  cstShot(
+    'cst-lidar-sphere-1900',
+    1900,
+    `const lidar = stage.closest('.an-panel').querySelector('.cst__shape').querySelectorAll('button')[1]; lidar.click(); await wait(700); const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape')[1].querySelectorAll('button')[1]; sphere.click(); await wait(900);`,
+    1000
+  ),
+  cstShot(
+    'cst-lidar-1150',
+    1150,
+    `const lidar = stage.closest('.an-panel').querySelector('.cst__shape').querySelectorAll('button')[1]; lidar.click(); await wait(700);`
+  ),
+  cstShot(
+    'cst-lidar-chosen-1900',
+    1900,
+    `const lidar = stage.closest('.an-panel').querySelector('.cst__shape').querySelectorAll('button')[1]; lidar.click(); await wait(700);
+  const panel = stage.closest('.an-panel');
+  panel.querySelector('.cst__pick').click(); await wait(300);
+  const tick = async (name, on) => {
+    const row = [...panel.querySelectorAll('.cst__choice')].find((el) => el.querySelector('.cst__arm-name').textContent === name);
+    if (!row) { document.title += ' missing:' + name; return; }
+    const box = row.querySelector('input');
+    if (box.checked !== on) { box.click(); await wait(150); }
+  };
+  for (const name of ['College Apps', 'Sprocket', 'Scioly', 'JPL', 'SAT']) await tick(name, false);
+  await tick('PER', true);
+  await wait(400);
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await wait(600);`,
+    1000
+  ),
+  cstShot(
     'cst-picker-1900',
     1900,
     `
@@ -331,7 +366,7 @@ document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await w
   for (const name of ['College Apps', 'Sprocket', 'Scioly', 'JPL', 'SAT']) await tick(name, false);
   await tick('PER', true);
   await wait(400);
-document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await wait(600); const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape button')[1]; sphere.click(); await wait(900);`,
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await wait(600); const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape')[1].querySelectorAll('button')[1]; sphere.click(); await wait(900);`,
     1000
   ),
   cstShot(
@@ -354,18 +389,18 @@ document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await w
   cstShot(
     'cst-sphere-1150',
     1150,
-    `const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape button')[1]; sphere.click(); await wait(900);`
+    `const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape')[1].querySelectorAll('button')[1]; sphere.click(); await wait(900);`
   ),
   cstShot(
     'cst-sphere-1900',
     1900,
-    `const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape button')[1]; sphere.click(); await wait(900);`,
+    `const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape')[1].querySelectorAll('button')[1]; sphere.click(); await wait(900);`,
     1000
   ),
   cstShot(
     'cst-sphere-isolate-1900',
     1900,
-    `const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape button')[1]; sphere.click(); await wait(900); stage.querySelectorAll('.cst__arm')[1].click(); await wait(900);`,
+    `const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape')[1].querySelectorAll('button')[1]; sphere.click(); await wait(900); stage.querySelectorAll('.cst__arm')[1].click(); await wait(900);`,
     1000
   ),
   cstShot('probe-cst-hover-1900', 1900, CST_HOVER, 1000),
@@ -411,10 +446,29 @@ document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await w
       const s = document.createElement('style');
       s.textContent = '.cst__stage{position:fixed!important;inset:0!important;height:100vh!important;border-radius:0!important;z-index:9999}.cst__stage .cst__title{display:block!important}.cst__stage .cst__exit{display:inline-flex!important}';
       document.head.appendChild(s);
-      const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape button')[1]; sphere.click(); await wait(900);
+      const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape')[1].querySelectorAll('button')[1]; sphere.click(); await wait(900);
       await wait(900);
     `,
     note: 'The sphere at fullscreen size.'
+  },
+  {
+    // Fullscreen is the HTML Fullscreen API on the stage, which a hidden
+    // window cannot enter. The stage is given the window's size instead, with
+    // the fullscreen-only overlays forced on, which is what fullscreen draws.
+    id: 'cst-lidar-fullscreen-1900',
+    width: 1900,
+    height: 1000,
+    route: '/dashboard',
+    drive:
+      CST_OPEN +
+      `
+      const s = document.createElement('style');
+      s.textContent = '.cst__stage{position:fixed!important;inset:0!important;height:100vh!important;border-radius:0!important;z-index:9999}.cst__stage .cst__title{display:block!important}.cst__stage .cst__exit{display:inline-flex!important}';
+      document.head.appendChild(s);
+      const lidar = stage.closest('.an-panel').querySelector('.cst__shape').querySelectorAll('button')[1]; lidar.click(); await wait(700);
+      await wait(900);
+    `,
+    note: 'LiDAR at fullscreen size, to judge the points close up.'
   },
   {
     // WebGL, the frame clock and the per-frame cost, read off the live page.
@@ -437,6 +491,30 @@ document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await w
       document.title = 'webgl2=' + gl + ' raf=' + raf.toFixed(1) + 'fps bench=' + JSON.stringify(bench) + ' stars=' + stars;
     `,
     note: 'Not a picture: WebGL availability and frame cost at all time.'
+  },
+  {
+    // Galaxy and LiDAR on the same buffers: the GPU-synced cost of a frame in
+    // each, and proof the switch rebuilds nothing - the live geometry count
+    // and the star buffer are the same objects either side of it.
+    id: 'probe-cst-modes',
+    width: 1900,
+    height: 1000,
+    route: '/dashboard',
+    drive:
+      CST_OPEN +
+      `
+      const buttons = stage.closest('.an-panel').querySelector('.cst__shape').querySelectorAll('button');
+      const galaxy = stage.constellationBench(300);
+      const t0 = performance.now();
+      buttons[1].click();
+      await wait(50);
+      const lidar = stage.constellationBench(300);
+      buttons[0].click();
+      await wait(50);
+      const back = stage.constellationBench(1);
+      document.title = JSON.stringify({ galaxyMs: galaxy.msPerFrame, lidarMs: lidar.msPerFrame, geometries: [galaxy.geometries, lidar.geometries, back.geometries], programs: [galaxy.programs, lidar.programs] });
+    `,
+    note: 'Not a picture: frame cost per mode, and that switching rebuilds nothing.'
   },
   {
     // Range switching must not leak: ten switches, then the renderer's own
@@ -480,6 +558,7 @@ const CST_PERF_SHOTS: Shot[] = [
     height: 1000,
     route: '/dashboard',
     drive: `
+      try { localStorage.removeItem('dwt.constellation.mode') } catch {}
       click('.tabs .tab:nth-child(2)'); await wait(1200);
       const t0 = performance.now();
       click('.tabs .tab:nth-child(3)');
@@ -532,6 +611,68 @@ const CST_PERF_SHOTS: Shot[] = [
       document.title = JSON.stringify({ clickToPanelMs: Math.round(mounted), inViewToFirstFrameMs: Math.round(first), inViewToTurnMs: Math.round(idleToTurn), stoppedByPointerMove: stoppedByInput, inputToTurnMs: Math.round(inputToTurn), turn5s: { frames: turnFrames, cpuMedian: turn.cpuMedian, cpuP95: turn.cpuP95, gapMedian: turn.gapMedian, gapP95: turn.gapP95, calls: turn.calls, pixelRatio: turn.pixelRatio }, stillFramesIn3s: stillFrames, offscreenFramesIn3s: offFrames });
     `,
     note: 'Not a picture: frame timing turning, still and off screen.'
+  },
+  {
+    // Median and p95 of the CPU cost of a frame, and of the gap between
+    // frames, over five seconds of the idle turn at all time.
+    id: 'probe-cst-perf-lidar',
+    width: 1900,
+    height: 1000,
+    route: '/dashboard',
+    drive: `
+      try { localStorage.setItem('dwt.constellation.mode', 'lidar') } catch {}
+      click('.tabs .tab:nth-child(2)'); await wait(1200);
+      const t0 = performance.now();
+      click('.tabs .tab:nth-child(3)');
+      // The panel is the last on the tab and draws nothing until it is seen,
+      // so this is two numbers: click to the panel existing (chunk loaded,
+      // cloud built), then scrolled into view to its first frame.
+      let st = null;
+      while (performance.now() - t0 < 8000) {
+        st = document.querySelector('.cst__stage');
+        if (st && st.constellationStats) break;
+        await wait(2);
+      }
+      const mounted = performance.now() - t0;
+      const t1 = performance.now();
+      st.closest('.an-section').scrollIntoView({ block: 'start' });
+      while (st.constellationStats().firstFrameAt === null && performance.now() - t1 < 5000) await wait(2);
+      const first = st.constellationStats().firstFrameAt - t1;
+      ${CST_STATS}
+      // Idle: no input since it came into view, so the turn should start at
+      // IDLE_RESUME_MS and not before.
+      while (!stats().turning && performance.now() - t1 < 9000) await wait(10);
+      const idleToTurn = performance.now() - t1;
+      // One pointer move on the panel stops it at once and restarts the clock.
+      const canvas = st.querySelector('canvas');
+      const box = canvas.getBoundingClientRect();
+      canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: box.left + 5, clientY: box.bottom - 5, bubbles: true }));
+      const stoppedByInput = !stats().turning;
+      const t2 = performance.now();
+      while (!stats().turning && performance.now() - t2 < 9000) await wait(10);
+      const inputToTurn = performance.now() - t2;
+      await wait(1200); // past the ease-in
+      stats(true);
+      const d0 = stats().drawn;
+      await wait(5000);
+      const turn = stats(true);
+      const turnFrames = turn.drawn - d0;
+      // Off screen while turning: scrolled away, which is not an input event.
+      document.querySelector('.an-section').scrollIntoView({ block: 'start' });
+      await wait(800);
+      const o0 = stats().drawn;
+      await wait(3000);
+      const offFrames = stats().drawn - o0;
+      // Still: back in view with the turn stopped for good.
+      st.closest('.an-section').scrollIntoView({ block: 'start' });
+      st.constellationStill();
+      await wait(1500);
+      const s0 = stats().drawn;
+      await wait(3000);
+      const stillFrames = stats().drawn - s0;
+      document.title = JSON.stringify({ clickToPanelMs: Math.round(mounted), inViewToFirstFrameMs: Math.round(first), inViewToTurnMs: Math.round(idleToTurn), stoppedByPointerMove: stoppedByInput, inputToTurnMs: Math.round(inputToTurn), turn5s: { frames: turnFrames, cpuMedian: turn.cpuMedian, cpuP95: turn.cpuP95, gapMedian: turn.gapMedian, gapP95: turn.gapP95, calls: turn.calls, pixelRatio: turn.pixelRatio }, stillFramesIn3s: stillFrames, offscreenFramesIn3s: offFrames });
+    `,
+    note: 'Not a picture: the same timing in LiDAR mode.'
   },
   {
     // Twenty trips away from the tab and back. JS heap after a forced GC, the

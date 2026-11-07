@@ -31,8 +31,8 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
-  AdditiveBlending,
   AddEquation,
+  AdditiveBlending,
   CustomBlending,
   OneFactor,
   OneMinusDstColorFactor,
@@ -82,6 +82,14 @@ const SHAPE_KEY = 'dwt.constellation.shape'
  * glow, halo, swell and twinkle, quieter.
  */
 const GLOW_INTENSITY = 0.66
+const MODE_KEY = 'dwt.constellation.mode'
+
+/** Galaxy: glowing stars. LiDAR: solid scan points. Same cloud, same buffers. */
+type RenderMode = 'galaxy' | 'lidar'
+const MODES: ReadonlyArray<{ id: RenderMode; label: string }> = [
+  { id: 'galaxy', label: 'Galaxy' },
+  { id: 'lidar', label: 'LiDAR' }
+]
 /** Where the camera looks: a little above the floor, so tall stars are not cropped. */
 const TARGET_Y = HEIGHT * 0.32
 /**
@@ -506,6 +514,76 @@ void main() {
 }
 `
 
+/*
+ * LiDAR: a laser scan rather than a sky. The user pointed at two real scans -
+ * a forest, and what a self-driving car sees - and asked for points that
+ * "emit like a little bit of light, but not too much". So each session is a
+ * crisp, solid, saturated dot that glows faintly at its edge: the core is a
+ * hard disc covering the inner part of the sprite, and around it a tight
+ * falloff of its own colour, far narrower and weaker than a galaxy star's
+ * halo. Smaller and nearly uniform in size, so the cloud reads by density and
+ * shape. Screen blending, so where scan points crowd the light builds up the
+ * way a dense scan does, towards white only asymptotically.
+ *
+ * Shares every uniform with the galaxy material, so switching mode is a
+ * material swap on the same buffers.
+ */
+const LIDAR_VERT = `
+attribute vec3 color;
+attribute float size;
+attribute float bright;
+attribute float arm;
+uniform float uScale;
+uniform float uPixelRatio;
+uniform float uIsolate;
+uniform float uFocus;
+uniform float uFogNear;
+uniform float uFogFar;
+uniform float uWave;
+uniform vec3 uStage;
+varying vec3 vColor;
+varying float vFade;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  float depth = max(0.1, -mv.z);
+  float on = (uIsolate < -0.5 || abs(arm - uIsolate) < 0.5) ? 1.0 : 0.0;
+  float dim = mix(1.0, mix(0.08, 1.0, on), uFocus);
+  float fog = 0.6 * smoothstep(uFogNear, uFogFar, depth);
+  float wave = exp(-pow((bright - uWave) * 9.0, 2.0));
+  vec3 c = color * (0.82 + 0.28 * bright) + vec3(0.14 * wave);
+  // Scan colours are vivid: without a wide halo to carry the hue, a point has
+  // only its own few pixels to say which arm it is on.
+  c = clamp(mix(vec3(dot(c, vec3(0.299, 0.587, 0.114))), c, 1.4), 0.0, 1.0);
+  vColor = c;
+  vFade = (1.0 - fog) * dim;
+  // The sprite is a little over twice the dot, to leave room for the glow.
+  float k = size / 0.25;
+  float world = 0.085 * (1.0 + (k - 1.0) * 0.4) * 2.6;
+  gl_PointSize = clamp(world * uScale / depth, 3.0, 28.0) * uPixelRatio;
+  gl_Position = projectionMatrix * mv;
+}
+`
+
+const LIDAR_FRAG = `
+varying vec3 vColor;
+varying float vFade;
+void main() {
+  vec2 p = gl_PointCoord * 2.0 - 1.0;
+  float r = length(p);
+  if (r > 1.0) discard;
+  // The dot: solid out to a third of the sprite, then a sharp edge.
+  float core = 1.0 - smoothstep(0.3, 0.38, r);
+  // The light it gives off: a little, tight, gone by the sprite's edge.
+  float glow = exp(-r * r * 5.0) * 0.42 * (1.0 - r);
+  float a = clamp(core + glow * (1.0 - core), 0.0, 1.0) * vFade;
+  // A faintly hotter centre, which is what makes a dot read as a source of
+  // light rather than as paint.
+  vec3 c = mix(vColor, vec3(1.0), 0.18 * (1.0 - smoothstep(0.0, 0.3, r)));
+  // Premultiplied, for the screen blend.
+  gl_FragColor = vec4(c * a, a);
+}
+`
+
 const LINE_VERT = `
 attribute vec3 color;
 attribute float arm;
@@ -648,6 +726,12 @@ interface SceneState {
   controls: OrbitControls
   content: Group
   starMat: ShaderMaterial
+  lidarMat: ShaderMaterial
+  /** The star cloud; its material is the mode's. */
+  points: Points | null
+  mode: RenderMode
+  /** Swap the look in place: same buffers, other material. */
+  setMode: (mode: RenderMode) => void
   lineMat: ShaderMaterial
   glowMat: ShaderMaterial
   markMat: ShaderMaterial
@@ -745,7 +829,8 @@ function populate(
   starGeo.setAttribute('size', new Float32BufferAttribute(sizes, 1))
   starGeo.setAttribute('bright', new Float32BufferAttribute(bright, 1))
   starGeo.setAttribute('arm', new Float32BufferAttribute(arms, 1))
-  const points = new Points(starGeo, state.starMat)
+  const points = new Points(starGeo, state.mode === 'lidar' ? state.lidarMat : state.starMat)
+  state.points = points
   points.frustumCulled = false
 
   // Sitting lines, coloured by the stars they join so a line between two
@@ -905,6 +990,12 @@ function populate(
   // Compile the shaders now, while the panel is usually still below the fold,
   // so the first frame after it scrolls into view is not also the frame that
   // waits on the driver's compiler.
+  // Both looks, so the first switch to the other one is a material swap and
+  // not a compile: the mode change must not stutter.
+  const current = points.material
+  points.material = current === state.starMat ? state.lidarMat : state.starMat
+  state.renderer.compile(state.scene, state.camera)
+  points.material = current
   state.renderer.compile(state.scene, state.camera)
   state.invalidate()
   // The guide material belongs to this build, so it goes with it.
@@ -968,6 +1059,25 @@ export default function Constellation({
       return 'cylinder'
     }
   })
+  /*
+   * Galaxy or LiDAR - *"I want two distinct modes that I can change"*.
+   * Remembered beside the shape, for the same reason.
+   */
+  const [mode, setModeState] = useState<RenderMode>(() => {
+    try {
+      return window.localStorage.getItem(MODE_KEY) === 'lidar' ? 'lidar' : 'galaxy'
+    } catch {
+      return 'galaxy'
+    }
+  })
+  const setMode = (next: RenderMode): void => {
+    setModeState(next)
+    try {
+      window.localStorage.setItem(MODE_KEY, next)
+    } catch {
+      // A mode that is not remembered is still the mode on screen.
+    }
+  }
   const setProjection = (next: Projection): void => {
     setProjectionState(next)
     try {
@@ -1115,7 +1225,8 @@ export default function Constellation({
         uPixelRatio: { value: pixelRatio },
         uTime: { value: 0 },
         uWave: { value: -5 },
-        uIntensity: { value: GLOW_INTENSITY }
+        uIntensity: { value: GLOW_INTENSITY },
+        uStage: { value: rawColour(STAGE_BG) }
       },
       /*
        * Screen blending: light that adds up like the additive glow it
@@ -1124,6 +1235,18 @@ export default function Constellation({
        * Apps), which used to sum past white into flat blobs, keep their
        * colour and their texture. Needs premultiplied output - see STAR_FRAG.
        */
+      transparent: true,
+      depthWrite: false,
+      blending: CustomBlending,
+      blendEquation: AddEquation,
+      blendSrc: OneMinusDstColorFactor,
+      blendDst: OneFactor
+    })
+    // The same uniform object, so the loop's writes reach whichever is on.
+    const lidarMat = new ShaderMaterial({
+      vertexShader: LIDAR_VERT,
+      fragmentShader: LIDAR_FRAG,
+      uniforms: starMat.uniforms,
       transparent: true,
       depthWrite: false,
       blending: CustomBlending,
@@ -1238,6 +1361,10 @@ export default function Constellation({
       controls,
       content,
       starMat,
+      lidarMat,
+      points: null,
+      mode: 'galaxy',
+      setMode: () => undefined,
       lineMat,
       glowMat,
       markMat,
@@ -1336,6 +1463,16 @@ export default function Constellation({
     })
     controls.addEventListener('end', rest)
     state.resume = rest
+    state.setMode = (mode) => {
+      state.mode = mode
+      const lidar = mode === 'lidar'
+      if (state.points !== null) state.points.material = lidar ? lidarMat : starMat
+      // A scan has no glow and no sky: the core light and the dust are the
+      // galaxy's alone.
+      core.visible = !lidar
+      dust.visible = !lidar
+      invalidate()
+    }
     const panel = stage.parentElement
     const inputs = ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const
     for (const type of inputs) panel?.addEventListener(type, rest, { passive: true })
@@ -1709,7 +1846,8 @@ export default function Constellation({
       markGeo.dispose()
       dustGeo.dispose()
       coreGeo.dispose()
-      for (const mat of [starMat, lineMat, glowMat, markMat, dustMat, coreMat]) mat.dispose()
+      for (const mat of [starMat, lidarMat, lineMat, glowMat, markMat, dustMat, coreMat])
+        mat.dispose()
       renderer.dispose()
       // Release the context now rather than when the garbage collector gets
       // round to the canvas - the sixteen-context cap counts live ones.
@@ -1731,6 +1869,11 @@ export default function Constellation({
     if (state === null || labelLayer === null) return
     return populate(state, labelLayer, model, colours)
   }, [model, colours])
+
+  /* The look: a material swap on the live cloud, nothing rebuilt. */
+  useEffect(() => {
+    sceneRef.current?.setMode(mode)
+  }, [mode])
 
   /* Isolation goes to the shaders through the scene state, eased per frame. */
   useEffect(() => {
@@ -1899,6 +2042,19 @@ export default function Constellation({
               </div>
             ) : null}
           </span>
+          <span className="cst__shape" role="group" aria-label="Look">
+            {MODES.map((option) => (
+              <button
+                type="button"
+                key={option.id}
+                className={mode === option.id ? 'is-on' : ''}
+                aria-pressed={mode === option.id}
+                onClick={() => setMode(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </span>
           <span className="cst__shape" role="group" aria-label="Shape">
             {PROJECTIONS.map((option) => (
               <button
@@ -2012,10 +2168,11 @@ export default function Constellation({
       </div>
 
       <p className="an-panel__note">
-        Every star is a session. <b>Distance from the centre</b> is time: the first session at the
-        core, the end of the range at the rim, counted in hours of work rather than in days - so
-        each ring marks where a {ringWord} began, and a wide band is a busy one. <b>Angle</b> is the
-        project, each arm as wide as its share of the hours in this range;{' '}
+        Every {mode === 'lidar' ? 'point' : 'star'} is a session. <b>Distance from the centre</b> is
+        time: the first session at the core, the end of the range at the rim, counted in hours of
+        work rather than in days - so each ring marks where a {ringWord} began, and a wide band is a
+        busy one. <b>Angle</b> is the project, each arm as wide as its share of the hours in this
+        range;{' '}
         {projection === 'sphere' ? (
           <>
             <b>latitude</b> is session length - short in the south, long in the north.
