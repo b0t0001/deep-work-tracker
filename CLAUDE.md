@@ -340,6 +340,19 @@ app's text white, as the user asked. `useAccentSync` sets `--accent` and
 the `manual` source badge uses it. `scripts/accents-check.ts` asserts the
 relationship.
 
+**Scrollbars are a thin, quiet pill, styled with `::-webkit-scrollbar`.** The
+user asked for one like the Claude app's: *"a scroll bar with just a very
+subtle gray slider... not at all intrusive, and it fits seamlessly within the
+color theme."* Transparent track, no arrow buttons, a translucent white thumb
+inset from the edge, a little brighter on hover. Do not add the standard
+`scrollbar-color` / `scrollbar-width` properties anywhere: setting them makes
+Chromium ignore the pseudo-elements and brings back the default bar.
+
+**The tabs never show a focus ring.** Alt+Tab can leave a tab matching
+`:focus-visible`, which drew an accent box around "Analytics" while the user
+was only reading. The active tab has its underline; a keyboard-focused one
+gets a faint fill.
+
 **The dashboard mounts `useAccentSync` once, at its root.** It used to set
 `--accent` itself and mount the hook only inside Analytics, so on every other
 tab there was an accent and no complement until Analytics had been opened,
