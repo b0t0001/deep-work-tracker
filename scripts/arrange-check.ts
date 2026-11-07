@@ -180,10 +180,21 @@ app.whenReady().then(async () => {
     const r = h.getBoundingClientRect();
     return { x: r.left + 40, y: r.top + r.height / 2 };
   })()`)) as { x: number; y: number }
+  /*
+   * The target section's **centre**, not 30px below its top.
+   *
+   * The drop index is "which captured slot centre is the pointer nearest",
+   * so a section's own centre is the one aim that cannot be ambiguous
+   * however tall the sections grow. It is not what fixed the failure this
+   * was first written for - that was a side effect inside a state updater,
+   * see `finish` in `arrange.ts` - but a check that aims at a fixed offset
+   * from a growing section is a check that will fail for the wrong reason
+   * later.
+   */
   const dropAt = (await ask(`(() => {
     const s = document.querySelectorAll('.an-section')[0];
     const r = s.getBoundingClientRect();
-    return { x: r.left + 40, y: r.top + 30 };
+    return { x: r.left + 40, y: r.top + r.height / 2 };
   })()`)) as { x: number; y: number }
 
   // Built by concatenation, not a nested template: a `${...}` inside the
@@ -255,10 +266,18 @@ app.whenReady().then(async () => {
     after.sections[0].title.includes(secondTitle) && after.sections[1].title.includes(firstTitle),
     `order is now ${after.sections.map((one) => one.title).join(' / ')}`
   )
+  /*
+   * The content of what was written, not merely that something was. The
+   * first version checked `Array.isArray(sections)`, which passes for the
+   * order it already had - so a drop that committed nothing looked like a
+   * drop that committed.
+   */
+  const storedSections = (stored as { sections?: string[] } | null)?.sections ?? []
+  console.log(`       stored sections: ${storedSections.join(' / ')}`)
   check(
     'and the new order was written to the layout',
-    stored !== null && Array.isArray((stored as { sections?: unknown }).sections),
-    JSON.stringify(stored)
+    storedSections.length > 1 && storedSections[0] !== 'glance',
+    JSON.stringify(storedSections)
   )
   await shoot('arrange-sections-after')
 

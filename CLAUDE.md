@@ -1138,6 +1138,62 @@ go through the capture machinery, so a handler bound with
 is the only way to screenshot something that is over before any other tool
 could look.
 
+**The reflow animates only while a drag is in progress.** The FLIP pass runs
+on every render, which is right for *measuring* - positions have to be
+current when a drag starts, and what moved them is not expressible as a
+dependency - and was wrong for *animating*: any render that changed a height
+got the full treatment, so changing one panel's range threw the whole page to
+its previous layout and eased it back. That is the user's *"the panels want
+to move up or something like that and then they quickly go back down... just
+there for a split second"*.
+
+It is invisible to a layout assertion, which is why the first version of the
+check passed while the bug was live. `offsetTop` never moves - a transform
+does not change where an element is laid out. Measured frame by frame on a
+range change:
+
+```
+offsetTop  147 147 147 147 ... 147   (never moves)
+rect.top   -353 147 -853 -839 -779 -682 -608 -482 -391 -367 -358 -353
+```
+
+A transform thrown 1,000px and eased back over fifteen frames, for a layout
+change nobody dragged. `scripts/reflow-check.ts` samples every section and
+slot on every animation frame for 500ms after a range change and asserts
+that none is ever **transformed** - read from `getComputedStyle`, not
+inferred from a position, because neither `offsetTop` (transform-blind) nor
+`getBoundingClientRect` (scroll-sensitive, and section-relative for a slot)
+can tell a transform from a layout change on its own.
+
+**A drop must not commit from inside a state updater.** `finish` used to call
+`onCommit` inside its `setDrag` updater, which reads as a tidy way to have
+the drag state and the decision in one place and is a side effect in a
+function React may call during the render phase - and does.
+
+What that broke is not in the drag engine at all. `useLayout`'s `update` took
+the new layout out of its own `setLayout` updater into a local variable and
+sent *that* to the main process. React evaluates an updater eagerly only when
+the component has no pending work: true of a click on a range dropdown, which
+is why every other control persisted correctly, and false of a drop. So a
+dragged order reached the database as the order it started with, while the
+screen showed the new one - one write, 2ms after the release, with the
+preview visibly correct and the engine passing the right array. `update` now
+resolves against a ref that is written with every layout change, and `finish`
+reads `drag` and `preview` from the render it belongs to.
+
+**A range change re-renders only its own panel.** Each panel body is a
+memoized `PanelContent` taking its range and custom text as props rather
+than the whole layout, and the two handlers are `useCallback`s, so changing
+one panel's range does not redraw the others - measured with a
+MutationObserver over every panel, which went from four other panels
+redrawing to none. Declared as a function and memoized separately rather
+than `memo(function ...)` in one expression: `react/prop-types` cannot
+resolve a component through the `memo` call and reports every prop as
+undeclared.
+
+Measured on the real history at both widths: `analytics()` 37-47ms (median of
+7), payload 1,011 KB, no per-frame work in a panel that is not animating.
+
 **Every dropdown offers the same presets, and one of them is Custom.**
 *"every timescale dropdown should have the same presets... and then a custom
 field where i can insert anything"*. Panels used to narrow the list for

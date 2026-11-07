@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
@@ -667,17 +667,67 @@ function spanOf(
  * the range is, so it needs to know which window was chosen, not just which
  * days survived it.
  */
+/**
+ * One panel's chart, memoized on the few things that can change it.
+ *
+ * It used to take the whole `Layout` and be called from the tab's render, so
+ * changing **any** panel's range re-rendered **every** panel. Measured with a
+ * MutationObserver rather than assumed: one change to Hours by project also
+ * redrew the calendar, the hours chart, the planned-length chart and the rate
+ * chart - four Recharts trees rebuilt to show the same thing.
+ *
+ * The props are deliberately scalars, not the layout: `range`, `customText`
+ * and the handlers. A memo on an object that is replaced on every layout
+ * change would never hit. `data`, `accent` and `today` are stable for the
+ * life of the tab, and the handlers are `useCallback`s over `update`, which
+ * `useLayout` gives with an empty dependency list.
+ *
+ * The user's requirement is the reason this is worth the indirection: *"the
+ * analytics should not lag at all. It needs to be buttery smooth."*
+ */
+interface PanelContentProps {
+  id: PanelId
+  data: Analytics
+  accent: string
+  today: string
+  range: WindowId
+  customText: string
+  onRange: (target: RangeTargetId, next: WindowId) => void
+  onCustom: (target: RangeTargetId, next: string) => void
+}
+
+/*
+ * Declared and then memoized, rather than `memo(function ...)` in one
+ * expression. `react/prop-types` cannot resolve a component through the
+ * `memo` call and reports every prop as undeclared; the types are identical
+ * either way, so the shape that lints is the one to use.
+ */
+function PanelBody({
+  id,
+  data,
+  accent,
+  today,
+  range,
+  customText,
+  onRange,
+  onCustom
+}: PanelContentProps): React.JSX.Element {
+  return panelFor(id, data, accent, today, range, customText, onRange, onCustom)
+}
+
+const PanelContent = memo(PanelBody)
+
 function panelFor(
   id: PanelId,
   data: Analytics,
   accent: string,
   today: string,
-  layout: Layout,
+  range: WindowId,
+  customText: string,
   onRange: (target: RangeTargetId, next: WindowId) => void,
   onCustom: (target: RangeTargetId, next: string) => void
 ): React.JSX.Element {
-  const range = rangeFor(layout, id)
-  const customDays = parseSpan(customTextFor(layout, id)).days
+  const customDays = parseSpan(customText).days
   const span = spanOf(range, today, data.firstDate, customDays)
   const set = (next: WindowId): void => onRange(id, next)
   const control = (
@@ -685,7 +735,7 @@ function panelFor(
       value={range}
       onChange={set}
       label={PANELS[id].label}
-      customText={customTextFor(layout, id)}
+      customText={customText}
       onCustomText={(next) => onCustom(id, next)}
     />
   )
@@ -1066,6 +1116,32 @@ function AnalyticsTab(): React.JSX.Element {
     }
   }, [])
 
+  /*
+   * Above the early returns, which is not a style choice: the three states
+   * below (loading, failed, empty) return before this point, so a hook
+   * declared after them runs on some renders and not others - React error
+   * #310, and the tab renders white. The same mistake took out the fun-fact
+   * tile once already; `useState` in a `useState` initializer was the first
+   * version of it.
+   */
+  /*
+   * Stable identities, or the memo on `PanelContent` never hits: a new
+   * arrow function every render is a changed prop every render.
+   */
+  const setRange = useCallback(
+    (target: RangeTargetId, next: WindowId): void => {
+      update((prev) => withRange(prev, target, next))
+    },
+    [update]
+  )
+
+  const setCustom = useCallback(
+    (target: RangeTargetId, next: string): void => {
+      update((prev) => withCustomRange(prev, target, next))
+    },
+    [update]
+  )
+
   if (state === 'loading') {
     return (
       <section className="panel panel--wide">
@@ -1102,14 +1178,6 @@ function AnalyticsTab(): React.JSX.Element {
   }
 
   const today = localToday()
-
-  const setRange = (target: RangeTargetId, next: WindowId): void => {
-    update((prev) => withRange(prev, target, next))
-  }
-
-  const setCustom = (target: RangeTargetId, next: string): void => {
-    update((prev) => withCustomRange(prev, target, next))
-  }
 
   /*
    * What is left of the figure row's own arithmetic.
@@ -1365,7 +1433,16 @@ function AnalyticsTab(): React.JSX.Element {
                     layout={layout}
                     onChange={update}
                   >
-                    {panelFor(id as PanelId, data, accent, today, layout, setRange, setCustom)}
+                    <PanelContent
+                      id={id as PanelId}
+                      data={data}
+                      accent={accent}
+                      today={today}
+                      range={rangeFor(layout, id as PanelId)}
+                      customText={customTextFor(layout, id as PanelId)}
+                      onRange={setRange}
+                      onCustom={setCustom}
+                    />
                   </Slot>
                 ))}
               </div>
