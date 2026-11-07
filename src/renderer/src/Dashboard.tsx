@@ -914,7 +914,34 @@ function Slot({
       className={`an-slot${meta.full ? ' an-slot--full' : ''}${lifted ? ' is-lifted' : ''}`}
       style={style}
     >
-      {children}
+      {/*
+       * While arranging, a panel is a name on a card, not the panel.
+       *
+       * *"I can't see where my panel goes."* Part of that was a bug and part
+       * of it is that the arrangement is 3,000px tall at 1150px: the panels
+       * are 240 to 670px each, so no more than a third of the layout is ever
+       * on screen and moving the calendar to the top is a drag through three
+       * screenfuls. Rearranging is about order, and order is the one thing
+       * you cannot see when the things being ordered do not fit.
+       *
+       * Every card is the same height, so the whole arrangement fits in a
+       * window and the preview geometry is exact - `targetSlots` falls back
+       * to an approximation only when slots differ in size. The width is
+       * kept, so a full-width panel still reads as full-width.
+       *
+       * It also settles the heavy-panel question by removing it: a chart or
+       * a WebGL canvas that is not mounted cannot re-render, re-measure or
+       * stop painting while a drag is in progress. The one mount and unmount
+       * happens on the way into the mode and on the way out, where there is
+       * no gesture to disturb.
+       */}
+      {editing ? (
+        <div className="an-panel an-slot__card">
+          <span className="an-slot__cardName">{meta.label}</span>
+        </div>
+      ) : (
+        children
+      )}
       {/* Declared after the panel it overlays, which is the house rule for
           anything sitting on top of another surface. */}
       {editing && (
@@ -1460,7 +1487,7 @@ function AnalyticsTab(): React.JSX.Element {
             key={sectionId}
             ref={arrange.ref('sections', sectionId)}
             className={`an-section${editing ? ' is-arranging' : ''}${lifted ? ' is-lifted' : ''}`}
-            style={arrange.liftStyle('sections', sectionId)}
+            style={arrange.styleFor('sections', sectionId)}
           >
             <h3
               className={`an-section__title${index === 0 ? ' an-section__title--first' : ''}`}
@@ -1485,7 +1512,7 @@ function AnalyticsTab(): React.JSX.Element {
                     lifted={arrange.dragging?.group === sectionId && arrange.dragging.key === id}
                     grab={arrange.grab(sectionId, id)}
                     slotRef={arrange.ref(sectionId, id)}
-                    style={arrange.liftStyle(sectionId, id)}
+                    style={arrange.styleFor(sectionId, id)}
                     layout={layout}
                     onChange={update}
                   >
@@ -1510,13 +1537,32 @@ function AnalyticsTab(): React.JSX.Element {
                     />
                   </Slot>
                 ))}
+                <DropBox style={arrange.dropStyle(sectionId)} />
               </div>
             )}
           </div>
         )
       })}
+      <DropBox style={arrange.dropStyle('sections')} />
     </section>
   )
+}
+
+/**
+ * The outlined slot a dragged panel or section will land in.
+ *
+ * *"I can't see where my panel goes."* The lifted card follows the hand and
+ * the others slide aside, which says what is moving but never says where it
+ * stops. This is the answer to that: an empty outline the size of the target
+ * slot, drawn at the position the drop would put it.
+ *
+ * All of its geometry comes from `useArrange`, which captured it before
+ * anything started moving. It renders nothing at all when its group is not
+ * being dragged, so it costs one null check per render the rest of the time.
+ */
+function DropBox({ style }: { style: React.CSSProperties | null }): React.JSX.Element | null {
+  if (style === null) return null
+  return <div className="an-drop" aria-hidden="true" style={style} />
 }
 
 interface HistoryState {

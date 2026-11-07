@@ -2448,6 +2448,40 @@ pre {
     0 2px 6px #00000044;
 }
 
+/* The card a panel becomes while the layout is being rearranged.
+ *
+ * One height for every panel, so the whole arrangement fits in a window and
+ * the drop preview is exact rather than approximate. It keeps `.an-panel`, so
+ * it takes the same background, border and dashed arranging outline as the
+ * thing it stands for. */
+.an-slot__card {
+  display: flex;
+  align-items: center;
+  min-height: 58px;
+  padding: 0 14px;
+}
+
+.an-slot__cardName {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text);
+}
+
+/* Where it will land.
+ *
+ * *"I can't see where my panel goes."* The lifted card says what is moving
+ * and the sliding siblings say that something is happening; neither says
+ * where the gesture ends. An empty outline the size of the target slot does,
+ * and it is the only thing on screen that is about the destination. Dim
+ * rather than accent-filled: it marks a space, and a space that glowed would
+ * compete with the card being carried. */
+.an-drop {
+  border-radius: 12px;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
 /* While arranging, a panel's own controls step aside for the drag tools.
    The pager on the calendar, the range buttons on hours per week and the unit
    picker all live in the top right of the panel head, which is exactly where

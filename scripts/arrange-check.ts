@@ -117,7 +117,11 @@ app.whenReady().then(async () => {
   await ask(
     `(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Analytics'); if (b) b.click(); return 1 })()`
   )
-  await settle(2600)
+  // Long enough for the Constellation, which is a lazy chunk and a WebGL
+  // scene. At 2,600ms this check reported "the tab has more than one section
+  // to reorder" as a failure, which is what a tab that has not finished
+  // loading looks like from outside.
+  await settle(5000)
   await ask(
     `(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Modify panels'); if (b) b.click(); return 1 })()`
   )
