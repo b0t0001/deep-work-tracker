@@ -1119,11 +1119,11 @@ which is most of `renderer/src/lib/arrange.ts`.
   the layout, not of what currently sits in them. Re-measuring each frame
   reads positions that are mid-animation and feeds them back into the hit
   test, which oscillates.
-- **FLIP for the siblings**: measure, set the inverse transform with no
-  transition, force a reflow so the browser takes the start position as a
-  fact, then transition to zero. Skipping the reflow read collapses both
-  writes into one frame and nothing animates. The dragged element is excluded
-  and follows the pointer - it must not be 170ms behind the hand.
+- **Nothing moves in the DOM until the drop.** The dragged element is
+  translated under the hand, every other member is translated to the slot it
+  would occupy, and an outlined placeholder marks where it will land. On
+  release the order is committed once and every transform is dropped in the
+  same render, so nothing visibly moves - the elements are already there.
 - **The preview lives in the hook, not in the layout.** `onCommit` fires only
   on a successful drop, which is what makes Escape and a release outside into
   cancels without either being handled at the call site.
@@ -1134,6 +1134,24 @@ which is most of `renderer/src/lib/arrange.ts`.
 - **The grip is the handle, not the whole panel.** A drag that could start
   anywhere would swallow every click inside a panel, including the range
   dropdowns, which stay usable while arranging.
+- **The hit test measures the dragged card, against slot rectangles.** Both
+  halves were wrong once and each broke it differently. Measuring from the
+  *pointer* puts the grip some 500px from a wide slot's centre for the whole
+  gesture, and that constant dwarfs the vertical movement it is compared
+  against: a card dragged a full slot down went from 502px away to 502.3px
+  away. Measuring to slot *centres* has a blind spot wherever the widths
+  differ - a half-width card dragged straight down never approaches the
+  centre of the full-width slot beneath it, which is why the one section
+  holding three panels was the one place reordering did not work.
+- **Hysteresis, 28px.** A bare nearest-slot test has no stable answer on a
+  boundary: pointer noise, or a slot edge under a resting hand, flips it
+  every frame. That is half of what the user called spasming.
+- **Auto-scroll, and document coordinates because of it.** Slots are captured
+  as `rect.top + scrollTop`. Scrolling moves every element under a pointer
+  that has not moved, so a hit test in viewport coordinates is wrong from the
+  first scrolled pixel. When the page scrolls under a still hand the
+  pointer's document position changes by exactly the scroll, and the target
+  is re-picked from it.
 - **Cross-section panel drops are still refused.** A section is a property of
   a panel (see `SECTIONS`); now that sections themselves move, the way to put
   Habits above Hours is to drag Habits.
@@ -1159,7 +1177,38 @@ entered, which matters because the next thing the user does is drag the
 things underneath. **Done is last**, in the place Modify panels occupied, so
 the button pressed to come in is the button pressed to leave.
 
-`scripts/arrange-check.ts` drives a real drag through CDP and asserts a
+**While arranging, a panel is a name on a card.** Every slot renders a
+58px card with the panel's label and keeps its width, so a full-width panel
+still reads as full-width. Three things follow, and the third is why it is
+here rather than being a nicety:
+
+- The arrangement goes from 3,002px to 888px at 1150px - from a third of it
+  on screen at a time to all of it. *"I can't see where my panel goes"* was
+  partly a bug and partly that moving the calendar to the top was a drag
+  through three screenfuls.
+- The preview geometry becomes exact. `targetSlots` falls back to an
+  approximation only when slots differ in size.
+- **A chart or a WebGL canvas that is not mounted cannot re-render,
+  re-measure or stop painting mid-drag.** The one mount and unmount happens
+  entering and leaving the mode, where there is no gesture to disturb.
+
+`scripts/drag-check.ts` drives a real drag through CDP - 40 moves at 16ms,
+the rate a hand produces - and samples every animation frame: the lifted
+card's rectangle, the placeholder's, the frame deltas, and every node added
+or removed under the grid. It covers reordering in both directions,
+a two-panel swap, a wobble on a boundary, Escape, and auto-scroll, at 1150
+and 1900. Two things it had to learn about itself: the card is measured
+through `getBoundingClientRect`, so while auto-scroll runs a perfectly still
+card appears to move by the whole scroll step - it reads as `viewport +
+scrollTop` and allows the frame's own scroll, which is the difference
+between "the page moved" and a 460px jump. And it asks whether the
+constellation is painting by **photographing it**, not by reading the GL
+buffer: `getContext` on a canvas that already has one returns the existing
+context and ignores the attributes passed, so without `preserveDrawingBuffer`
+a healthy canvas reads as 0 pixels lit - that probe reported a dead
+constellation for a scene the screenshot showed in full.
+
+`scripts/arrange-check.ts` drives a section drag the same way and asserts a
 sibling has moved **while the pointer is still down** - a behaviour no amount
 of reading the component can confirm. Pointer events are dispatched through
 CDP rather than synthesised in the page: a synthetic `PointerEvent` does not
@@ -1168,7 +1217,33 @@ go through the capture machinery, so a handler bound with
 is the only way to screenshot something that is over before any other tool
 could look.
 
-**The reflow animates only while a drag is in progress.** The FLIP pass runs
+**The reflow is not FLIP any more, and this is why.** FLIP animates by
+measuring an element, comparing it with its previous measurement, setting
+the inverse transform and transitioning it to zero. It is sound only if the
+measurements are taken when nothing is moving. Here a render arrives on
+every pointer move - every 8 to 16ms - while the transitions last 170ms, so
+every measurement was taken mid-animation and fed back in as the next
+"First" position. The error compounds. Recorded by `scripts/drag-check.ts`
+driving a real 40-step drag:
+
+```
+lifted card jumped 97 times, worst 19,524,847px
+```
+
+Nineteen million pixels: every panel thrown out of the viewport, the tab
+rendering as an empty dark rectangle - the user's *"everything else actually
+goes black"* - and the card under the pointer somewhere off the end of the
+world. `arrange-check.ts` passed 6/6 against it, because four coarse steps
+with a 220ms settle between them let every transition finish before the next
+measurement and the feedback loop never closed. **A check that waits cannot
+see this class of bug.**
+
+Reordering the DOM mid-drag was also what made it expensive: moving a panel
+moves its subtree, so `ResponsiveContainer` sees a resize and a lazily
+loaded WebGL canvas is re-parented and stops painting. None of that can
+happen to a subtree nobody touched.
+
+**The earlier fix - animating only while a drag is in progress.** The FLIP pass runs
 on every render, which is right for *measuring* - positions have to be
 current when a drag starts, and what moved them is not expressible as a
 dependency - and was wrong for *animating*: any render that changed a height

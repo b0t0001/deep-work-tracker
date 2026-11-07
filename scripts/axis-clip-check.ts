@@ -149,7 +149,21 @@ app.whenReady().then(async () => {
     await ask(
       `(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Analytics'); if (b) b.click(); return 1 })()`
     )
-    await settle(2600)
+    /*
+     * Waited for, not timed.
+     *
+     * These checks all slept ~2.6s for the Analytics tab and all five began
+     * failing at once when the Constellation arrived - a lazily loaded WebGL
+     * panel that takes longer than that to appear. A check reporting "the
+     * calendar panel is there: FAIL" for a tab that was merely still loading
+     * is a check that will cry wolf every time the tab gets heavier.
+     */
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const ready = (await ask("document.querySelectorAll('.an-slot').length")) as number
+      if (ready >= 7) break
+      await settle(250)
+    }
+    await settle(900)
     await ask(
       `(() => {
         const p = document.querySelector('.panel--wide');
