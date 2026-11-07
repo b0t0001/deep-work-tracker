@@ -330,6 +330,30 @@ eq(
 )
 
 console.log('')
+console.log('--- the hidden projects of the constellation ---')
+eq(
+  'absent in an old layout, so the panel stays automatic',
+  'constellationHidden' in resolveLayout({ order: [] }),
+  false
+)
+eq(
+  'a chosen list round-trips',
+  parseLayout(serialiseLayout({ ...defaultLayout(), constellationHidden: ['SAT', 'JPL'] }))
+    .constellationHidden,
+  ['SAT', 'JPL']
+)
+eq(
+  'an empty list (show all) is kept, not dropped',
+  resolveLayout({ constellationHidden: [] }).constellationHidden,
+  []
+)
+eq(
+  'only names survive',
+  resolveLayout({ constellationHidden: ['SAT', 3, null, 'SAT'] }).constellationHidden,
+  ['SAT']
+)
+
+console.log('')
 console.log('--- through app_settings ---')
 openDatabase()
 eq('an unwritten layout reads as defaults', readLayout(), defaultLayout())
