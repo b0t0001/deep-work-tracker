@@ -571,7 +571,7 @@ export function stoppedEarly(ctx: InsightContext): Insight | null {
     id: 'stopped-early',
     figure: pct(early / runs.length),
     text: `of your timers${when(ctx)} were stopped before they ran out`,
-    detail: `a typical run used ${pct(Math.min(used, 1))} of the time set · ${formatCount(early)} of ${formatCount(runs.length)} runs`,
+    detail: `a typical run used ${pct(Math.min(used, 1))} of the time set · ${formatCount(early)} of ${formatCount(runs.length)} single-lap runs, loops counted separately`,
     strength: 0.5
   }
 }
@@ -590,7 +590,7 @@ export function loopLength(ctx: InsightContext): Insight | null {
     id: 'loops',
     figure: `${num1(typical)} laps`,
     text: `is how long a looped session typically runs${when(ctx)}`,
-    detail: `median over ${plural(loops.length, 'loop')} · longest ${num1(longest.runningS / longest.plannedS)} laps${what ? ` on "${what}"` : ''}`,
+    detail: `laps of the length set, median over ${plural(loops.length, 'loop')} · longest ${num1(longest.runningS / longest.plannedS)} laps${what ? ` on "${what}"` : ''}`,
     strength: 0.5
   }
 }

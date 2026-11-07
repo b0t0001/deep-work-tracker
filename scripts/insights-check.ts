@@ -265,7 +265,7 @@ console.log('--- timers stopped early, and loops ---')
   const s = stoppedEarly(ctx(runs))
   eq('share stopped before the end', s?.figure, '75%')
   has('median share of the time set', s?.detail, 'a typical run used 50% of the time set')
-  has('manual rows and events left out', s?.detail, '15 of 20 runs')
+  has('manual rows and events left out', s?.detail, '15 of 20 single-lap runs')
   eq('19 runs say nothing', stoppedEarly(ctx(runs.slice(1, 20))), null)
 
   const loops = [1.5, 2, 2.5].map((x, i) =>
