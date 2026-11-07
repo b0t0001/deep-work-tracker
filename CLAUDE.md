@@ -1360,15 +1360,29 @@ looks sick."* So the data mapping holds, and where looks and mapping pull
 apart, looks win - the spiral twist, the travelling swell and the dust are
 there for that and carry no data.
 
-**A scan, not a constellation - the name stays.** The first look was glowing
-stars with additive halos, and the user turned it down: *"the stars are nice,
-but they are a little too bright for my liking. I'm thinking more of a LiDAR
-point cloud and less constellation. We can just call it a constellation."*
-The dense arms (HW, College Apps) had summed to white blobs. So each session
-is now a small crisp disc with ordinary alpha blending, colours are muted
-(`MUTED_SATURATION`), depth is carried by size attenuation and by fading into
-the stage with distance rather than by glow, the lines are fainter, and the
-core light and twinkle are gone. Density and shape carry the picture.
+**The glow stays; it is a third quieter.** The first look was glowing stars
+with additive halos, and the user found it *"a little too bright"*. A crisp,
+muted LiDAR-style version was built and was the wrong reading: *"The subtle
+glow is really really good though. I like how as time goes on the
+constellation rotates and the points just glow a little bit - that animation
+should be there. I just want you to tone down the brightness, the intensity
+just a little."* So the halo, the outward swell, the twinkle and the core
+light are all as they were, and two things changed:
+
+- **`GLOW_INTENSITY` = 0.66** scales every star's light. Measured at the same
+  camera before and after, the light the cloud adds above the stage fell 29%
+  (22.0 to 15.7 mean luminance over the stage).
+- **Screen blending instead of additive** (`OneMinusDstColor, One`, with
+  premultiplied output). Additive sums linearly, so the dense cores - HW,
+  College Apps - passed white and became flat blobs: 1.4% of the stage was
+  near-white before, 0.002% after. Screen blending adds light the same way in
+  a sparse arm and approaches white asymptotically in a dense one, so the
+  cores still glow and keep their colour and texture. The pinpoint at the
+  centre of each star also mixes less towards white.
+
+Colours are a touch less saturated than the first look (0.74 against 0.78);
+the 0.42 of the LiDAR attempt was more change than was asked for. **The
+sitting lines are exactly as they were** - *"the lines right now are okay."*
 
 **And it must cost nothing the timer would notice.** *"This thing needs to run
 like buttery smooth... it should not take so much bandwidth that I can't run
@@ -1439,14 +1453,21 @@ to this panel re-runs `--live` probes and keeps them.
   and manual - join only consecutive rows of the same date *and* project,
   because without a clock there is no gap to measure and a cross-project join
   would be a guess. The caption states both rules.
-- **The look, all in the shader.** Each session is a crisp disc with a
-  pixel of soft edge, normal alpha blending, lightness rising with recency, and
-  fog towards the stage colour with distance. A faint swell travels outward
-  through time while the cloud turns, and 500 points of very faint fixed dust
-  on a far shell slide behind the cloud as it turns, which is what makes it
-  read as standing in space. No post pass.
-- **Interaction**: drag to orbit, slow idle turn that stops on any
-  interaction or hover and resumes after five seconds, hover for a `ChartTip`
+- **The look, all in the shader.** Each star is a pinpoint, a coloured body
+  and a wide faint halo; overlapping halos add up under screen blending,
+  which is the bloom - no full-screen post pass. A slow swell of light
+  travels outward through time while the cloud turns, a soft accent light
+  marks the core, and 900 points of fixed dust on a far shell slide behind the
+  cloud as it turns, which is what makes it read as standing in space.
+- **The turn starts after five seconds of idle** - *"enable the slow
+  rotation after like a 5 second idle timer."* Any pointer, wheel or keyboard
+  input on the panel (drag, zoom, hover, the legend, the Projects list, the
+  range dropdown) stops it and restarts the clock; `IDLE_RESUME_MS` of
+  nothing starts it again from rest, easing to full speed over `SPIN_UP_MS`
+  (1 s, smoothstep). The clock starts only once the panel has first been on
+  screen. Measured: in view to turning 5,026 ms; one pointer move stops it at
+  once and it restarts 5,013 ms later.
+- **Interaction**: drag to orbit, hover for a `ChartTip`
   (date and project small, duration big, output below) plus a ring on the star
   and its whole sitting drawn bright, click a legend row to isolate an arm,
   double-click to reset, fullscreen for filming. `prefers-reduced-motion`
@@ -1479,10 +1500,11 @@ How it stays cheap:
   `update()`, and before that guard every frame scheduled two - 37,866 frames
   in five seconds, measured, before it was found.
 - **One draw call for the stars and one for the lines**: a single `Points`
-  and a single `LineSegments` over typed buffers. Eight draw calls a frame in
-  all, counting dust, rings and ruler. `devicePixelRatio` is capped at 1.5 and
-  MSAA is off - soft-edged discs and faint lines show no stair-steps, and
-  MSAA was the larger half of the frame cost. Shaders are compiled when the cloud is built, usually
+  and a single `LineSegments` over typed buffers, glow in the fragment
+  shader. Nine draw calls a frame in all, counting dust, the core light, rings
+  and ruler. `devicePixelRatio` is capped at 1.5 and MSAA is off - soft
+  sprites and faint lines show no stair-steps, and MSAA was the larger half of
+  the frame cost. Shaders are compiled when the cloud is built, usually
   while the panel is still below the fold.
 - **Hover is screen-space nearest-point**, at most once per frame on
   pointermove: 2,478 projections, no raycaster.
@@ -1504,13 +1526,13 @@ Measured on the real-size copy (2,478 sessions, 1,169 sitting lines), 11/06/2026
 | | |
 | --- | --- |
 | `analytics()` | 41 ms median against 39 before (80 runs each), +26 KB |
-| turning, all time, 1900px (`--live`) | 120 fps (frames 8.3 ms apart, p95 8.5); CPU per frame 0.5 ms median, 1.2 ms p95 |
-| GPU-synced frame, 2248x775 device px | 1.8 ms (5 ms with MSAA and the glowing first look) |
+| turning, all time, 1900px (`--live`) | 120 fps (frames 8.3 ms apart, p95 8.5); CPU per frame 0.6 ms median, 1.3 ms p95 |
+| GPU-synced frame, 2248x775 device px | 1.7 ms (5 ms with MSAA on) |
 | still, 3 s | 0 frames |
 | scrolled off screen, turning, 3 s | 0 frames |
-| 20 trips Data <-> Analytics | JS heap 20.7 MB -> 20.7 MB after GC, 8 live geometries -> 8, 1 canvas |
-| click Analytics -> panel built | ~490 ms (the whole tab's payload and the chunk) |
-| panel scrolled into view -> first frame | ~110-140 ms |
+| 20 trips Data <-> Analytics | JS heap 20.7 MB -> 20.7 MB after GC, 9 live geometries -> 9, 1 canvas |
+| click Analytics -> panel built | ~500 ms (the whole tab's payload and the chunk) |
+| panel scrolled into view -> first frame | ~110-150 ms |
 
 `npx electron out/shoot/index.js --live --db <copy> --only
 probe-cst-perf,probe-cst-memory,probe-cst-timer-scripts,probe-cst-settings-scripts,probe-cst-dashboard-scripts`

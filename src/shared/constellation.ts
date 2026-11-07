@@ -799,13 +799,13 @@ export function colourRanks(all: readonly StarRow[]): Map<string, number> {
  * it is a pool, not a project, and should not compete.
  */
 /**
- * Muted on purpose. *"they are a little too bright for my liking. I'm
- * thinking more of a LiDAR point cloud and less constellation."* Desaturated
- * colours let the density and shape of the cloud carry the picture; the
- * project is still readable, it is just not shouting.
+ * A little under the first look's 0.78 / 0.66. The user asked for the glow
+ * to be toned down "just a little", and these move only as far as that
+ * needs: a LiDAR-grey version (0.42) was tried and was more change than
+ * was asked for.
  */
-export const MUTED_SATURATION = 0.42
-export const MUTED_LIGHTNESS = 0.63
+export const MUTED_SATURATION = 0.74
+export const MUTED_LIGHTNESS = 0.64
 
 export function armColours(
   wedges: readonly Wedge[],

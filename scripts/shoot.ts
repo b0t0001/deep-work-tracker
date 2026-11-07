@@ -510,27 +510,39 @@ const CST_PERF_SHOTS: Shot[] = [
       st.closest('.an-section').scrollIntoView({ block: 'start' });
       while (st.constellationStats().firstFrameAt === null && performance.now() - t1 < 5000) await wait(2);
       const first = st.constellationStats().firstFrameAt - t1;
-      await wait(1500);
       ${CST_STATS}
+      // Idle: no input since it came into view, so the turn should start at
+      // IDLE_RESUME_MS and not before.
+      while (!stats().turning && performance.now() - t1 < 9000) await wait(10);
+      const idleToTurn = performance.now() - t1;
+      // One pointer move on the panel stops it at once and restarts the clock.
+      const canvas = st.querySelector('canvas');
+      const box = canvas.getBoundingClientRect();
+      canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: box.left + 5, clientY: box.bottom - 5, bubbles: true }));
+      const stoppedByInput = !stats().turning;
+      const t2 = performance.now();
+      while (!stats().turning && performance.now() - t2 < 9000) await wait(10);
+      const inputToTurn = performance.now() - t2;
+      await wait(1200); // past the ease-in
       stats(true);
       const d0 = stats().drawn;
       await wait(5000);
       const turn = stats(true);
       const turnFrames = turn.drawn - d0;
-      // Still: the turn stopped, nothing moving. On demand means nothing drawn.
-      st.constellationStill();
-      await wait(1500);
-      const s0 = stats().drawn;
-      await wait(3000);
-      const stillFrames = stats().drawn - s0;
-      // Off screen: scrolled away with the turn running again.
-      st.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      // Off screen while turning: scrolled away, which is not an input event.
       document.querySelector('.an-section').scrollIntoView({ block: 'start' });
       await wait(800);
       const o0 = stats().drawn;
       await wait(3000);
       const offFrames = stats().drawn - o0;
-      document.title = JSON.stringify({ clickToPanelMs: Math.round(mounted), inViewToFirstFrameMs: Math.round(first), turn5s: { frames: turnFrames, cpuMedian: turn.cpuMedian, cpuP95: turn.cpuP95, gapMedian: turn.gapMedian, gapP95: turn.gapP95, calls: turn.calls, pixelRatio: turn.pixelRatio }, stillFramesIn3s: stillFrames, offscreenFramesIn3s: offFrames });
+      // Still: back in view with the turn stopped for good.
+      st.closest('.an-section').scrollIntoView({ block: 'start' });
+      st.constellationStill();
+      await wait(1500);
+      const s0 = stats().drawn;
+      await wait(3000);
+      const stillFrames = stats().drawn - s0;
+      document.title = JSON.stringify({ clickToPanelMs: Math.round(mounted), inViewToFirstFrameMs: Math.round(first), inViewToTurnMs: Math.round(idleToTurn), stoppedByPointerMove: stoppedByInput, inputToTurnMs: Math.round(inputToTurn), turn5s: { frames: turnFrames, cpuMedian: turn.cpuMedian, cpuP95: turn.cpuP95, gapMedian: turn.gapMedian, gapP95: turn.gapP95, calls: turn.calls, pixelRatio: turn.pixelRatio }, stillFramesIn3s: stillFrames, offscreenFramesIn3s: offFrames });
     `,
     note: 'Not a picture: frame timing turning, still and off screen.'
   },

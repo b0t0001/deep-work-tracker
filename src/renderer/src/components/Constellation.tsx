@@ -32,7 +32,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   AdditiveBlending,
-  NormalBlending,
+  AddEquation,
+  CustomBlending,
+  OneFactor,
+  OneMinusDstColorFactor,
   BufferGeometry,
   Color,
   Float32BufferAttribute,
@@ -73,10 +76,24 @@ import { ChartTip } from './AnalyticsCharts'
 
 const STAGE_BG = '#05060a'
 const SHAPE_KEY = 'dwt.constellation.shape'
+/**
+ * How bright the glow is, 1 being the first look. *"I just want you to tone
+ * down the brightness, the intensity just a little."* A third off: the same
+ * glow, halo, swell and twinkle, quieter.
+ */
+const GLOW_INTENSITY = 0.66
 /** Where the camera looks: a little above the floor, so tall stars are not cropped. */
 const TARGET_Y = HEIGHT * 0.32
-/** Seconds of stillness after an interaction before the slow turn resumes. */
+/**
+ * The slow turn starts after this long with no pointer, wheel or keyboard
+ * input on the panel - and after this long on first view. *"enable the slow
+ * rotation after like a 5 second idle timer."*
+ */
 const IDLE_RESUME_MS = 5000
+/** How long the turn takes to reach full speed, so it eases in rather than jumping. */
+const SPIN_UP_MS = 1000
+/** OrbitControls units: 0.32 is one turn in a little over three minutes. */
+const TURN_SPEED = 0.32
 
 const CSS = `
 .cst__stage {
@@ -442,6 +459,7 @@ uniform float uFogNear;
 uniform float uFogFar;
 uniform float uTime;
 uniform float uWave;
+uniform float uIntensity;
 varying vec3 vColor;
 varying float vAlpha;
 varying float vHot;
@@ -450,16 +468,17 @@ void main() {
   float depth = max(0.1, -mv.z);
   float on = (uIsolate < -0.5 || abs(arm - uIsolate) < 0.5) ? 1.0 : 0.0;
   float dim = mix(1.0, mix(0.05, 1.0, on), uFocus);
-  // Depth is carried by size and by fading into the stage with distance -
-  // the way a scanned point cloud reads - not by glow.
-  float fog = 1.0 - 0.72 * smoothstep(uFogNear, uFogFar, depth);
-  // A faint swell travelling outward through time, from the first session
-  // to the latest, while the cloud turns. uWave < -1 switches it off.
+  float fog = 1.0 - 0.8 * smoothstep(uFogNear, uFogFar, depth);
+  float twinkle = 0.88 + 0.12 * sin(uTime * 1.7 + position.x * 7.3 + position.z * 5.1);
+  // A slow swell of light travelling outward through time, from the first
+  // session to the latest, while the cloud turns. uWave < -1 switches it off.
   float wave = exp(-pow((bright - uWave) * 9.0, 2.0));
-  vColor = color * (0.62 + 0.38 * bright) + vec3(0.16 * wave);
+  vColor = color;
   vHot = wave;
-  vAlpha = 0.92 * fog * dim;
-  gl_PointSize = clamp(size * uScale / depth, 1.2, 16.0) * uPixelRatio;
+  // uIntensity scales the whole glow. 0.66 is the user's "tone down the
+  // brightness, the intensity just a little" - the same look, a third dimmer.
+  vAlpha = (0.2 + 0.8 * bright + 0.75 * wave) * fog * dim * twinkle * uIntensity;
+  gl_PointSize = clamp(size * (1.0 + 0.45 * wave) * uScale / depth, 1.6, 72.0) * uPixelRatio;
   gl_Position = projectionMatrix * mv;
 }
 `
@@ -469,14 +488,21 @@ varying vec3 vColor;
 varying float vAlpha;
 varying float vHot;
 void main() {
-  // A crisp disc with a pixel of soft edge, and nothing outside it. No halo:
-  // halos added up in the dense arms and blew them out to white, which read
-  // as a constellation rather than as a scan.
   vec2 p = gl_PointCoord * 2.0 - 1.0;
-  float d = length(p);
-  float a = 1.0 - smoothstep(0.62, 1.0, d);
-  if (a < 0.02) discard;
-  gl_FragColor = vec4(vColor, a * vAlpha);
+  float d = dot(p, p);
+  if (d > 1.0) discard;
+  // A white-hot pinpoint, a coloured body and a wide faint halo. The halo is
+  // what overlaps between neighbours and adds up, which is the bloom - done
+  // per point in the shader rather than as a full-screen pass.
+  float core = exp(-d * 28.0);
+  float body = exp(-d * 9.0) * 0.55;
+  float halo = exp(-d * 2.6) * 0.16 * (1.0 - d);
+  float a = (core + body + halo) * vAlpha;
+  // Less white in the pinpoint than before, so a dense arm sums towards its
+  // own colour rather than towards white.
+  vec3 c = mix(vColor * 1.1, vec3(1.0), clamp(core * 0.45 + vHot * 0.2, 0.0, 1.0));
+  // Premultiplied, for the screen blend below.
+  gl_FragColor = vec4(c * a, a);
 }
 `
 
@@ -527,7 +553,19 @@ void main() {
   vec2 p = gl_PointCoord * 2.0 - 1.0;
   float d = dot(p, p);
   if (d > 1.0) discard;
-  gl_FragColor = vec4(vec3(0.75, 0.82, 1.0), (1.0 - d) * vAlpha * 0.28);
+  gl_FragColor = vec4(vec3(0.75, 0.82, 1.0), (1.0 - d) * vAlpha * 0.4);
+}
+`
+
+/** The soft light at the core, where the first session sits. */
+const CORE_FRAG = `
+uniform vec3 uColor;
+void main() {
+  vec2 p = gl_PointCoord * 2.0 - 1.0;
+  float d = dot(p, p);
+  if (d > 1.0) discard;
+  float a = exp(-d * 5.0) * 0.32 + exp(-d * 40.0) * 0.35;
+  gl_FragColor = vec4(mix(uColor, vec3(1.0), exp(-d * 40.0)), a);
 }
 `
 
@@ -613,6 +651,8 @@ interface SceneState {
   lineMat: ShaderMaterial
   glowMat: ShaderMaterial
   markMat: ShaderMaterial
+  /** The core light; its colour follows the largest arm. */
+  coreMat: ShaderMaterial | null
   mark: Points
   glow: LineSegments | null
   positions: Float32Array
@@ -692,7 +732,7 @@ function populate(
     colors[i * 3 + 2] = c.b
     // World units. No output is the base size; output grows it by its
     // percentile within its own unit, never by its raw quantity.
-    sizes[i] = 0.095 * (star.output === null ? 1 : 1 + star.output * 0.6)
+    sizes[i] = 0.25 * (star.output === null ? 1 : 1 + star.output * 1.5)
     bright[i] = star.recency
     arms[i] = star.wedge
   })
@@ -798,6 +838,8 @@ function populate(
   state.ruler = sphere ? null : ruler
 
   state.content.add(guides, ruler, lines, points)
+  const coreColour = state.coreMat?.uniforms.uColor
+  if (coreColour !== undefined) coreColour.value = rawColour(colours[0] ?? '#ffffff')
 
   /* labels */
   // Built whole and never touched again: the positions are written per
@@ -1054,8 +1096,9 @@ export default function Constellation({
     controls.minDistance = RADIUS * 0.35
     controls.maxDistance = RADIUS * 6
     controls.maxPolarAngle = Math.PI * 0.62
-    controls.autoRotate = !reduced
-    controls.autoRotateSpeed = 0.32
+    // Off until the panel has been seen and left alone for IDLE_RESUME_MS.
+    controls.autoRotate = false
+    controls.autoRotateSpeed = 0
 
     const common = {
       uIsolate: { value: -1 },
@@ -1071,20 +1114,28 @@ export default function Constellation({
         uScale: { value: 600 },
         uPixelRatio: { value: pixelRatio },
         uTime: { value: 0 },
-        uWave: { value: -5 }
+        uWave: { value: -5 },
+        uIntensity: { value: GLOW_INTENSITY }
       },
-      // Ordinary alpha blending, not additive: overlapping points keep their
-      // colour instead of summing towards white, so a dense arm reads as
-      // dense rather than as a hot spot.
+      /*
+       * Screen blending: light that adds up like the additive glow it
+       * replaced, but towards white asymptotically instead of linearly.
+       * A sparse arm glows exactly as before; the dense cores (HW, College
+       * Apps), which used to sum past white into flat blobs, keep their
+       * colour and their texture. Needs premultiplied output - see STAR_FRAG.
+       */
       transparent: true,
       depthWrite: false,
-      blending: NormalBlending
+      blending: CustomBlending,
+      blendEquation: AddEquation,
+      blendSrc: OneMinusDstColorFactor,
+      blendDst: OneFactor
     })
     // Shared uniform objects, so one write moves stars and lines together.
     const lineMat = new ShaderMaterial({
       vertexShader: LINE_VERT,
       fragmentShader: LINE_FRAG,
-      uniforms: { ...common, uAlpha: { value: 0.075 } },
+      uniforms: { ...common, uAlpha: { value: 0.2 } },
       transparent: true,
       depthWrite: false,
       blending: AdditiveBlending
@@ -1127,12 +1178,12 @@ export default function Constellation({
     scene.add(content)
 
     /*
-     * Dust: one small draw call, built once, kept very faint. The
+     * Dust and the core light: one small draw call each, built once. The
      * dust is on a far shell and never moves, so turning the camera makes
      * it slide behind the cloud - which is what makes the cloud read as
      * standing in space rather than painted on a black card.
      */
-    const dustN = 500
+    const dustN = 900
     const dustPos = new Float32Array(dustN * 3)
     const dustBright = new Float32Array(dustN)
     for (let i = 0; i < dustN; i += 1) {
@@ -1162,6 +1213,24 @@ export default function Constellation({
     dust.frustumCulled = false
     scene.add(dust)
 
+    const coreGeo = new BufferGeometry()
+    coreGeo.setAttribute('position', new Float32BufferAttribute([0, 0, 0], 3))
+    const coreMat = new ShaderMaterial({
+      vertexShader: MARK_VERT,
+      fragmentShader: CORE_FRAG,
+      uniforms: {
+        uColor: { value: rawColour(STAGE_BG) },
+        uSize: { value: 160 },
+        uPixelRatio: { value: pixelRatio }
+      },
+      transparent: true,
+      depthWrite: false,
+      blending: AdditiveBlending
+    })
+    const core = new Points(coreGeo, coreMat)
+    core.frustumCulled = false
+    scene.add(core)
+
     const state: SceneState = {
       renderer,
       scene,
@@ -1172,6 +1241,7 @@ export default function Constellation({
       lineMat,
       glowMat,
       markMat,
+      coreMat,
       mark,
       glow: null,
       positions: new Float32Array(0),
@@ -1206,6 +1276,7 @@ export default function Constellation({
       )
       controls.target.set(0, state.centreY, 0)
       controls.maxPolarAngle = sphere ? Math.PI : Math.PI * 0.62
+      core.position.set(0, sphere ? 0 : 0.05, 0)
       controls.update()
       controls.saveState()
       invalidate()
@@ -1233,26 +1304,41 @@ export default function Constellation({
     const sizer = new ResizeObserver(resize)
     sizer.observe(stage)
 
-    /* idle turning */
+    /*
+     * Idle turning. Any pointer, wheel or keyboard input on the panel - a
+     * drag, a zoom, a hover, the legend, the Projects list, the range
+     * dropdown - stops the turn and restarts the clock; IDLE_RESUME_MS of
+     * nothing starts it again, from rest, easing up to speed over
+     * SPIN_UP_MS. The clock does not start until the panel has first been
+     * on screen, so it never starts turning somewhere nobody is looking.
+     */
     let resumeTimer = 0
-    const pauseTurn = (): void => {
-      interacted = true
-      controls.autoRotate = false
+    let seenOnce = false
+    let frozen = false
+    let spin = 0
+    const rest = (): void => {
+      if (controls.autoRotate) {
+        controls.autoRotate = false
+        invalidate()
+      }
+      spin = 0
       window.clearTimeout(resumeTimer)
-    }
-    const scheduleResume = (): void => {
-      window.clearTimeout(resumeTimer)
-      if (reduced) return
+      if (reduced || frozen || !seenOnce) return
       resumeTimer = window.setTimeout(() => {
-        if (hoverRef.current === null) {
-          controls.autoRotate = true
-          invalidate()
-        }
+        if (hoverRef.current !== null) return
+        controls.autoRotate = true
+        invalidate()
       }, IDLE_RESUME_MS)
     }
-    controls.addEventListener('start', pauseTurn)
-    controls.addEventListener('end', scheduleResume)
-    state.resume = scheduleResume
+    controls.addEventListener('start', () => {
+      interacted = true
+      rest()
+    })
+    controls.addEventListener('end', rest)
+    state.resume = rest
+    const panel = stage.parentElement
+    const inputs = ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const
+    for (const type of inputs) panel?.addEventListener(type, rest, { passive: true })
 
     /* wheel engagement */
     let hintTimer = 0
@@ -1358,7 +1444,7 @@ export default function Constellation({
       controls.reset()
       home()
       setIsolated(null)
-      if (!reduced) controls.autoRotate = true
+      rest()
       invalidate()
     }
     renderer.domElement.addEventListener('dblclick', onDouble)
@@ -1384,6 +1470,10 @@ export default function Constellation({
      */
     const seen = new IntersectionObserver((entries) => {
       visible = entries.some((entry) => entry.isIntersecting)
+      if (visible && !seenOnce) {
+        seenOnce = true
+        rest()
+      }
       if (visible) invalidate()
     })
     seen.observe(stage)
@@ -1426,7 +1516,12 @@ export default function Constellation({
       last = now
 
       const turning = controls.autoRotate && !reduced
-      if (turning) clock += dt
+      if (turning) {
+        // Ease in: smoothstep from rest to full speed.
+        spin = Math.min(1, spin + (dt * 1000) / SPIN_UP_MS)
+        controls.autoRotateSpeed = TURN_SPEED * spin * spin * (3 - 2 * spin)
+        clock += dt
+      }
       starMat.uniforms.uTime.value = clock
       // The swell runs every eleven seconds while the cloud turns, and is
       // simply absent from a still frame.
@@ -1533,7 +1628,8 @@ export default function Constellation({
       configurable: true,
       value: () => {
         interacted = true
-        controls.autoRotate = false
+        frozen = true
+        rest()
         invalidate()
       }
     })
@@ -1594,6 +1690,7 @@ export default function Constellation({
     state.dispose = () => {
       if (frame > 0) cancelAnimationFrame(frame)
       frame = -1
+      for (const type of inputs) panel?.removeEventListener(type, rest)
       window.clearTimeout(resumeTimer)
       window.clearTimeout(hintTimer)
       sizer.disconnect()
@@ -1611,7 +1708,8 @@ export default function Constellation({
       state.glow?.geometry.dispose()
       markGeo.dispose()
       dustGeo.dispose()
-      for (const mat of [starMat, lineMat, glowMat, markMat, dustMat]) mat.dispose()
+      coreGeo.dispose()
+      for (const mat of [starMat, lineMat, glowMat, markMat, dustMat, coreMat]) mat.dispose()
       renderer.dispose()
       // Release the context now rather than when the garbage collector gets
       // round to the canvas - the sixteen-context cap counts live ones.
@@ -1914,7 +2012,7 @@ export default function Constellation({
       </div>
 
       <p className="an-panel__note">
-        Every point is a session. <b>Distance from the centre</b> is time: the first session at the
+        Every star is a session. <b>Distance from the centre</b> is time: the first session at the
         core, the end of the range at the rim, counted in hours of work rather than in days - so
         each ring marks where a {ringWord} began, and a wide band is a busy one. <b>Angle</b> is the
         project, each arm as wide as its share of the hours in this range;{' '}
