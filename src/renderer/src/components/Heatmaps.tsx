@@ -14,12 +14,156 @@
  * option and is worse: React would re-emit it once per mounted instance.
  */
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type { DayTotal, HourTotal } from '@shared/analytics'
-import { EmptyState } from './AnalyticsCharts'
+import { EmptyState, TipBox, type TipRow } from './AnalyticsCharts'
 import { formatDate, formatDateRange } from '@shared/dates'
 
 const DAY_MS = 86_400_000
+
+/**
+ * The hover box these two share with the charts.
+ *
+ * Their hover text used to be an svg `<title>`, which the OS draws: a
+ * different font, a different delay, a different corner of the screen, and
+ * nothing about it stylable. Two tooltip designs in one tab is the kind of
+ * difference the user notices before anyone else does, so these now show the
+ * same `TipBox` the charts do.
+ *
+ * ## What is positioned against what
+ *
+ * The box is placed in the panel's coordinates, not the page's, because it is
+ * a child of the panel - and the panel is what it must stay inside. The
+ * hovered cell's rect and the panel's rect both come from the DOM at hover
+ * time rather than from the svg's own units: the grid is scaled by
+ * `maxWidth`, so a cell's position in viewBox units is not its position on
+ * screen, and the two disagree by whatever the scale factor happens to be.
+ *
+ * ## Why it is not an svg `<title>`, a `<foreignObject>` or a portal
+ *
+ * A `<title>` is what is being replaced. A `<foreignObject>` would inherit
+ * the svg's scale, so the box would grow and shrink with the grid. A portal
+ * to `document.body` would escape the panel, which is the one thing the box
+ * must not do - "stay inside the panel near the edges" is the requirement,
+ * and clamping against a rectangle the box is not inside is harder than
+ * staying a child of it.
+ */
+/**
+ * The two rules that cannot be inline.
+ *
+ * The rest of this file styles by object, because nearly every value is
+ * computed from the accent and the data. These two cannot be: one is a
+ * pseudo-class and the other has to apply *before* the hover box exists.
+ * They lived in `TOOLTIP_CSS` first, which is rendered by the box itself -
+ * so the panel was not a containing block until the first tip appeared, and
+ * the hovered square did not light up until one had. Rendered per panel
+ * rather than once globally, which is what the charts already do.
+ */
+const HEATMAP_CSS = `
+.hm {
+  position: relative;
+}
+/*
+ * The hovered square takes a thin stroke rather than a rectangle behind it.
+ *
+ * The user's objection to the chart cursor was a grey block appearing
+ * *behind* the thing hovered, which reads as a selection they did not make.
+ * A stroke on the square's own edge reads as the square lighting up - it
+ * says "this one" without adding a second shape. On the track in the empty
+ * state the same job is done by a border, since those cells are spans.
+ */
+.hm-cell:hover {
+  stroke: var(--text);
+  stroke-width: 1.5;
+  stroke-opacity: 0.85;
+}
+span.hm-cell:hover {
+  box-shadow: inset 0 0 0 1.5px #f2f4f7d9;
+}
+`
+
+interface HoverTip {
+  caption: string
+  rows: TipRow[]
+  note?: string
+  /** Panel-relative, already clamped. */
+  left: number
+  top: number
+}
+
+const TIP_WIDTH = 170
+const TIP_GAP = 10
+
+function useHoverTip(): {
+  tip: HoverTip | null
+  show: (
+    event: React.MouseEvent | React.FocusEvent,
+    caption: string,
+    rows: TipRow[],
+    note?: string
+  ) => void
+  hide: () => void
+  panelRef: (element: HTMLDivElement | null) => void
+} {
+  const [tip, setTip] = useState<HoverTip | null>(null)
+  const panel = useRef<HTMLDivElement | null>(null)
+
+  const panelRef = useCallback((element: HTMLDivElement | null) => {
+    panel.current = element
+  }, [])
+
+  const show = useCallback(
+    (
+      event: React.MouseEvent | React.FocusEvent,
+      caption: string,
+      rows: TipRow[],
+      note?: string
+    ) => {
+      const box = panel.current
+      const cell = event.currentTarget as Element
+      if (box === null) return
+      const panelBox = box.getBoundingClientRect()
+      const cellBox = cell.getBoundingClientRect()
+
+      // Beside the square by default, and above it, which is where a cursor
+      // is not. Clamped to the panel on both axes: at the right-hand edge of
+      // a 52-week grid the box would otherwise run off the panel and be
+      // clipped by its border radius.
+      const wanted = cellBox.left - panelBox.left + cellBox.width + TIP_GAP
+      const left = Math.max(TIP_GAP, Math.min(wanted, panelBox.width - TIP_WIDTH - TIP_GAP))
+      const top = Math.max(TIP_GAP, cellBox.top - panelBox.top - TIP_GAP)
+      setTip({ caption, rows, note, left, top })
+    },
+    []
+  )
+
+  const hide = useCallback(() => setTip(null), [])
+
+  return { tip, show, hide, panelRef }
+}
+
+/** The box, rendered last so it sits over the grid. */
+function hoverTip(tip: HoverTip | null): React.JSX.Element {
+  return (
+    <>
+      <style>{HEATMAP_CSS}</style>
+      {tip === null ? null : (
+        <TipBox
+          caption={tip.caption}
+          rows={tip.rows}
+          note={tip.note}
+          style={{
+            position: 'absolute',
+            left: tip.left,
+            top: tip.top,
+            width: TIP_WIDTH,
+            zIndex: 4
+          }}
+        />
+      )}
+    </>
+  )
+}
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -204,9 +348,19 @@ function percentileHours(daily: DayTotal[]): number {
   return worked[Math.min(worked.length - 1, Math.floor(worked.length * 0.9))] || 1
 }
 
-function dayTitle(day: DayTotal): string {
-  if (day.hours <= 0 && day.sessions === 0) return `${formatDate(day.date)} — no work`
-  return `${formatDate(day.date)} — ${formatHours(day.hours)} h, ${plural(day.sessions, 'session')}`
+/**
+ * What a day says when you hover it.
+ *
+ * The hours lead, because that is the question the grid is being read for;
+ * the session count is the supporting line. A day with nothing on it says so
+ * in words rather than showing `0 h`, which looks like a measurement.
+ */
+function dayRows(day: DayTotal): { rows: TipRow[]; note?: string } {
+  if (day.hours <= 0 && day.sessions === 0) return { rows: [{ name: '', value: 'No work' }] }
+  return {
+    rows: [{ name: 'Worked', value: `${formatHours(day.hours)} h` }],
+    note: plural(day.sessions, 'session')
+  }
 }
 
 function monthYear(date: string): string {
@@ -226,6 +380,7 @@ export function CalendarHeatmap({
 }): React.JSX.Element {
   /** Windows back from the most recent one. Zero is the default view. */
   const [page, setPage] = useState(0)
+  const { tip, show, hide, panelRef } = useHoverTip()
 
   const scale = useMemo(() => percentileHours(daily), [daily])
   const totals = useMemo(() => new Map(daily.map((d) => [d.date, d])), [daily])
@@ -267,19 +422,24 @@ export function CalendarHeatmap({
       // than a zero day. Drawing it would invent a day that was never recorded.
       if (!total) continue
       cells.push(
+        /* No `<title>` any more - see `useHoverTip`. Leaving one in place
+           beside the styled box would show both, one of them late and in the
+           OS's own font. */
         <rect
           key={day}
+          className="hm-cell"
           x={WEEKDAY_W + column * PITCH}
           y={MONTH_H + row * PITCH}
           width={CELL}
           height={CELL}
           rx={2}
           style={{ fill: cellFill(level(total.hours, scale), accent) }}
-        >
-          {/* SVG takes its tooltip from a `<title>` child; the HTML `title`
-              attribute does nothing here. */}
-          <title>{dayTitle(total)}</title>
-        </rect>
+          onMouseEnter={(event) => {
+            const { rows, note } = dayRows(total)
+            show(event, formatDate(total.date), rows, note)
+          }}
+          onMouseLeave={hide}
+        />
       )
     }
   }
@@ -332,7 +492,7 @@ export function CalendarHeatmap({
   )
 
   return (
-    <div className="an-panel an-panel--hero">
+    <div className="an-panel an-panel--hero hm" ref={panelRef}>
       <div className="an-panel__head">
         <h4 className="an-panel__title">
           Every day
@@ -427,6 +587,7 @@ export function CalendarHeatmap({
         Darker is more hours. Hover a square for the day it stands for; the arrows page back a year
         at a time.
       </p>
+      {hoverTip(tip)}
     </div>
   )
 }
@@ -468,6 +629,7 @@ export function TimeOfDayHeatmap({
   accent: string
   control?: React.ReactNode
 }): React.JSX.Element {
+  const { tip, show, hide, panelRef } = useHoverTip()
   const hours = useMemo(() => {
     const found = new Map(byHour.map((h) => [h.hour, h]))
     return Array.from(
@@ -524,7 +686,7 @@ export function TimeOfDayHeatmap({
    */
   if (timedSessions < FEW_SESSIONS) {
     return (
-      <div className="an-panel">
+      <div className="an-panel hm" ref={panelRef}>
         <div className="an-panel__head">
           <h4 className="an-panel__title">
             Time of day
@@ -538,16 +700,26 @@ export function TimeOfDayHeatmap({
           {control}
         </div>
 
+        {/* The empty state's track is this panel's hover surface until the
+            grid has enough data to be drawn, which on a young history is
+            most of the time - so it gets the same box, and loses its `title`
+            attribute for the same reason the grid lost its `<title>`: two
+            tooltips, one of them the OS's. */}
         <div className="an-track">
           {hours.map((hour) => (
             <span
               key={hour.hour}
-              className={hour.sessions > 0 ? 'is-on' : undefined}
-              title={
-                hour.sessions > 0
-                  ? `${hourLabel(hour.hour)}–${hourLabel((hour.hour + 1) % 24)} — ${plural(hour.sessions, 'session')}`
-                  : `${hourLabel(hour.hour)}–${hourLabel((hour.hour + 1) % 24)} — nothing yet`
+              className={`hm-cell${hour.sessions > 0 ? ' is-on' : ''}`}
+              onMouseEnter={(event) =>
+                show(
+                  event,
+                  `${hourLabel(hour.hour)}–${hourLabel((hour.hour + 1) % 24)}`,
+                  hour.sessions > 0
+                    ? [{ name: '', value: plural(hour.sessions, 'session') }]
+                    : [{ name: '', value: 'Nothing yet' }]
+                )
               }
+              onMouseLeave={hide}
             />
           ))}
         </div>
@@ -574,12 +746,13 @@ export function TimeOfDayHeatmap({
           Hourglass stored a countdown reading rather than a clock time, so those rows carry a date
           and no hour.
         </EmptyState>
+        {hoverTip(tip)}
       </div>
     )
   }
 
   return (
-    <div className="an-panel">
+    <div className="an-panel hm" ref={panelRef}>
       <div className="an-panel__head">
         <h4 className="an-panel__title">
           Time of day
@@ -603,19 +776,25 @@ export function TimeOfDayHeatmap({
         {hours.map((hour) => (
           <rect
             key={hour.hour}
+            className="hm-cell"
             x={hour.hour * HOUR_PITCH}
             y={0}
             width={HOUR_CELL_W}
             height={HOUR_CELL_H}
             rx={3}
             style={{ fill: cellFill(level(hour.hours, scale), accent) }}
-          >
-            <title>
-              {hour.hours > 0
-                ? `${hourLabel(hour.hour)}–${hourLabel((hour.hour + 1) % 24)} — ${formatHours(hour.hours)} h, ${plural(hour.sessions, 'session')}`
-                : `${hourLabel(hour.hour)}–${hourLabel((hour.hour + 1) % 24)} — no work`}
-            </title>
-          </rect>
+            onMouseEnter={(event) =>
+              show(
+                event,
+                `${hourLabel(hour.hour)}–${hourLabel((hour.hour + 1) % 24)}`,
+                hour.hours > 0
+                  ? [{ name: 'Worked', value: `${formatHours(hour.hours)} h` }]
+                  : [{ name: '', value: 'No work' }],
+                hour.hours > 0 ? plural(hour.sessions, 'session') : undefined
+              )
+            }
+            onMouseLeave={hide}
+          />
         ))}
         {/* Every third hour: enough to orient by without the labels touching. */}
         {hours
@@ -638,6 +817,7 @@ export function TimeOfDayHeatmap({
         Imported rows are excluded: they carry a date but no clock time, so they cannot say anything
         about when the work happened.
       </p>
+      {hoverTip(tip)}
     </div>
   )
 }

@@ -162,6 +162,12 @@ export const TOOLTIP_CSS = `
 .ac-tip__row + .ac-tip__row {
   margin-top: 6px;
 }
+.ac-tip__note {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
 `
 
 interface TipEntry {
@@ -205,16 +211,51 @@ export function ChartTip({
         }))
       : rows(payload)
 
+  return <TipBox caption={caption} rows={lines} />
+}
+
+/**
+ * The box itself, without Recharts.
+ *
+ * Separated so the two heatmaps can show the same thing. They are not
+ * Recharts charts - they are hand-drawn svg - and their hover text used to
+ * be an svg `<title>`, which the OS draws: a different font, a different
+ * delay, a different corner of the screen, and nothing about it stylable.
+ * Two tooltip designs in one tab is the kind of difference the user notices
+ * before anyone else does.
+ */
+export function TipBox({
+  caption,
+  rows,
+  note,
+  style
+}: {
+  caption?: string
+  rows: TipRow[]
+  /**
+   * Supporting detail, under the figure and in the caption's treatment.
+   *
+   * A session count is not a second statistic - it is what the first one was
+   * measured over - and giving it the same 17px white as the hours made the
+   * box read as two answers to one hover.
+   */
+  note?: string
+  /** Position, when the box is placed by hand rather than by Recharts. */
+  style?: React.CSSProperties
+}): React.JSX.Element {
   return (
-    <div className="ac-tip">
+    <div className="ac-tip" style={style}>
       <style>{TOOLTIP_CSS}</style>
-      {caption === '' ? null : <span className="ac-tip__when">{caption}</span>}
-      {lines.map((line, index) => (
+      {caption === undefined || caption === '' ? null : (
+        <span className="ac-tip__when">{caption}</span>
+      )}
+      {rows.map((line, index) => (
         <span className="ac-tip__row" key={`${line.name}-${index}`}>
           {line.name === '' ? null : <span className="ac-tip__name">{line.name}</span>}
           <span className="ac-tip__value">{line.value}</span>
         </span>
       ))}
+      {note === undefined || note === '' ? null : <span className="ac-tip__note">{note}</span>}
     </div>
   )
 }
