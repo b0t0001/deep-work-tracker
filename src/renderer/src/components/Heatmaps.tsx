@@ -18,7 +18,8 @@ import {
   DAILY_BONUS_CAP_HOURS,
   DAILY_TARGET_HOURS,
   dayFill,
-  superstarThreshold
+  isSuperstar,
+  SUPERSTAR_HOURS
 } from '@shared/dayShade'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type { DayTotal, HourTotal } from '@shared/analytics'
@@ -404,16 +405,12 @@ const WINDOW_DAYS = 371
  * the session count is the supporting line. A day with nothing on it says so
  * in words rather than showing `0 h`, which looks like a measurement.
  */
-function dayRows(day: DayTotal, star: number | null): { rows: TipRow[]; note?: string } {
+function dayRows(day: DayTotal): { rows: TipRow[]; note?: string } {
   if (day.hours <= 0 && day.sessions === 0) return { rows: [{ name: '', value: 'No work' }] }
-  const superstar = star !== null && day.hours >= star
+  const superstar = isSuperstar(day.hours)
   return {
     rows: [{ name: superstar ? 'Superstar day' : 'Worked', value: `${formatHours(day.hours)} h` }],
-    note:
-      plural(day.sessions, 'session') +
-      (superstar
-        ? ` · over ${formatHours(star)} h, two standard deviations above your average day`
-        : '')
+    note: plural(day.sessions, 'session') + (superstar ? ` · over ${SUPERSTAR_HOURS} h` : '')
   }
 }
 
@@ -437,7 +434,6 @@ export function CalendarHeatmap({
   const { tip, show, hide, panelRef } = useHoverTip()
 
   const totals = useMemo(() => new Map(daily.map((d) => [d.date, d])), [daily])
-  const star = useMemo(() => superstarThreshold(daily.map((d) => d.hours)), [daily])
 
   if (daily.length === 0) {
     return (
@@ -481,7 +477,7 @@ export function CalendarHeatmap({
            OS's own font. */
         <rect
           key={day}
-          className={star !== null && total.hours >= star ? 'hm-cell hm-star' : 'hm-cell'}
+          className={isSuperstar(total.hours) ? 'hm-cell hm-star' : 'hm-cell'}
           x={WEEKDAY_W + column * PITCH}
           y={MONTH_H + row * PITCH}
           width={CELL}
@@ -489,7 +485,7 @@ export function CalendarHeatmap({
           rx={2}
           style={{ fill: dayFill(total.hours, accent) }}
           onMouseEnter={(event) => {
-            const { rows, note } = dayRows(total, star)
+            const { rows, note } = dayRows(total)
             show(event, formatDate(total.date), rows, note)
           }}
           onMouseLeave={hide}
@@ -639,8 +635,8 @@ export function CalendarHeatmap({
 
       <p className="an-panel__note">
         Brighter is more hours, reaching full colour at {DAILY_TARGET_HOURS} h - a solid day, not
-        your longest. Ringed squares are superstar days, more than two standard deviations above
-        your average working day. Hover a square for its day; the arrows page back a year at a time.
+        your longest. Ringed squares are superstar days, over {SUPERSTAR_HOURS} h. Hover a square
+        for its day; the arrows page back a year at a time.
       </p>
       {hoverTip(tip)}
     </div>

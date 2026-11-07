@@ -1291,11 +1291,14 @@ h. It replaced four levels off the 90th percentile, under which a run of long
 days pushed an ordinary three-hour day to a middling shade. Absolute also
 means a day never changes colour when a record day is added.
 
-**Superstar days get a ring.** More than two standard deviations above the
-average *worked* day, over the whole history (empty days would drag the mean
-to zero): on the real history 7.5 h, 46 of 939 worked days. A white ring and
-an accent glow, static - a pulse would keep the page repainting. The hover
-box names it and the cutoff; the key has a swatch.
+**Superstar days get a ring: any day over 6 hours.** A fixed line the user
+chose, not a statistic. It was two standard deviations above the average
+worked day (7.5 h) for an hour; the user replaced it: *"just make it six
+hours... if it's a seven hour day I'm doing a competition or PER"* - long club
+and competition days are tracked like desk work, so a cutoff derived from the
+history mostly picked those out. A white ring and an accent glow, static - a
+pulse would keep the page repainting. The hover box says so; the key has a
+swatch. `SUPERSTAR_HOURS` in `shared/dayShade.ts`.
 
 **The calendar grid's zoom is bounded, and a day is always the same size.**
 The grid is an svg with a viewBox and `width: 100%`, which is what makes it

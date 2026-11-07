@@ -60,21 +60,18 @@ export function dayFill(hours: number, accent: string): string {
 }
 
 /**
- * Superstar days: more than two standard deviations above the average worked
- * day. The user: "my superstar days... two standard deviations above the
- * average... should have a little special something to it."
+ * Superstar days: more than six hours.
  *
- * Over worked days only, because counting empty days would drag the average
- * toward zero and make an ordinary day a "superstar". Over the whole history
- * rather than the visible window, so a day keeps its mark when you page back a
- * year. Null below a minimum sample, where a standard deviation means little.
+ * A fixed line, not a statistic. It was two standard deviations above the
+ * average worked day (7.5 h on the real history) for an hour, and the user
+ * replaced it: "just make it six hours... if it's a seven hour day I'm doing a
+ * competition or PER or something" - a long club or competition day is a
+ * different thing from six hours at a desk, but it is tracked the same, so a
+ * statistic over the history mostly picked out those. Six is the line the
+ * user chose, above the four-hour target.
  */
-export const SUPERSTAR_MIN_DAYS = 20
+export const SUPERSTAR_HOURS = 6
 
-export function superstarThreshold(hoursByDay: number[]): number | null {
-  const worked = hoursByDay.filter((h) => h > 0)
-  if (worked.length < SUPERSTAR_MIN_DAYS) return null
-  const mean = worked.reduce((sum, h) => sum + h, 0) / worked.length
-  const variance = worked.reduce((sum, h) => sum + (h - mean) ** 2, 0) / worked.length
-  return mean + 2 * Math.sqrt(variance)
+export function isSuperstar(hours: number): boolean {
+  return hours > SUPERSTAR_HOURS
 }
