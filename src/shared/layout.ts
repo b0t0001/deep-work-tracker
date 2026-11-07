@@ -32,7 +32,12 @@ export const PANEL_IDS = [
   // between them each of those two sat alone on a row with its own width of
   // empty grid beside it. A full-width panel after the pair lets them share a
   // row. Ordering only: a stored layout keeps whatever order it already has.
-  'rateTrend'
+  'rateTrend',
+  // Every session as one star in a 3D cloud - see `shared/constellation.ts`.
+  // Last, in a section of its own: it is the one panel that is explored
+  // rather than read, and a stored layout from before it existed gets it
+  // appended here by `resolveLayout` rather than needing a migration.
+  'constellation'
 ] as const
 
 export type PanelId = (typeof PANEL_IDS)[number]
@@ -60,7 +65,8 @@ export const SECTIONS = [
     panels: ['calendar', 'hoursPerWeek']
   },
   { id: 'habits', title: 'Habits', panels: ['timeOfDay', 'plannedRatio'] },
-  { id: 'output', title: 'Projects and output', panels: ['projects', 'rateTrend', 'pace'] }
+  { id: 'output', title: 'Projects and output', panels: ['projects', 'rateTrend', 'pace'] },
+  { id: 'explore', title: 'Explore', panels: ['constellation'] }
 ] as const satisfies readonly { id: string; title: string; panels: readonly PanelId[] }[]
 
 export type SectionId = (typeof SECTIONS)[number]['id']
@@ -132,7 +138,9 @@ export const DEFAULT_RANGES: Record<RangeTargetId, WindowId> = {
   // be readable at, and the control is right there for the rest.
   rateTrend: '1y',
   timeOfDay: 'all',
-  pace: 'all'
+  pace: 'all',
+  // The whole history is the picture worth looking at; a range is a zoom.
+  constellation: 'all'
 }
 
 export const LAYOUT_KEY = 'analytics.layout'

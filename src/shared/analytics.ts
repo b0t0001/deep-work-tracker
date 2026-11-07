@@ -8,6 +8,7 @@
  * streaks, week-over-week, and grouping consecutive runs into sittings.
  */
 
+import type { StarRow } from './constellation'
 import type { HourDay, PlannedRun, ProjectDay, UnitDay } from './ranges'
 
 /** One calendar day. `hours` is running time, never wall-clock span. */
@@ -233,6 +234,15 @@ export interface Analytics {
   unitTasks: Record<string, string[]>
   /** Every counted dated session, for `shared/insights.ts`. See `SessionRow`. */
   sessionRows: SessionRow[]
+  /**
+   * Every counted dated session again, for the Constellation panel, carrying
+   * what `sessionRows` deliberately does not: the row id (the cloud's jitter
+   * is seeded from it, and it is the import order within a day) and clock
+   * times for app-recorded rows, which decide what was one sitting. A second
+   * array rather than more fields on `SessionRow`, so the insights card and
+   * its fixtures are untouched. See `shared/constellation.ts`.
+   */
+  stars: StarRow[]
 }
 
 export interface Streaks {

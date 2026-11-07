@@ -1231,12 +1231,83 @@ fix was signed off. `.dashboard select:focus` drops the outline and tints the
 border instead.
 
 **Panels sit in named sections: At a glance, Hours and consistency, Habits,
-Projects and output.** A section is a property of a panel, like its width, not
+Projects and output, Explore.** A section is a property of a panel, like its width, not
 a second arrangement the user maintains — otherwise a heading describes
 whatever happens to be under it and stops being worth reading. So a drag
 across a section boundary is refused rather than silently reordering the flat
 list. A section with everything in it hidden renders nothing, not an empty
 heading.
+
+**Constellation: every session as one star in a 3D cloud.** *"I want like a
+point cloud ... like one of those LiDAR things ... those obsidian mind maps
+... every single point is like a session, but the three axes are like some
+sort of characteristic."* It is the last panel, alone in an **Explore**
+section, full width. The geometry is `shared/constellation.ts` (pure, tested
+by `scripts/constellation-check.ts`); `components/Constellation.tsx` only
+draws it with three.js (pinned `three@0.187.0`, bundled, no CDN).
+
+- **Distance from the centre is hours worked up to that session**, not the
+  calendar date - the user's own words were "the distance from the origin can
+  be the hours worked". It also makes the rings honest: a ring is drawn where
+  each year (quarter, month, week or day, whichever gives three or more) began,
+  so the band between two rings is as wide as that period was productive, the
+  way a tree records a good year. On a date radius every year would be the same
+  width and the rings would say nothing.
+- **Angle is the project**: a wedge per project as wide as its share of the
+  hours in range, largest first, with a gentle spiral (`TWIST`) applied to
+  every arm equally. At most nine arms; projects under 2.5% of the hours pool
+  into **Other**, which the legend lists by name, and no arm is narrower than
+  a fortieth of the circle. Unlabelled sessions go to Other when there is one.
+- **Height is session length on a log scale**, 2 minutes to 8 hours, so a
+  5-minute check and a 6-hour build both read. The ruler stands outside the rim
+  on the right of the view and moves with the camera: on the central axis its
+  labels sat on the oldest sessions, and on the left the legend covered it.
+- **Size is output as a percentile within its own unit** (`unitKey` collapses
+  plural and case), ranked over the whole history so a star does not grow when
+  the range cuts its neighbours away. Units are never compared numerically.
+  **Brightness is recency** within the range.
+- **Colour belongs to the project, not the range.** Ranked within the range,
+  College Apps was pink at all time and green at 90 days. Colours step round
+  the hue circle by the golden angle from the accent in order of *all-time*
+  hours (`colourRanks`), so the biggest project ever is the accent everywhere.
+- **Lines join one sitting.** App rows: consecutive by clock, same date, under
+  30 minutes from the end of the sitting so far (a nested timer does not pull
+  it back), across projects. Rows without trustworthy clock times - imported
+  and manual - join only consecutive rows of the same date *and* project,
+  because without a clock there is no gap to measure and a cross-project join
+  would be a guess. The caption states both rules.
+- **Interaction**: drag to orbit, slow idle turn that stops on any
+  interaction or hover and resumes after five seconds, hover for a `ChartTip`
+  (date and project small, duration big, output below) plus a ring on the star
+  and its whole sitting drawn bright, click a legend row to isolate an arm,
+  double-click to reset, fullscreen for filming. `prefers-reduced-motion`
+  turns off the turn, the twinkle, damping and the isolation fade.
+- **The wheel scrolls the page until the cloud has been clicked.** A canvas
+  that took the wheel on sight would stop the tab scrolling whenever the
+  pointer crossed it. After a click or drag the wheel zooms until the pointer
+  leaves; in fullscreen it always zooms; a wheel on the idle cloud shows a
+  one-line hint saying so.
+- **One WebGL context per mount, released with `forceContextLoss()` on
+  unmount.** Chromium keeps at most sixteen live contexts and drops the oldest,
+  so a leak per tab visit would eventually blank a chart. A range change swaps
+  the buffers inside the same context. `probe-cst-leak` in `shoot.ts` reads the
+  renderer's live geometry count across ten range changes and five tab round
+  trips: 7 before, 7 after, one canvas.
+- **It is a lazy chunk.** The renderer bundle is shared by every window, and
+  three.js is over a megabyte the timer window must never parse.
+- **The stage is opaque.** Additive blending into a transparent canvas adds
+  into alpha too, and the panel then shows through every bright star.
+- **Colours go to the shaders raw** (`rawColour`), not through `new
+  Color(hex)`, which converts to linear and would draw the accent darker than
+  it is everywhere else.
+- **The loop stops when nobody can see it** (IntersectionObserver and
+  `document.hidden`). Measured with `probe-cst-gl` at all time (2,478 stars,
+  1,169 links): about 5 ms per frame including a GPU sync, at 2248x775 device
+  pixels. The hidden harness window runs no frame clock, so that figure is
+  `constellationBench`, which renders back to back and waits for the GPU.
+- **In Modify panels the stage takes no pointer events**, so a drag that starts
+  on it does nothing rather than orbiting; the grip is the handle, as for every
+  panel.
 
 **Width belongs to prose, not to panels.** `.panel` capped at 900px and
 `.panel--wide` at 1500px, which reads as sensible — cap the container and no

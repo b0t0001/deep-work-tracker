@@ -1,0 +1,1459 @@
+/**
+ * Constellation: every session as a star in one slowly turning cloud.
+ *
+ * The user's brief was a point cloud "like one of those LiDAR things ... those
+ * obsidian mind maps", every session a point, three axes that are each "some
+ * sort of range". Where each star sits is decided entirely by
+ * `shared/constellation.ts` and tested there; this file only draws it.
+ *
+ * Loaded lazily (see `Dashboard.tsx`). The renderer bundle is shared by every
+ * window, and three.js is several hundred kilobytes that the timer window - the
+ * one that has to open instantly - must never parse.
+ *
+ * Things that are easy to undo by accident:
+ *
+ * - **One WebGL context per mount, disposed on unmount.** Chromium caps live
+ *   contexts at sixteen and drops the oldest past that, so a context leaked
+ *   per visit to the tab would eventually blank a chart. A range change swaps
+ *   the geometry inside the same context and disposes the old buffers rather
+ *   than building a second context.
+ * - **The wheel scrolls the page until the cloud has been clicked.** A panel
+ *   that captured the wheel on sight would stop the Analytics tab scrolling
+ *   the moment the pointer drifted over it on the way down. Once you have
+ *   clicked or dragged the cloud, the wheel zooms until the pointer leaves;
+ *   in fullscreen it always zooms.
+ * - **The stage is opaque.** Additive blending into a transparent canvas adds
+ *   into the alpha channel too, and the compositor then lets the panel show
+ *   through every bright star. An opaque stage with its own near-black is
+ *   what makes the glow read as light rather than as holes.
+ * - **The loop stops when nobody can see it** - scrolled out of view or the
+ *   window hidden - so a dashboard left open does not spin a GPU all day.
+ */
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  AdditiveBlending,
+  BufferGeometry,
+  Color,
+  Float32BufferAttribute,
+  Group,
+  LineLoop,
+  LineSegments,
+  PerspectiveCamera,
+  Points,
+  Scene,
+  ShaderMaterial,
+  Vector3,
+  WebGLRenderer,
+  type Material
+} from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import {
+  HEIGHT,
+  RADIUS,
+  SITTING_GAP_MINUTES,
+  TWIST,
+  armColours,
+  colourRanks,
+  buildConstellation,
+  type Constellation as Model,
+  type StarRow
+} from '@shared/constellation'
+import { formatDate } from '@shared/dates'
+import { formatCount, pluralUnit } from '@shared/facts'
+import { ChartTip } from './AnalyticsCharts'
+
+const STAGE_BG = '#05060a'
+/** Where the camera looks: a little above the floor, so tall stars are not cropped. */
+const TARGET_Y = HEIGHT * 0.32
+/** Seconds of stillness after an interaction before the slow turn resumes. */
+const IDLE_RESUME_MS = 5000
+
+const CSS = `
+.cst__stage {
+  position: relative;
+  height: clamp(440px, 62vh, 760px);
+  border-radius: 10px;
+  overflow: hidden;
+  background: ${STAGE_BG};
+  isolation: isolate;
+  outline: none;
+}
+.cst__stage:fullscreen {
+  height: 100vh;
+  border-radius: 0;
+}
+.cst__stage canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+.cst__stage canvas:active {
+  cursor: grabbing;
+}
+.cst__stage.is-hovering canvas {
+  cursor: pointer;
+}
+/* A vignette, above the canvas and below everything else. It is what makes
+   the stage read as depth rather than as a black rectangle. */
+.cst__vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 52%, transparent 40%, #00000099 100%),
+    radial-gradient(ellipse 45% 38% at 50% 55%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%);
+}
+.cst__labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.cst__label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  font-size: calc(10.5px * var(--an-fs, 1));
+  letter-spacing: 0.02em;
+  color: #c9ced8;
+  will-change: transform, opacity;
+}
+.cst__label--ring {
+  color: #8b919c;
+  font-variant-numeric: tabular-nums;
+}
+.cst__label--tick {
+  color: #6c727d;
+  font-size: calc(9.5px * var(--an-fs, 1));
+  font-variant-numeric: tabular-nums;
+}
+.cst__label--arm {
+  font-weight: 560;
+  text-shadow: 0 0 8px #000;
+}
+.cst__legend {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  padding: 6px;
+  border-radius: 9px;
+  background: color-mix(in srgb, ${STAGE_BG} 70%, transparent);
+  backdrop-filter: blur(6px);
+}
+.cst__arm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px 3px 6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: calc(11.5px * var(--an-fs, 1));
+  text-align: left;
+  cursor: pointer;
+  transition: opacity 160ms ease, background 120ms ease;
+}
+.cst__arm:hover {
+  background: #ffffff0d;
+}
+.cst__arm.is-dim {
+  opacity: 0.38;
+}
+.cst__arm.is-on {
+  background: #ffffff12;
+}
+.cst__dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+}
+.cst__arm-name {
+  flex: 1 1 auto;
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cst__arm-hours {
+  color: var(--text-dim);
+  font-size: calc(10.5px * var(--an-fs, 1));
+  font-variant-numeric: tabular-nums;
+  margin-left: 8px;
+}
+.cst__title {
+  display: none;
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  text-align: right;
+  pointer-events: none;
+}
+.cst__stage:fullscreen .cst__title {
+  display: block;
+}
+.cst__title b {
+  display: block;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text);
+}
+.cst__title span {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.cst__tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  pointer-events: none;
+  max-width: 280px;
+}
+.cst__hint {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  background: #000000aa;
+  color: var(--text-dim);
+  font-size: 11px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.cst__hint.is-on {
+  opacity: 1;
+}
+/* Doubled class: .cst__btn below sets display too, and would win on order. */
+.cst__btn.cst__exit {
+  display: none;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+}
+.cst__stage:fullscreen .cst__btn.cst__exit {
+  display: inline-flex;
+}
+.cst__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.cst__btn:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+.cst__btn svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
+.cst__aside {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cst__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: center;
+}
+/* While panels are being arranged the cloud must not take the pointer: a
+   drag that started on it would orbit instead of doing nothing, and the
+   grip is the only handle. */
+.an.is-arranging .cst__stage {
+  pointer-events: none;
+}
+`
+
+/* ---------- shaders ---------- */
+
+const STAR_VERT = `
+attribute vec3 color;
+attribute float size;
+attribute float bright;
+attribute float arm;
+uniform float uScale;
+uniform float uPixelRatio;
+uniform float uIsolate;
+uniform float uFocus;
+uniform float uFogNear;
+uniform float uFogFar;
+uniform float uTime;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  float depth = max(0.1, -mv.z);
+  float on = (uIsolate < -0.5 || abs(arm - uIsolate) < 0.5) ? 1.0 : 0.0;
+  float dim = mix(1.0, mix(0.06, 1.0, on), uFocus);
+  float fog = 1.0 - 0.78 * smoothstep(uFogNear, uFogFar, depth);
+  float twinkle = 0.9 + 0.1 * sin(uTime * 1.7 + position.x * 7.3 + position.z * 5.1);
+  vColor = color;
+  vAlpha = (0.22 + 0.78 * bright) * fog * dim * twinkle;
+  gl_PointSize = clamp(size * uScale / depth, 1.6, 64.0) * uPixelRatio;
+  gl_Position = projectionMatrix * mv;
+}
+`
+
+const STAR_FRAG = `
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  vec2 p = gl_PointCoord * 2.0 - 1.0;
+  float d = dot(p, p);
+  if (d > 1.0) discard;
+  float core = exp(-d * 22.0);
+  float halo = exp(-d * 4.5) * 0.42;
+  float a = (core + halo) * vAlpha;
+  vec3 c = mix(vColor, vec3(1.0), core * 0.6);
+  gl_FragColor = vec4(c, a);
+}
+`
+
+const LINE_VERT = `
+attribute vec3 color;
+attribute float arm;
+uniform float uIsolate;
+uniform float uFocus;
+uniform float uFogNear;
+uniform float uFogFar;
+uniform float uAlpha;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  float depth = -mv.z;
+  float on = (uIsolate < -0.5 || abs(arm - uIsolate) < 0.5) ? 1.0 : 0.0;
+  float dim = mix(1.0, mix(0.03, 1.0, on), uFocus);
+  float fog = 1.0 - 0.85 * smoothstep(uFogNear, uFogFar, depth);
+  vColor = color;
+  vAlpha = uAlpha * fog * dim;
+  gl_Position = projectionMatrix * mv;
+}
+`
+
+const LINE_FRAG = `
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  gl_FragColor = vec4(vColor, vAlpha);
+}
+`
+
+/** The hovered star's ring. */
+const MARK_FRAG = `
+uniform vec3 uColor;
+void main() {
+  vec2 p = gl_PointCoord * 2.0 - 1.0;
+  float d = length(p);
+  float ring = smoothstep(0.62, 0.74, d) * (1.0 - smoothstep(0.84, 0.96, d));
+  if (ring < 0.01) discard;
+  gl_FragColor = vec4(uColor, ring * 0.95);
+}
+`
+const MARK_VERT = `
+uniform float uSize;
+uniform float uPixelRatio;
+void main() {
+  gl_PointSize = uSize * uPixelRatio;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`
+
+/* ---------- formatting ---------- */
+
+function duration(seconds: number): string {
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes} min`
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return m === 0 ? `${h} h` : `${h} h ${m} min`
+}
+
+function hoursShort(hours: number): string {
+  if (hours >= 100) return `${Math.round(hours).toLocaleString('en-US')} h`
+  if (hours >= 10) return `${Math.round(hours)} h`
+  return `${(Math.round(hours * 10) / 10).toString()} h`
+}
+
+/**
+ * A hex colour as raw 0-1 channels, with no colour-space conversion.
+ *
+ * `new Color('#5eead4')` converts sRGB into three's linear working space, and
+ * the custom shaders here never convert back - so the accent would arrive on
+ * screen visibly darker than the same accent everywhere else in the app.
+ * `setRGB` without a colour space stores the numbers as given.
+ */
+function rawColour(hex: string): Color {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  const n = m ? parseInt(m[1], 16) : 0xffffff
+  return new Color().setRGB(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255)
+}
+
+function clockTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
+/* ---------- the scene ---------- */
+
+interface Label {
+  el: HTMLSpanElement
+  at: Vector3
+  /** Pixels to shift by after projection, so a label sits beside its anchor. */
+  dx: number
+  dy: number
+  /** Ring labels ride the near side of their ring, so they are re-anchored per frame. */
+  ring?: number
+  /** A height-ruler label, at this height on the ruler wherever the ruler is. */
+  ruler?: number
+  /** Centred on the anchor rather than starting at it. */
+  centre?: boolean
+  /** Ends at the anchor rather than starting at it. */
+  right?: boolean
+}
+
+interface SceneState {
+  renderer: WebGLRenderer
+  scene: Scene
+  camera: PerspectiveCamera
+  controls: OrbitControls
+  content: Group
+  starMat: ShaderMaterial
+  lineMat: ShaderMaterial
+  glowMat: ShaderMaterial
+  markMat: ShaderMaterial
+  mark: Points
+  glow: LineSegments | null
+  positions: Float32Array
+  sizes: Float32Array
+  labels: Label[]
+  /** The height scale, moved each frame to the left edge of the view. */
+  ruler: Group | null
+  isolate: number
+  focus: number
+  /** Restart the idle turn after the usual pause. */
+  resume: () => void
+  dispose: () => void
+}
+
+/** Every geometry and material under a group, released. */
+function disposeTree(group: Group): void {
+  group.traverse((object) => {
+    const mesh = object as unknown as { geometry?: BufferGeometry; material?: Material }
+    mesh.geometry?.dispose()
+  })
+  group.clear()
+}
+
+function homeDistance(aspect: number, fov: number): number {
+  const v = (fov * Math.PI) / 360
+  const h = Math.atan(Math.tan(v) * aspect)
+  // Fit the disc's diameter across the narrower of the two half-angles, with
+  // room for the ruler and the arm names beside it, seen from about 30
+  // degrees above the floor.
+  const fitH = (RADIUS * 1.3) / Math.tan(h)
+  const fitV = (RADIUS * 0.66 + HEIGHT * 0.5) / Math.tan(v)
+  return Math.max(fitH, fitV)
+}
+
+/**
+ * Uploads one model into the scene: stars, sitting lines, guides and labels.
+ *
+ * Outside the component so the build is plainly a function of its inputs.
+ * Returns what undoes it; the previous build's buffers are released here
+ * first, inside the same context.
+ */
+function populate(
+  state: SceneState,
+  labelLayer: HTMLDivElement,
+  model: Model,
+  colours: string[]
+): () => void {
+  disposeTree(state.content)
+  if (state.glow !== null) {
+    state.glow.geometry.dispose()
+    state.scene.remove(state.glow)
+    state.glow = null
+  }
+  for (const label of state.labels) label.el.remove()
+  state.labels = []
+
+  const n = model.stars.length
+  const positions = new Float32Array(n * 3)
+  const colors = new Float32Array(n * 3)
+  const sizes = new Float32Array(n)
+  const bright = new Float32Array(n)
+  const arms = new Float32Array(n)
+  const rgb = colours.map(rawColour)
+  model.stars.forEach((star, i) => {
+    positions[i * 3] = star.x
+    positions[i * 3 + 1] = star.y
+    positions[i * 3 + 2] = star.z
+    const c = rgb[star.wedge] ?? rgb[0]
+    colors[i * 3] = c.r
+    colors[i * 3 + 1] = c.g
+    colors[i * 3 + 2] = c.b
+    // World units. No output is the base size; output grows it by its
+    // percentile within its own unit, never by its raw quantity.
+    sizes[i] = 0.25 * (star.output === null ? 1 : 1 + star.output * 1.5)
+    bright[i] = star.recency
+    arms[i] = star.wedge
+  })
+  state.positions = positions
+  state.sizes = sizes
+
+  const starGeo = new BufferGeometry()
+  starGeo.setAttribute('position', new Float32BufferAttribute(positions, 3))
+  starGeo.setAttribute('color', new Float32BufferAttribute(colors, 3))
+  starGeo.setAttribute('size', new Float32BufferAttribute(sizes, 1))
+  starGeo.setAttribute('bright', new Float32BufferAttribute(bright, 1))
+  starGeo.setAttribute('arm', new Float32BufferAttribute(arms, 1))
+  const points = new Points(starGeo, state.starMat)
+  points.frustumCulled = false
+
+  // Sitting lines, coloured by the stars they join so a line between two
+  // arms fades from one colour into the other.
+  const lp = new Float32Array(model.links.length * 6)
+  const lc = new Float32Array(model.links.length * 6)
+  const la = new Float32Array(model.links.length * 2)
+  model.links.forEach((link, k) => {
+    for (const [slot, i] of [
+      [0, link.a],
+      [1, link.b]
+    ] as const) {
+      lp.set(positions.subarray(i * 3, i * 3 + 3), k * 6 + slot * 3)
+      lc.set(colors.subarray(i * 3, i * 3 + 3), k * 6 + slot * 3)
+      la[k * 2 + slot] = arms[i]
+    }
+  })
+  const lineGeo = new BufferGeometry()
+  lineGeo.setAttribute('position', new Float32BufferAttribute(lp, 3))
+  lineGeo.setAttribute('color', new Float32BufferAttribute(lc, 3))
+  lineGeo.setAttribute('arm', new Float32BufferAttribute(la, 1))
+  const lines = new LineSegments(lineGeo, state.lineMat)
+  lines.frustumCulled = false
+
+  // Guides: the rim, a ring per period, and the height ruler. Faint and
+  // white, so they read as a scale rather than as data.
+  const guideMat = new ShaderMaterial({
+    vertexShader: LINE_VERT,
+    fragmentShader: LINE_FRAG,
+    uniforms: {
+      uIsolate: { value: -1 },
+      uFocus: { value: 0 },
+      uFogNear: state.lineMat.uniforms.uFogNear,
+      uFogFar: state.lineMat.uniforms.uFogFar,
+      uAlpha: { value: 0.07 }
+    },
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending
+  })
+  const circle = (radius: number, alpha = 1): LineLoop => {
+    const seg = 160
+    const p = new Float32Array(seg * 3)
+    const c = new Float32Array(seg * 3).fill(alpha)
+    for (let i = 0; i < seg; i += 1) {
+      const a = (i / seg) * Math.PI * 2
+      p[i * 3] = Math.cos(a) * radius
+      p[i * 3 + 2] = Math.sin(a) * radius
+    }
+    const g = new BufferGeometry()
+    g.setAttribute('position', new Float32BufferAttribute(p, 3))
+    g.setAttribute('color', new Float32BufferAttribute(c, 3))
+    g.setAttribute('arm', new Float32BufferAttribute(new Float32Array(seg), 1))
+    return new LineLoop(g, guideMat)
+  }
+  const guides = new Group()
+  for (const ring of model.rings) guides.add(circle(ring.radius))
+  guides.add(circle(RADIUS * 1.02, 1.6))
+
+  /*
+   * The height ruler stands just outside the rim on the right of the view and
+   * is moved there every frame, so it is always beside the cloud rather than
+   * in it. It was on the central axis first, which is where the oldest
+   * sessions are: its labels sat on top of the core's stars.
+   */
+  const ticks: number[] = [0, 0, 0, 0, HEIGHT, 0]
+  for (const tick of model.heightTicks) ticks.push(0, tick.y, 0, 0.3, tick.y, 0)
+  const spGeo = new BufferGeometry()
+  spGeo.setAttribute('position', new Float32BufferAttribute(ticks, 3))
+  spGeo.setAttribute(
+    'color',
+    new Float32BufferAttribute(new Float32Array(ticks.length).fill(2.2), 3)
+  )
+  spGeo.setAttribute('arm', new Float32BufferAttribute(new Float32Array(ticks.length / 3), 1))
+  const ruler = new Group()
+  ruler.add(new LineSegments(spGeo, guideMat))
+  state.ruler = ruler
+
+  state.content.add(guides, ruler, lines, points)
+
+  /* labels */
+  // Built whole and never touched again: the positions are written per
+  // frame by the scene loop, which owns them from here.
+  const add = (
+    text: string,
+    cls: string,
+    at: Vector3,
+    dx: number,
+    dy: number,
+    extra: {
+      ring?: number
+      ruler?: number
+      arm?: number
+      colour?: string
+      centre?: boolean
+      right?: boolean
+    } = {}
+  ): void => {
+    const el = document.createElement('span')
+    el.className = `cst__label ${cls}`
+    el.textContent = text
+    el.style.opacity = '0'
+    if (extra.colour !== undefined) el.style.color = extra.colour
+    if (extra.arm !== undefined) el.dataset.arm = String(extra.arm)
+    labelLayer.appendChild(el)
+    state.labels.push({
+      el,
+      at,
+      dx,
+      dy,
+      ring: extra.ring,
+      ruler: extra.ruler,
+      centre: extra.centre,
+      right: extra.right
+    })
+  }
+  for (const ring of model.rings) {
+    add(ring.label, 'cst__label--ring', new Vector3(), 6, 2, { ring: ring.radius })
+  }
+  for (const tick of model.heightTicks) {
+    add(tick.label, 'cst__label--tick', new Vector3(), 8, -7, { ruler: tick.y })
+  }
+  // Each arm is named just past the outer edge of its own stars, on its
+  // centre line - not at the rim. Radius is hours, so a project that ended
+  // two years ago lives well inside the disc, and a name out at the rim
+  // would point at empty space.
+  const outer = model.wedges.map(() => [] as number[])
+  for (const star of model.stars) outer[star.wedge]?.push(star.radial)
+  model.wedges.forEach((wedge, i) => {
+    const radials = outer[i].sort((a, b) => a - b)
+    const edge = radials.length === 0 ? 1 : radials[Math.floor((radials.length - 1) * 0.92)]
+    const a = wedge.start + wedge.width / 2 + TWIST * edge
+    const r = edge * RADIUS + 0.9
+    add(wedge.label, 'cst__label--arm', new Vector3(Math.cos(a) * r, 0, Math.sin(a) * r), 0, -8, {
+      arm: i,
+      colour: colours[i],
+      centre: true
+    })
+  })
+
+  // The guide material belongs to this build, so it goes with it.
+  return () => guideMat.dispose()
+}
+
+export interface ConstellationProps {
+  /** The sessions in the panel's range. */
+  rows: StarRow[]
+  /** Every counted session, so output is ranked within its unit over the whole history. */
+  all: StarRow[]
+  accent: string
+  control: React.ReactNode
+}
+
+export default function Constellation({
+  rows,
+  all,
+  accent,
+  control
+}: ConstellationProps): React.JSX.Element {
+  const model = useMemo(() => buildConstellation(rows, all), [rows, all])
+  const ranks = useMemo(() => colourRanks(all), [all])
+  const colours = useMemo(() => armColours(model.wedges, accent, ranks), [model, accent, ranks])
+
+  const stageRef = useRef<HTMLDivElement>(null)
+  const labelsRef = useRef<HTMLDivElement>(null)
+  const tipRef = useRef<HTMLDivElement>(null)
+  const sceneRef = useRef<SceneState | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+  /*
+   * Hover and isolation are indices into this model's stars and arms, so they
+   * are stored with the model they index. A range change builds a new model,
+   * and a stale index would name a different star or arm in it - keyed like
+   * this, it simply stops applying, with no effect needed to clear it.
+   */
+  const [isolatedAt, setIsolatedAt] = useState<{ model: Model; index: number } | null>(null)
+  const [hoverAt, setHoverAt] = useState<{ model: Model; index: number } | null>(null)
+  const isolated = isolatedAt !== null && isolatedAt.model === model ? isolatedAt.index : null
+  const hover = hoverAt !== null && hoverAt.model === model ? hoverAt.index : null
+  const [hint, setHint] = useState(false)
+  const [full, setFull] = useState(false)
+
+  // Read inside long-lived listeners through refs, so the scene is not torn
+  // down and rebuilt every time one of them changes.
+  const modelRef = useRef<Model>(model)
+  const hoverRef = useRef<number | null>(null)
+  const isolatedRef = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    modelRef.current = model
+    hoverRef.current = hover
+    isolatedRef.current = isolated
+  })
+  const setHover = (index: number | null): void =>
+    setHoverAt(index === null ? null : { model: modelRef.current, index })
+  const setIsolated = (index: number | null): void =>
+    setIsolatedAt(index === null ? null : { model: modelRef.current, index })
+
+  /* The scene: created once per mount, disposed on unmount. */
+  useEffect(() => {
+    const stage = stageRef.current
+    const labelLayer = labelsRef.current
+    if (stage === null || labelLayer === null) return
+
+    let renderer: WebGLRenderer
+    try {
+      renderer = new WebGLRenderer({
+        antialias: true,
+        alpha: false,
+        powerPreference: 'high-performance'
+      })
+    } catch (error) {
+      // Once, at mount, and only on failure: the panel has to say why it is
+      // blank, and the only place the reason exists is this catch. The rule
+      // guards against an effect that sets state every run, which this is not.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFailure(error instanceof Error ? error.message : String(error))
+      return
+    }
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
+    renderer.setPixelRatio(pixelRatio)
+    renderer.setClearColor(rawColour(STAGE_BG), 1)
+    stage.prepend(renderer.domElement)
+
+    const scene = new Scene()
+    const camera = new PerspectiveCamera(42, 1, 0.1, 400)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.target.set(0, TARGET_Y, 0)
+    controls.enableDamping = !reduced
+    controls.dampingFactor = 0.08
+    controls.rotateSpeed = 0.6
+    controls.zoomSpeed = 0.7
+    controls.enablePan = false
+    controls.enableZoom = false
+    controls.minDistance = RADIUS * 0.35
+    controls.maxDistance = RADIUS * 6
+    controls.maxPolarAngle = Math.PI * 0.62
+    controls.autoRotate = !reduced
+    controls.autoRotateSpeed = 0.32
+
+    const common = {
+      uIsolate: { value: -1 },
+      uFocus: { value: 0 },
+      uFogNear: { value: 10 },
+      uFogFar: { value: 40 }
+    }
+    const starMat = new ShaderMaterial({
+      vertexShader: STAR_VERT,
+      fragmentShader: STAR_FRAG,
+      uniforms: {
+        ...common,
+        uScale: { value: 600 },
+        uPixelRatio: { value: pixelRatio },
+        uTime: { value: 0 }
+      },
+      transparent: true,
+      depthWrite: false,
+      blending: AdditiveBlending
+    })
+    // Shared uniform objects, so one write moves stars and lines together.
+    const lineMat = new ShaderMaterial({
+      vertexShader: LINE_VERT,
+      fragmentShader: LINE_FRAG,
+      uniforms: { ...common, uAlpha: { value: 0.16 } },
+      transparent: true,
+      depthWrite: false,
+      blending: AdditiveBlending
+    })
+    const glowMat = new ShaderMaterial({
+      vertexShader: LINE_VERT,
+      fragmentShader: LINE_FRAG,
+      uniforms: {
+        uIsolate: { value: -1 },
+        uFocus: { value: 0 },
+        uFogNear: common.uFogNear,
+        uFogFar: common.uFogFar,
+        uAlpha: { value: 0.75 }
+      },
+      transparent: true,
+      depthWrite: false,
+      blending: AdditiveBlending
+    })
+    const markMat = new ShaderMaterial({
+      vertexShader: MARK_VERT,
+      fragmentShader: MARK_FRAG,
+      uniforms: {
+        uColor: { value: rawColour('#ffffff') },
+        uSize: { value: 22 },
+        uPixelRatio: { value: pixelRatio }
+      },
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      blending: AdditiveBlending
+    })
+    const markGeo = new BufferGeometry()
+    markGeo.setAttribute('position', new Float32BufferAttribute([0, 0, 0], 3))
+    const mark = new Points(markGeo, markMat)
+    mark.visible = false
+    mark.renderOrder = 10
+    scene.add(mark)
+
+    const content = new Group()
+    scene.add(content)
+
+    const state: SceneState = {
+      renderer,
+      scene,
+      camera,
+      controls,
+      content,
+      starMat,
+      lineMat,
+      glowMat,
+      markMat,
+      mark,
+      glow: null,
+      positions: new Float32Array(0),
+      sizes: new Float32Array(0),
+      labels: [],
+      ruler: null,
+      isolate: -1,
+      focus: 0,
+      resume: () => undefined,
+      dispose: () => undefined
+    }
+    sceneRef.current = state
+
+    /* size and framing */
+    let interacted = false
+    const home = (): void => {
+      const d = homeDistance(camera.aspect, camera.fov)
+      const elevation = (31 * Math.PI) / 180
+      const azimuth = (-58 * Math.PI) / 180
+      camera.position.set(
+        Math.cos(azimuth) * Math.cos(elevation) * d,
+        TARGET_Y + Math.sin(elevation) * d,
+        Math.sin(azimuth) * Math.cos(elevation) * d
+      )
+      controls.target.set(0, TARGET_Y, 0)
+      controls.update()
+      controls.saveState()
+    }
+    const resize = (): void => {
+      const w = Math.max(1, stage.clientWidth)
+      const h = Math.max(1, stage.clientHeight)
+      renderer.setSize(w, h, false)
+      camera.aspect = w / h
+      camera.updateProjectionMatrix()
+      // Sizes are in world units: this turns them into pixels at distance 1.
+      starMat.uniforms.uScale.value = h / (2 * Math.tan((camera.fov * Math.PI) / 360))
+      if (!interacted) home()
+    }
+    resize()
+    const sizer = new ResizeObserver(resize)
+    sizer.observe(stage)
+
+    /* idle turning */
+    let resumeTimer = 0
+    const pauseTurn = (): void => {
+      interacted = true
+      controls.autoRotate = false
+      window.clearTimeout(resumeTimer)
+    }
+    const scheduleResume = (): void => {
+      window.clearTimeout(resumeTimer)
+      if (reduced) return
+      resumeTimer = window.setTimeout(() => {
+        if (hoverRef.current === null) controls.autoRotate = true
+      }, IDLE_RESUME_MS)
+    }
+    controls.addEventListener('start', pauseTurn)
+    controls.addEventListener('end', scheduleResume)
+    state.resume = scheduleResume
+
+    /* wheel engagement */
+    let hintTimer = 0
+    const engage = (): void => {
+      controls.enableZoom = true
+    }
+    const disengage = (): void => {
+      if (document.fullscreenElement !== stage) controls.enableZoom = false
+    }
+    const onWheelIdle = (event: WheelEvent): void => {
+      if (controls.enableZoom) return
+      // Ctrl+wheel is the browser's page zoom elsewhere; here it means the
+      // same thing the wheel will mean once the cloud is clicked.
+      if (event.ctrlKey) {
+        engage()
+        return
+      }
+      setHint(true)
+      window.clearTimeout(hintTimer)
+      hintTimer = window.setTimeout(() => setHint(false), 1600)
+    }
+    renderer.domElement.addEventListener('pointerdown', engage)
+    renderer.domElement.addEventListener('pointerleave', disengage)
+    renderer.domElement.addEventListener('wheel', onWheelIdle, { passive: true, capture: true })
+
+    /* hover picking, in screen space */
+    const projected = new Vector3()
+    let pointer: { x: number; y: number } | null = null
+    let pickQueued = false
+    let dragging = false
+    controls.addEventListener('start', () => (dragging = true))
+    controls.addEventListener('end', () => (dragging = false))
+    const pick = (): void => {
+      pickQueued = false
+      const m = modelRef.current
+      if (pointer === null || dragging) {
+        if (hoverRef.current !== null) setHover(null)
+        return
+      }
+      const w = stage.clientWidth
+      const h = stage.clientHeight
+      const iso = isolatedRef.current
+      let best = -1
+      let bestScore = Infinity
+      const pos = state.positions
+      const sizes = state.sizes
+      const scale = starMat.uniforms.uScale.value as number
+      for (let i = 0; i < m.stars.length; i += 1) {
+        if (iso !== null && m.stars[i].wedge !== iso) continue
+        projected.set(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]).project(camera)
+        if (projected.z > 1) continue
+        const sx = ((projected.x + 1) / 2) * w
+        const sy = ((1 - projected.y) / 2) * h
+        const dx = sx - pointer.x
+        const dy = sy - pointer.y
+        const d2 = dx * dx + dy * dy
+        // Generous for small stars, which are the hard ones to land on.
+        const ex = pos[i * 3] - camera.position.x
+        const ey = pos[i * 3 + 1] - camera.position.y
+        const ez = pos[i * 3 + 2] - camera.position.z
+        const depth = Math.sqrt(ex * ex + ey * ey + ez * ez)
+        const radius = Math.max(7, (sizes[i] * scale) / depth / 3)
+        if (d2 <= radius * radius && d2 < bestScore) {
+          bestScore = d2
+          best = i
+        }
+      }
+      const next = best === -1 ? null : best
+      if (next !== hoverRef.current) setHover(next)
+      placeTip()
+    }
+    const placeTip = (): void => {
+      const tip = tipRef.current
+      if (tip === null || pointer === null) return
+      const w = stage.clientWidth
+      const h = stage.clientHeight
+      const tw = tip.offsetWidth
+      const th = tip.offsetHeight
+      let x = pointer.x + 16
+      let y = pointer.y + 14
+      if (x + tw > w - 8) x = pointer.x - tw - 16
+      if (y + th > h - 8) y = pointer.y - th - 14
+      tip.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, y)}px)`
+    }
+    const onMove = (event: PointerEvent): void => {
+      const box = stage.getBoundingClientRect()
+      pointer = { x: event.clientX - box.left, y: event.clientY - box.top }
+      if (!pickQueued) {
+        pickQueued = true
+        requestAnimationFrame(pick)
+      }
+    }
+    const onLeave = (): void => {
+      pointer = null
+      setHover(null)
+    }
+    renderer.domElement.addEventListener('pointermove', onMove)
+    renderer.domElement.addEventListener('pointerleave', onLeave)
+
+    /* double-click: back to the opening view */
+    const onDouble = (): void => {
+      interacted = false
+      controls.reset()
+      home()
+      setIsolated(null)
+      if (!reduced) controls.autoRotate = true
+    }
+    renderer.domElement.addEventListener('dblclick', onDouble)
+
+    /* fullscreen */
+    const onFullscreen = (): void => {
+      const on = document.fullscreenElement === stage
+      setFull(on)
+      controls.enableZoom = on
+    }
+    document.addEventListener('fullscreenchange', onFullscreen)
+
+    /* the loop, only while it can be seen */
+    let visible = true
+    const seen = new IntersectionObserver((entries) => {
+      visible = entries.some((entry) => entry.isIntersecting)
+      if (visible) start()
+    })
+    seen.observe(stage)
+    const onVisibility = (): void => {
+      if (!document.hidden) start()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    let frame = 0
+    let last = performance.now()
+    let clock = 0
+    const frameTimes: number[] = []
+    const start = (): void => {
+      if (frame === 0) {
+        last = performance.now()
+        frame = requestAnimationFrame(tick)
+      }
+    }
+    const tick = (now: number): void => {
+      frame = 0
+      if (!visible || document.hidden) return
+      const dt = Math.min(0.1, (now - last) / 1000)
+      last = now
+      if (!reduced) clock += dt
+
+      // Isolation eases in and out rather than snapping, unless motion is reduced.
+      const target = state.isolate >= 0 ? 1 : 0
+      state.focus = reduced ? target : state.focus + (target - state.focus) * Math.min(1, dt * 7)
+      if (state.isolate >= 0) common.uIsolate.value = state.isolate
+      else if (state.focus < 0.01) common.uIsolate.value = -1
+      common.uFocus.value = state.focus
+      starMat.uniforms.uTime.value = clock
+
+      controls.update(dt)
+      const dist = camera.position.distanceTo(controls.target)
+      common.uFogNear.value = dist - RADIUS * 0.4
+      common.uFogFar.value = dist + RADIUS * 1.3
+
+      placeRuler()
+      const t0 = performance.now()
+      renderer.render(scene, camera)
+      frameTimes.push(performance.now() - t0)
+      if (frameTimes.length > 120) frameTimes.shift()
+      placeLabels()
+      frame = requestAnimationFrame(tick)
+    }
+
+    /*
+     * The mean CPU cost of a frame, on the element, for the performance check.
+     * Read-only and cheap; nothing in the app reads it.
+     */
+    const report = window.setInterval(() => {
+      if (frameTimes.length === 0) return
+      const mean = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length
+      stage.dataset.frameMs = mean.toFixed(3)
+    }, 1000)
+
+    /**
+     * The ruler to the right of the disc as the viewer sees it. Right, not
+     * left: the legend sits in the top-left corner and covered the ruler's
+     * top label at 1150px.
+     */
+    const placeRuler = (): void => {
+      if (state.ruler === null) return
+      const az = Math.atan2(camera.position.z, camera.position.x)
+      const r = RADIUS * 1.1
+      state.ruler.position.set(Math.sin(az) * r, 0, -Math.cos(az) * r)
+      // Ticks point away from the cloud, towards the labels.
+      state.ruler.rotation.y = Math.PI / 2 - az
+    }
+
+    const placeLabels = (): void => {
+      const w = stage.clientWidth
+      const h = stage.clientHeight
+      const az = Math.atan2(camera.position.z, camera.position.x)
+      const rulerAt = state.ruler?.position
+      for (const label of state.labels) {
+        // Ring labels ride the side of each ring nearest the viewer, so they
+        // stay readable from any angle.
+        if (label.ring !== undefined) {
+          label.at.set(Math.cos(az) * label.ring, 0, Math.sin(az) * label.ring)
+        }
+        if (label.ruler !== undefined && rulerAt !== undefined) {
+          label.at.set(rulerAt.x, label.ruler, rulerAt.z)
+        }
+        projected.copy(label.at).project(camera)
+        if (projected.z > 1) {
+          label.el.style.opacity = '0'
+          continue
+        }
+        const x = ((projected.x + 1) / 2) * w + label.dx
+        const y = ((1 - projected.y) / 2) * h + label.dy
+        const shift =
+          label.centre === true
+            ? ' translateX(-50%)'
+            : label.right === true
+              ? ' translateX(-100%)'
+              : ''
+        label.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)${shift}`
+        // Labels on the far side of the cloud recede with the stars there.
+        const depth = camera.position.distanceTo(label.at)
+        const fogNear = common.uFogNear.value
+        const fogFar = common.uFogFar.value
+        const f = Math.min(1, Math.max(0, (depth - fogNear) / (fogFar - fogNear)))
+        const dim =
+          label.el.dataset.arm !== undefined && state.isolate >= 0
+            ? Number(label.el.dataset.arm) === state.isolate
+              ? 1
+              : 0.15
+            : 1
+        label.el.style.opacity = String((1 - 0.7 * f) * dim)
+      }
+    }
+
+    start()
+
+    /*
+     * Two hooks for `scripts/shoot.ts`, on the element rather than on window
+     * so they vanish with it. `constellationStill` stops the idle turn, so a
+     * screenshot is of a known angle. `constellationBench(n)` renders n
+     * frames back to back and reads a pixel after each, which waits for the
+     * GPU to finish - the true cost of a frame, not the time to queue one -
+     * and reports the renderer's own count of live buffers, which is how a
+     * leak across range changes would show. Nothing in the app calls either.
+     */
+    Object.defineProperty(stage, 'constellationStill', {
+      configurable: true,
+      value: () => {
+        interacted = true
+        controls.autoRotate = false
+      }
+    })
+    Object.defineProperty(stage, 'constellationBench', {
+      configurable: true,
+      value: (n: number) => {
+        const gl = renderer.getContext()
+        const pixel = new Uint8Array(4)
+        const t0 = performance.now()
+        for (let i = 0; i < n; i += 1) {
+          renderer.render(scene, camera)
+          gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+        }
+        const ms = (performance.now() - t0) / Math.max(1, n)
+        return {
+          msPerFrame: Number(ms.toFixed(3)),
+          geometries: renderer.info.memory.geometries,
+          programs: renderer.info.programs?.length ?? null,
+          stars: modelRef.current.stars.length,
+          links: modelRef.current.links.length,
+          width: renderer.domElement.width,
+          height: renderer.domElement.height
+        }
+      }
+    })
+
+    state.dispose = () => {
+      cancelAnimationFrame(frame)
+      frame = 0
+      window.clearInterval(report)
+      window.clearTimeout(resumeTimer)
+      window.clearTimeout(hintTimer)
+      sizer.disconnect()
+      seen.disconnect()
+      document.removeEventListener('visibilitychange', onVisibility)
+      document.removeEventListener('fullscreenchange', onFullscreen)
+      renderer.domElement.removeEventListener('pointerdown', engage)
+      renderer.domElement.removeEventListener('pointerleave', disengage)
+      renderer.domElement.removeEventListener('wheel', onWheelIdle, { capture: true })
+      renderer.domElement.removeEventListener('pointermove', onMove)
+      renderer.domElement.removeEventListener('pointerleave', onLeave)
+      renderer.domElement.removeEventListener('dblclick', onDouble)
+      controls.dispose()
+      disposeTree(content)
+      state.glow?.geometry.dispose()
+      markGeo.dispose()
+      for (const mat of [starMat, lineMat, glowMat, markMat]) mat.dispose()
+      renderer.dispose()
+      // Release the context now rather than when the garbage collector gets
+      // round to the canvas - the sixteen-context cap counts live ones.
+      renderer.forceContextLoss()
+      renderer.domElement.remove()
+      for (const label of state.labels) label.el.remove()
+      state.labels = []
+    }
+    return () => {
+      state.dispose()
+      sceneRef.current = null
+    }
+  }, [])
+
+  /* The geometry: rebuilt when the range or the accent changes, same context. */
+  useEffect(() => {
+    const state = sceneRef.current
+    const labelLayer = labelsRef.current
+    if (state === null || labelLayer === null) return
+    return populate(state, labelLayer, model, colours)
+  }, [model, colours])
+
+  /* Isolation goes to the shaders through the scene state, eased per frame. */
+  useEffect(() => {
+    const state = sceneRef.current
+    if (state === null) return
+    state.isolate = isolated ?? -1
+  }, [isolated])
+
+  /* The hovered star's ring and its sitting, drawn bright. */
+  useEffect(() => {
+    const state = sceneRef.current
+    if (state === null) return
+    if (state.glow !== null) {
+      state.glow.geometry.dispose()
+      state.scene.remove(state.glow)
+      state.glow = null
+    }
+    stageRef.current?.classList.toggle('is-hovering', hover !== null)
+    if (hover === null || hover >= model.stars.length) {
+      state.mark.visible = false
+      // The turn waits while a star is being read, and picks up again after
+      // the same pause as any other interaction - not the instant the
+      // pointer slips off.
+      state.resume()
+      return
+    }
+    state.controls.autoRotate = false
+    const star = model.stars[hover]
+    const pos = state.mark.geometry.getAttribute('position') as Float32BufferAttribute
+    pos.setXYZ(0, star.x, star.y, star.z)
+    pos.needsUpdate = true
+    const c = rawColour(colours[star.wedge] ?? '#ffffff')
+    state.markMat.uniforms.uColor.value = c
+    state.mark.visible = true
+
+    // The whole sitting this star belongs to: every star reachable through
+    // links, then every link inside that set.
+    const adjacent = new Map<number, number[]>()
+    const join = (from: number, to: number): void => {
+      const list = adjacent.get(from)
+      if (list === undefined) adjacent.set(from, [to])
+      else list.push(to)
+    }
+    for (const l of model.links) {
+      join(l.a, l.b)
+      join(l.b, l.a)
+    }
+    const sitting = new Set<number>([hover])
+    const queue = [hover]
+    while (queue.length > 0) {
+      const i = queue.pop() as number
+      for (const j of adjacent.get(i) ?? []) {
+        if (sitting.has(j)) continue
+        sitting.add(j)
+        queue.push(j)
+      }
+    }
+    const segs: number[] = []
+    const cols: number[] = []
+    for (const l of model.links) {
+      if (!sitting.has(l.a) || !sitting.has(l.b)) continue
+      const a = model.stars[l.a]
+      const b = model.stars[l.b]
+      segs.push(a.x, a.y, a.z, b.x, b.y, b.z)
+      cols.push(c.r, c.g, c.b, c.r, c.g, c.b)
+    }
+    if (segs.length > 0) {
+      const g = new BufferGeometry()
+      g.setAttribute('position', new Float32BufferAttribute(segs, 3))
+      g.setAttribute('color', new Float32BufferAttribute(cols, 3))
+      g.setAttribute('arm', new Float32BufferAttribute(new Float32Array(segs.length / 3), 1))
+      state.glow = new LineSegments(g, state.glowMat)
+      state.glow.frustumCulled = false
+      state.scene.add(state.glow)
+    }
+  }, [hover, model, colours])
+
+  const toggleFull = (): void => {
+    const stage = stageRef.current
+    if (stage === null) return
+    if (document.fullscreenElement === stage) void document.exitFullscreen()
+    else void stage.requestFullscreen().catch(() => undefined)
+  }
+
+  const star = hover === null ? null : (model.stars[hover] ?? null)
+  const sessions = model.stars.length
+  const sub = `${sessions.toLocaleString('en-US')} sessions · ${hoursShort(model.totalHours)}`
+  const ringWord = { year: 'year', quarter: 'quarter', month: 'month', week: 'week', day: 'day' }[
+    model.ringGrain
+  ]
+
+  return (
+    <div className="ac an-panel cst">
+      <style>{CSS}</style>
+      <div className="an-panel__head">
+        <h4 className="an-panel__title">
+          Constellation
+          <span className="an-panel__sub">{sub}</span>
+        </h4>
+        <span className="cst__aside">
+          {control}
+          <button
+            type="button"
+            className="cst__btn"
+            title={full ? 'Leave fullscreen' : 'Fullscreen'}
+            aria-label={full ? 'Leave fullscreen' : 'Fullscreen'}
+            onClick={toggleFull}
+          >
+            <FullIcon out={full} />
+          </button>
+        </span>
+      </div>
+
+      <div className="cst__stage" ref={stageRef} tabIndex={-1}>
+        {/* The canvas is prepended here by the scene effect, so everything
+            below is declared after it and sits on top of it. */}
+        <div className="cst__vignette" />
+        <div className="cst__labels" ref={labelsRef} />
+        {failure !== null ? (
+          <div className="cst__empty">
+            This panel draws with WebGL, and this computer&apos;s graphics driver refused it:{' '}
+            {failure}
+          </div>
+        ) : sessions === 0 ? (
+          <div className="cst__empty">No sessions in this range.</div>
+        ) : null}
+        <div className="cst__legend">
+          {model.wedges.map((wedge, i) => (
+            <button
+              type="button"
+              key={wedge.key}
+              className={`cst__arm${isolated === i ? ' is-on' : isolated !== null ? ' is-dim' : ''}`}
+              title={
+                wedge.other
+                  ? `${wedge.projects.join(', ')} - click to show only these`
+                  : `${wedge.label}: ${wedge.sessions.toLocaleString('en-US')} sessions - click to show only this project`
+              }
+              onClick={() => setIsolated(isolated === i ? null : i)}
+            >
+              <i
+                className="cst__dot"
+                style={{ background: colours[i], boxShadow: `0 0 8px ${colours[i]}` }}
+              />
+              <span className="cst__arm-name">{wedge.label}</span>
+              <span className="cst__arm-hours">{hoursShort(wedge.hours)}</span>
+            </button>
+          ))}
+        </div>
+        <div className="cst__title">
+          <b>Constellation</b>
+          <span>{sub}</span>
+        </div>
+        <div className={`cst__hint${hint ? ' is-on' : ''}`}>
+          Click the cloud, then scroll to zoom
+        </div>
+        <div
+          className="cst__tip"
+          ref={tipRef}
+          style={{ visibility: star === null ? 'hidden' : 'visible' }}
+        >
+          {star === null ? null : (
+            <ChartTip
+              active
+              payload={[{}]}
+              when={() => {
+                const project = model.wedges[star.wedge]?.other
+                  ? (star.row.project ?? 'Unlabelled')
+                  : model.wedges[star.wedge]?.label
+                const time = star.row.startMs === null ? '' : `, ${clockTime(star.row.startMs)}`
+                return `${formatDate(star.row.date)}${time} · ${project}`
+              }}
+              rows={() => {
+                const lines = [{ name: star.row.task ?? '', value: duration(star.row.runningS) }]
+                if (star.row.quantity !== null && star.row.unit !== null) {
+                  lines.push({
+                    name: 'Output',
+                    value: `${formatCount(star.row.quantity)} ${pluralUnit(star.row.unit, star.row.quantity)}`
+                  })
+                }
+                return lines
+              }}
+            />
+          )}
+        </div>
+        <button
+          type="button"
+          className="cst__btn cst__exit"
+          title="Leave fullscreen"
+          aria-label="Leave fullscreen"
+          onClick={toggleFull}
+        >
+          <FullIcon out />
+        </button>
+      </div>
+
+      <p className="an-panel__note">
+        Every star is a session. <b>Distance from the centre</b> is hours worked up to it, so each
+        ring marks where a {ringWord} began and a wide band is a productive one. <b>Angle</b> is the
+        project, each arm as wide as its share of the hours; <b>height</b> is session length, on a
+        log scale. Size is output, ranked only against sessions in the same unit, and brightness is
+        recency. Lines join one sitting: the same day with under {SITTING_GAP_MINUTES} minutes
+        between sessions, or - for imported rows, which have no clock times - consecutive rows of
+        the same day and project. Drag to turn, double-click to reset, click a project to isolate
+        it.
+      </p>
+    </div>
+  )
+}
+
+function FullIcon({ out }: { out: boolean }): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    >
+      {out ? (
+        <path d="M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4" />
+      ) : (
+        <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" />
+      )}
+    </svg>
+  )
+}

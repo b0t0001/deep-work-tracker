@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
@@ -49,6 +49,14 @@ import { PreviewBanner } from './components/PreviewBanner'
 import { RangePicker } from './components/RangePicker'
 import { CompareBox } from './components/CompareBox'
 import { INSIGHT_KEY, InsightCard } from './components/InsightCard'
+
+/*
+ * The Constellation panel is its own chunk. Every window loads this bundle,
+ * and three.js is several hundred kilobytes the timer window - the one that
+ * must open instantly - has no use for. Lazy, it is fetched the first time
+ * the Analytics tab draws the panel and never by anything else.
+ */
+const Constellation = lazy(() => import('./components/Constellation'))
 
 type Tab = 'settings' | 'data' | 'analytics' | 'import'
 
@@ -604,7 +612,8 @@ const PANELS: Record<PanelId, { label: string; full: boolean }> = {
   plannedRatio: { label: 'Are your timers the right length?', full: false },
   rateTrend: { label: 'Work rate over time', full: true },
   timeOfDay: { label: 'Time of day', full: false },
-  pace: { label: 'Pace against target', full: false }
+  pace: { label: 'Pace against target', full: false },
+  constellation: { label: 'Constellation', full: true }
 }
 
 /**
@@ -768,6 +777,19 @@ function panelFor(
     }
     case 'pace':
       return <PaceAccuracy pace={within(data.pace, span)} accent={accent} control={control} />
+    case 'constellation':
+      return (
+        // The fallback holds the panel's height, so the sections below do not
+        // jump when the chunk arrives.
+        <Suspense fallback={<div className="an-panel" style={{ minHeight: 520 }} />}>
+          <Constellation
+            rows={within(data.stars, span)}
+            all={data.stars}
+            accent={accent}
+            control={control}
+          />
+        </Suspense>
+      )
   }
 }
 

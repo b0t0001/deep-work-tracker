@@ -16,6 +16,7 @@ import {
   type ProjectDay,
   type UnitDay
 } from '../../shared/ranges'
+import type { StarRow } from '../../shared/constellation'
 /**
  * Every figure the Analytics tab shows, aggregated in SQL.
  *
@@ -94,7 +95,8 @@ export function analytics(): Analytics {
     plannedRuns: [],
     unitDays: [],
     unitTasks: {},
-    sessionRows: []
+    sessionRows: [],
+    stars: []
   }
   if (span.first === null || span.last === null || Number(span.sessions) === 0) return empty
   const rawDaily = (
@@ -510,6 +512,56 @@ export function analytics(): Analytics {
     quantity: row.quantity === null ? null : Number(row.quantity)
   }))
 
+  /*
+   * The Constellation panel's rows. Clock times only for app-recorded rows,
+   * for the same reason `hour` is: an imported row has none, and a manual
+   * one has a remembered one, which must not decide whether two sessions
+   * were one sitting. Ordered by id, which within a day is the order the
+   * spreadsheet logged them in.
+   */
+  const stars: StarRow[] = (
+    db
+      .prepare(
+        `SELECT s.id AS id, s.session_date AS date, p.name AS project, s.task AS task,
+                s.running_duration_s AS running, s.source AS source,
+                NULLIF(s.work_unit, '') AS unit,
+                CASE WHEN s.unquantifiable = 0 THEN s.work_quantity END AS quantity,
+                CASE WHEN s.source = 'app' THEN s.started_at END AS startedAt,
+                CASE WHEN s.source = 'app' THEN s.ended_at END AS endedAt
+           FROM ${COUNTED} s LEFT JOIN projects p ON p.id = s.project_id
+          WHERE s.session_date IS NOT NULL
+          ORDER BY s.id`
+      )
+      .all() as Array<{
+      id: number
+      date: string
+      project: string | null
+      task: string | null
+      running: number | null
+      source: string
+      unit: string | null
+      quantity: number | null
+      startedAt: string | null
+      endedAt: string | null
+    }>
+  ).map((row) => {
+    const start = row.startedAt === null ? NaN : Date.parse(row.startedAt)
+    const end = row.endedAt === null ? NaN : Date.parse(row.endedAt)
+    const timed = Number.isFinite(start) && Number.isFinite(end)
+    return {
+      id: Number(row.id),
+      date: row.date,
+      project: row.project,
+      task: row.task,
+      runningS: Number(row.running ?? 0),
+      unit: row.unit,
+      quantity: row.quantity === null ? null : Number(row.quantity),
+      source: row.source,
+      startMs: timed ? start : null,
+      endMs: timed ? end : null
+    }
+  })
+
   const dayMs = 86_400_000
   const calendarDays =
     Math.round(
@@ -540,6 +592,7 @@ export function analytics(): Analytics {
     plannedRuns,
     unitDays,
     unitTasks,
-    sessionRows
+    sessionRows,
+    stars
   }
 }

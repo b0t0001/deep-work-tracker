@@ -217,8 +217,147 @@ const INSIGHT_SHOTS: Shot[] = [
   ...[0, 2].map((n) => insightShot(1900, n, '1w'))
 ]
 
+/**
+ * The Constellation panel. Its stage is a WebGL canvas, which this hidden
+ * window renders (verified by `probe-cst-gl`), so these are real pictures of
+ * the cloud rather than of an empty box.
+ *
+ * `cstDrive` opens the tab, scrolls the panel to the top of the window and
+ * stops the idle turn, so a shot is of a known angle rather than of wherever
+ * the rotation had reached when the capture fired. `then` drives it further.
+ */
+const CST_OPEN = `
+  click('.tabs .tab:nth-child(3)'); await wait(2800);
+  const stage = document.querySelector('.cst__stage');
+  stage.closest('.an-section').scrollIntoView({ block: 'start' });
+  await wait(900);
+  stage.constellationStill();
+`
+
+/** Finds a star by sweeping the pointer over the canvas until the tooltip shows. */
+const CST_HOVER = `
+  const canvas = stage.querySelector('canvas');
+  const box = canvas.getBoundingClientRect();
+  const tip = stage.querySelector('.cst__tip');
+  let found = false;
+  const cx = box.left + box.width * 0.56, cy = box.top + box.height * 0.5;
+  for (let ring = 30; ring < Math.min(box.width, box.height) * 0.45 && !found; ring += 9) {
+    for (let a = 0; a < Math.PI * 2 && !found; a += 0.35) {
+      const x = cx + Math.cos(a) * ring, y = cy + Math.sin(a) * ring * 0.6;
+      canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true }));
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      await wait(16);
+      if (tip.style.visibility === 'visible' && tip.textContent.length > 0) found = true;
+    }
+  }
+  document.title = found ? 'hovered: ' + tip.textContent : 'no star found';
+`
+
+function cstShot(id: string, width: number, then = '', height = 900): Shot {
+  return {
+    id,
+    width,
+    height,
+    route: '/dashboard',
+    drive: CST_OPEN + then,
+    note: `The Constellation panel at ${width}px${then === '' ? '' : ', driven'}.`
+  }
+}
+
+const CONSTELLATION_SHOTS: Shot[] = [
+  cstShot('cst-default-1150', 1150),
+  cstShot('cst-default-1900', 1900, '', 1000),
+  cstShot(
+    'cst-isolate-1150',
+    1150,
+    `stage.querySelectorAll('.cst__arm')[1].click(); await wait(900);`
+  ),
+  cstShot(
+    'cst-isolate-1900',
+    1900,
+    `stage.querySelectorAll('.cst__arm')[0].click(); await wait(900);`,
+    1000
+  ),
+  cstShot('probe-cst-hover-1150', 1150, CST_HOVER),
+  cstShot('probe-cst-hover-1900', 1900, CST_HOVER, 1000),
+  cstShot(
+    'cst-range-1150',
+    1150,
+    `
+    const sel = stage.closest('.an-panel').querySelector('.an-range select');
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, '3m');
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await wait(1200);
+  `
+  ),
+  {
+    // Fullscreen is the HTML Fullscreen API on the stage, which a hidden
+    // window cannot enter. The stage is given the window's size instead, with
+    // the fullscreen-only overlays forced on, which is what fullscreen draws.
+    id: 'cst-fullscreen-1900',
+    width: 1900,
+    height: 1000,
+    route: '/dashboard',
+    drive:
+      CST_OPEN +
+      `
+      const s = document.createElement('style');
+      s.textContent = '.cst__stage{position:fixed!important;inset:0!important;height:100vh!important;border-radius:0!important;z-index:9999}.cst__stage .cst__title{display:block!important}.cst__stage .cst__exit{display:inline-flex!important}';
+      document.head.appendChild(s);
+      await wait(900);
+    `,
+    note: 'The stage at the size fullscreen gives it, with the fullscreen overlays.'
+  },
+  {
+    // WebGL, the frame clock and the per-frame cost, read off the live page.
+    // `constellationBench` renders N frames back to back and waits for the GPU
+    // to finish each, so the figure is the true cost of a frame rather than
+    // the time to queue one.
+    id: 'probe-cst-gl',
+    width: 1900,
+    height: 1000,
+    route: '/dashboard',
+    drive:
+      CST_OPEN +
+      `
+      const gl = !!document.createElement('canvas').getContext('webgl2');
+      let frames = 0; const t0 = performance.now();
+      await new Promise((done) => { const f = () => { frames++; performance.now() - t0 < 2000 ? requestAnimationFrame(f) : done(); }; requestAnimationFrame(f); });
+      const raf = frames / ((performance.now() - t0) / 1000);
+      const bench = stage.constellationBench ? stage.constellationBench(300) : null;
+      const stars = stage.dataset.stars;
+      document.title = 'webgl2=' + gl + ' raf=' + raf.toFixed(1) + 'fps bench=' + JSON.stringify(bench) + ' stars=' + stars;
+    `,
+    note: 'Not a picture: WebGL availability and frame cost at all time.'
+  },
+  {
+    // Range switching must not leak: ten switches, then the renderer's own
+    // count of live geometries and the number of canvases on the page.
+    id: 'probe-cst-leak',
+    width: 1150,
+    height: 900,
+    route: '/dashboard',
+    drive:
+      CST_OPEN +
+      `
+      const sel = stage.closest('.an-panel').querySelector('.an-range select');
+      const set = (v) => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, v); sel.dispatchEvent(new Event('change', { bubbles: true })); };
+      const before = stage.constellationBench(1);
+      for (const v of ['1w','3m','1y','all','1m','6m','all','2y','8w','all']) { set(v); await wait(250); }
+      const after = stage.constellationBench(1);
+      // Away to another tab and back, five times: the panel unmounts each time.
+      for (let i = 0; i < 5; i++) { click('.tabs .tab:nth-child(2)'); await wait(400); click('.tabs .tab:nth-child(3)'); await wait(1500); }
+      const canvases = document.querySelectorAll('.cst__stage canvas').length;
+      const again = document.querySelector('.cst__stage').constellationBench(1);
+      document.title = 'before=' + JSON.stringify(before) + ' afterRanges=' + JSON.stringify(after) + ' afterTabs=' + JSON.stringify(again) + ' canvases=' + canvases;
+    `,
+    note: 'Not a picture: live geometries and canvases after range and tab switches.'
+  }
+]
+
 const SHOTS: Shot[] = [
   ...INSIGHT_SHOTS,
+  ...CONSTELLATION_SHOTS,
   {
     id: 'probe-add-missing-project',
     width: 1150,
