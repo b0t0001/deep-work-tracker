@@ -145,7 +145,8 @@ export default function App(): React.JSX.Element {
     void window.api.timer.setPace(config)
   }
   /**
-   * The project defaults to whatever the last session was filed under, because
+   * A newly opened window's project defaults to whatever the last session
+   * was filed under (finishing a session clears it - see `onCompleted`), because
    * work comes in runs - several HW sessions, then several on the essay - so
    * the previous answer is nearly always this one too. The list feeds a
    * ranked suggestion list rather than a plain dropdown: it both offers what
@@ -215,6 +216,8 @@ export default function App(): React.JSX.Element {
    * knowing a session was lost.
    */
   const [recordError, setRecordError] = useState<string | null>(null)
+  /** Set by `recordFailed`, read once by the `completed` that follows it. */
+  const recordFailedRef = useRef(false)
   const [qty, setQty] = useState('')
   const [qtyUnit, setQtyUnit] = useState('')
   const qtyRef = useRef<HTMLInputElement>(null)
@@ -272,8 +275,39 @@ export default function App(): React.JSX.Element {
    */
   useEffect(() => {
     return window.api.timer.onRecordFailed((reason) => {
+      recordFailedRef.current = true
       setRecordError(reason)
       setStopPrompt(false)
+    })
+  }, [])
+
+  /*
+   * A finished session clears the task, the duration and the project, so the
+   * next one starts from empty fields. The user's rule, 11/07/2026: "when i
+   * finish a session you should clear whatever i put in the 'what are you
+   * working on', time, and project name fields".
+   *
+   * `completed` arrives after the row is written, and every finish path -
+   * stop, expiry without loop, auto-end - sends it, so none of them can leave
+   * the fields behind. A lap of a loop does not: the session is still going.
+   * Main's copy is cleared too, because main owns what the next stop records.
+   * Undo gets its values back from the snapshot main kept, not from these.
+   *
+   * Except when the row could not be written. Main sends `recordFailed`
+   * before `completed`, in order, and then the fields are the only record of
+   * what the session was - kept so it can be entered by hand.
+   */
+  useEffect(() => {
+    return window.api.timer.onCompleted(() => {
+      if (recordFailedRef.current) {
+        recordFailedRef.current = false
+        return
+      }
+      setLabel('')
+      setProject('')
+      setDraft('')
+      void window.api.timer.setTask('')
+      void window.api.timer.setProject('')
     })
   }, [])
 
@@ -562,7 +596,14 @@ export default function App(): React.JSX.Element {
   function undoStop(): void {
     window.api.timer
       .undoStop()
-      .then(() => {
+      .then((restored) => {
+        // Finishing cleared the fields; the session they described is back,
+        // so they come back with it, from the snapshot main kept.
+        if (restored) {
+          setLabel(restored.task)
+          setProject(restored.project)
+          setDraft(formatDurationInput(restored.plannedMs))
+        }
         // Undo may have brought a pace loop back with the session.
         void window.api.timer.getPace().then(setPace)
       })

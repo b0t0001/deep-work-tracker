@@ -97,7 +97,8 @@ input {
 }
 
 /* The placeholder stays dim - an empty field is a prompt, not a value. */
-.dial__project::placeholder {
+.dial__project::placeholder,
+.dial__clock--input::placeholder {
   color: var(--text-dim);
 }
 

@@ -69,6 +69,9 @@ export default function TimerDial({
               onTabForward()
             }
           }}
+          // Empty after a session finishes. A dim zero reads as a timer at
+          // rest, where a blank dial would read as broken on camera.
+          placeholder="0:00"
           spellCheck={false}
           aria-label="Duration"
         />

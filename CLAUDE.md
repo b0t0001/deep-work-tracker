@@ -2139,9 +2139,19 @@ got through until you are done.
 - **Typing a new name is still how projects come into existence** - there is no
   "manage projects" screen, because a step between deciding to work and
   starting is a reason not to label.
-- **It defaults to the last session's project.** Work comes in runs - several
-  HW sessions, then several on the essay - so the previous answer is nearly
-  always this one, and the common case is touching nothing.
+- **A new window defaults to the last session's project.** Work comes in
+  runs - several HW sessions, then several on the essay - so the previous
+  answer is nearly always this one.
+- **Finishing a session clears the task, duration and project.** The user's
+  rule, 11/07/2026: *"when i finish a session you should clear whatever i put
+  in the 'what are you working on', time, and project name fields"*. Every
+  finish path sends `completed` after the row is written, and the window
+  clears on it (main's copy too, since main records the next stop); a lap of
+  a loop does not. The empty clock shows a dim `0:00` placeholder rather
+  than a blank dial. **Undo puts them back** from the snapshot main kept.
+  **A run that could not be written keeps them**: `recordFailed` arrives
+  first, and the fields are then the only record of what the session was.
+  `scripts/clear-fields-check.ts` (14) drives all three with a real engine.
 - **It lives under the clock, inside the dial, where the status word was.**
   `ready` / `running` restated what the digits already showed; what belongs
   there - and on camera - is what the session is for. It borrows the clock's
