@@ -340,6 +340,19 @@ app's text white, as the user asked. `useAccentSync` sets `--accent` and
 the `manual` source badge uses it. `scripts/accents-check.ts` asserts the
 relationship.
 
+**Scrollbars are a thin, quiet pill, styled with `::-webkit-scrollbar`.** The
+user asked for one like the Claude app's: *"a scroll bar with just a very
+subtle gray slider... not at all intrusive, and it fits seamlessly within the
+color theme."* Transparent track, no arrow buttons, a translucent white thumb
+inset from the edge, a little brighter on hover. Do not add the standard
+`scrollbar-color` / `scrollbar-width` properties anywhere: setting them makes
+Chromium ignore the pseudo-elements and brings back the default bar.
+
+**The tabs never show a focus ring.** Alt+Tab can leave a tab matching
+`:focus-visible`, which drew an accent box around "Analytics" while the user
+was only reading. The active tab has its underline; a keyboard-focused one
+gets a faint fill.
+
 **The dashboard mounts `useAccentSync` once, at its root.** It used to set
 `--accent` itself and mount the hook only inside Analytics, so on every other
 tab there was an accent and no complement until Analytics had been opened,
@@ -1268,6 +1281,24 @@ The grain is named in the title ("Hours per week", "Hours per quarter")
 because a bar's value means a different thing at each one. A zero bar is
 labelled `0` rather than left blank: an unlabelled bar among labelled ones is
 exactly the ambiguity the panel exists to remove.
+
+**The calendar's colour is a fixed target, not relative to the user's
+history.** *"I shouldn't be grading myself based off the maximum... if you do
+three or four hours of work every single day, that's great... what we want to
+reward is consistency."* `shared/dayShade.ts`: 0-4 h ramps from just above an
+empty day to the full accent; above 4 h the accent only lightens, capped at 8
+h. It replaced four levels off the 90th percentile, under which a run of long
+days pushed an ordinary three-hour day to a middling shade. Absolute also
+means a day never changes colour when a record day is added.
+
+**Superstar days get a ring: any day over 6 hours.** A fixed line the user
+chose, not a statistic. It was two standard deviations above the average
+worked day (7.5 h) for an hour; the user replaced it: *"just make it six
+hours... if it's a seven hour day I'm doing a competition or PER"* - long club
+and competition days are tracked like desk work, so a cutoff derived from the
+history mostly picked those out. A white ring and an accent glow, static - a
+pulse would keep the page repainting. The hover box says so; the key has a
+swatch. `SUPERSTAR_HOURS` in `shared/dayShade.ts`.
 
 **The calendar grid's zoom is bounded, and a day is always the same size.**
 The grid is an svg with a viewBox and `width: 100%`, which is what makes it

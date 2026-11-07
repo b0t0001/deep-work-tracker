@@ -14,6 +14,13 @@
  * option and is worse: React would re-emit it once per mounted instance.
  */
 
+import {
+  DAILY_BONUS_CAP_HOURS,
+  DAILY_TARGET_HOURS,
+  dayFill,
+  isSuperstar,
+  SUPERSTAR_HOURS
+} from '@shared/dayShade'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type { DayTotal, HourTotal } from '@shared/analytics'
 import { EmptyState, TipBox, type TipRow } from './AnalyticsCharts'
@@ -79,6 +86,16 @@ const HEATMAP_CSS = `
 }
 span.hm-cell:hover {
   box-shadow: inset 0 0 0 1.5px #f2f4f7d9;
+}
+/* A superstar day: a crisp white ring and a soft glow in the accent, on top of
+   its colour. Static on purpose - a pulsing square would keep the page
+   repainting while it is on screen, against the rule that Analytics costs
+   nothing when nothing is changing. */
+.hm-star {
+  stroke: #ffffff;
+  stroke-width: 1.25;
+  stroke-opacity: 0.9;
+  filter: drop-shadow(0 0 3px var(--accent));
 }
 `
 
@@ -256,6 +273,52 @@ function Legend({ accent }: { accent: string }): React.JSX.Element {
   )
 }
 
+/**
+ * The calendar's key says what its colours now mean - hours against the
+ * four-hour target - rather than a bare Less / More.
+ */
+function CalendarLegend({ accent }: { accent: string }): React.JSX.Element {
+  const swatch = (hours: number): React.JSX.Element => (
+    <span
+      key={hours}
+      title={hours === 0 ? 'No work' : `${hours} h`}
+      style={{ width: 11, height: 11, borderRadius: 2, background: dayFill(hours, accent) }}
+    />
+  )
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 4,
+        color: 'var(--text-dim)',
+        fontSize: 11
+      }}
+    >
+      <span>0 h</span>
+      {[0, 1, 2, 3].map(swatch)}
+      {swatch(DAILY_TARGET_HOURS)}
+      <span>{DAILY_TARGET_HOURS} h</span>
+      <span style={{ width: 6 }} />
+      {swatch(DAILY_BONUS_CAP_HOURS)}
+      <span>{DAILY_BONUS_CAP_HOURS} h+</span>
+      <span style={{ width: 6 }} />
+      <svg width={11} height={11} aria-hidden="true">
+        <rect
+          className="hm-star"
+          x={0.75}
+          y={0.75}
+          width={9.5}
+          height={9.5}
+          rx={2}
+          style={{ fill: dayFill(DAILY_BONUS_CAP_HOURS, accent) }}
+        />
+      </svg>
+      <span>superstar</span>
+    </div>
+  )
+}
+
 /* ---------- calendar ---------- */
 
 const CELL = 12
@@ -328,25 +391,12 @@ const MONTH_LABEL_W = 22
  */
 const WINDOW_DAYS = 371
 
-/**
- * Four levels off the 90th percentile of worked days, not the maximum. One
- * fourteen-hour day would otherwise set the top of the scale and drop every
- * ordinary three-hour day into the faintest bucket, so the grid would report
- * that the user has worked properly once.
- *
- * The percentile is taken over the whole history rather than the visible
- * window, so a day keeps its colour when you page back a year. Rebasing per
- * page would make two windows uncomparable, which is most of what a heatmap is
- * for.
+/*
+ * Colour is a fixed target, not a scale off the user's own history: see
+ * `shared/dayShade.ts`. It replaced four levels off the 90th percentile of
+ * worked days, which still let a run of long days push an ordinary
+ * three-hour day down to a middling shade.
  */
-function percentileHours(daily: DayTotal[]): number {
-  const worked = daily
-    .filter((d) => d.hours > 0)
-    .map((d) => d.hours)
-    .sort((a, b) => a - b)
-  if (worked.length === 0) return 1
-  return worked[Math.min(worked.length - 1, Math.floor(worked.length * 0.9))] || 1
-}
 
 /**
  * What a day says when you hover it.
@@ -357,9 +407,10 @@ function percentileHours(daily: DayTotal[]): number {
  */
 function dayRows(day: DayTotal): { rows: TipRow[]; note?: string } {
   if (day.hours <= 0 && day.sessions === 0) return { rows: [{ name: '', value: 'No work' }] }
+  const superstar = isSuperstar(day.hours)
   return {
-    rows: [{ name: 'Worked', value: `${formatHours(day.hours)} h` }],
-    note: plural(day.sessions, 'session')
+    rows: [{ name: superstar ? 'Superstar day' : 'Worked', value: `${formatHours(day.hours)} h` }],
+    note: plural(day.sessions, 'session') + (superstar ? ` · over ${SUPERSTAR_HOURS} h` : '')
   }
 }
 
@@ -382,7 +433,6 @@ export function CalendarHeatmap({
   const [page, setPage] = useState(0)
   const { tip, show, hide, panelRef } = useHoverTip()
 
-  const scale = useMemo(() => percentileHours(daily), [daily])
   const totals = useMemo(() => new Map(daily.map((d) => [d.date, d])), [daily])
 
   if (daily.length === 0) {
@@ -427,13 +477,13 @@ export function CalendarHeatmap({
            OS's own font. */
         <rect
           key={day}
-          className="hm-cell"
+          className={isSuperstar(total.hours) ? 'hm-cell hm-star' : 'hm-cell'}
           x={WEEKDAY_W + column * PITCH}
           y={MONTH_H + row * PITCH}
           width={CELL}
           height={CELL}
           rx={2}
-          style={{ fill: cellFill(level(total.hours, scale), accent) }}
+          style={{ fill: dayFill(total.hours, accent) }}
           onMouseEnter={(event) => {
             const { rows, note } = dayRows(total)
             show(event, formatDate(total.date), rows, note)
@@ -509,7 +559,7 @@ export function CalendarHeatmap({
             fontSize: 12
           }}
         >
-          <Legend accent={accent} />
+          <CalendarLegend accent={accent} />
           {/* Before the pager, because the range decides what there is to page
               through: narrowing to 12 months is why the pager then has one
               window rather than four. */}
@@ -584,8 +634,9 @@ export function CalendarHeatmap({
       </svg>
 
       <p className="an-panel__note">
-        Darker is more hours. Hover a square for the day it stands for; the arrows page back a year
-        at a time.
+        Brighter is more hours, reaching full colour at {DAILY_TARGET_HOURS} h - a solid day, not
+        your longest. Ringed squares are superstar days, over {SUPERSTAR_HOURS} h. Hover a square
+        for its day; the arrows page back a year at a time.
       </p>
       {hoverTip(tip)}
     </div>

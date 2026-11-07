@@ -3093,6 +3093,55 @@ select:focus-visible {
   border-color: color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
+/*
+ * The tabs show keyboard focus without a ring. Switching windows with
+ * Alt+Tab can leave a tab matching :focus-visible, so the user saw an accent
+ * box around "Analytics" after doing nothing but reading - the same complaint
+ * as the amber ring, in a different colour. The active tab already has its
+ * underline; a focused one gets a faint fill instead, which still tells a
+ * keyboard user where they are.
+ */
+.tab:focus-visible {
+  outline: none;
+  background: #ffffff0d;
+  border-radius: 6px;
+}
+
+/*
+ * Scrollbars: a thin, quiet thumb that belongs to the dark theme, like the
+ * Claude app's - no track, no arrow buttons, and only a little brighter on
+ * hover. The default Windows scrollbar was a light grey slab with arrows at
+ * both ends, the loudest object on a page that is otherwise all dark grey.
+ *
+ * Pseudo-elements rather than the standard `scrollbar-color`: setting that
+ * property makes Chromium ignore these, and it cannot round the thumb or
+ * inset it from the edge. The thumb is inset with a transparent border and
+ * `background-clip`, so it reads as a pill floating in the gutter.
+ */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+::-webkit-scrollbar-thumb {
+  background-color: #ffffff1f;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #ffffff38;
+}
+::-webkit-scrollbar-thumb:active {
+  background-color: #ffffff4d;
+}
+
 /* ---------- Settings: one section per section ---------- */
 
 /*
