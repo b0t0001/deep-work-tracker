@@ -3,7 +3,6 @@ import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/acce
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
 import type { Analytics } from '@shared/analytics'
-import { buildFacts, pickFact, type Fact } from '@shared/facts'
 import {
   aboveBaseline,
   averagePerDay,
@@ -34,13 +33,7 @@ import {
   type RangeTargetId,
   type SectionId
 } from '@shared/layout'
-import {
-  hourTotalsIn,
-  plannedVsActualIn,
-  projectTotalsIn,
-  unitTotalsIn,
-  within
-} from '@shared/ranges'
+import { hourTotalsIn, plannedVsActualIn, projectTotalsIn, within } from '@shared/ranges'
 import Icon from './components/Icon'
 import { useLayout } from './lib/layout'
 import { useAccentSync } from './lib/accent'
@@ -55,6 +48,7 @@ import { CalendarHeatmap, TimeOfDayHeatmap } from './components/Heatmaps'
 import { PreviewBanner } from './components/PreviewBanner'
 import { RangePicker } from './components/RangePicker'
 import { CompareBox } from './components/CompareBox'
+import { INSIGHT_KEY, InsightCard } from './components/InsightCard'
 
 type Tab = 'settings' | 'data' | 'analytics' | 'import'
 
@@ -979,31 +973,23 @@ function LayoutBar({
   )
 }
 
-/** Remembered so the same fact is not shown twice running. */
-const FACT_KEY = 'dwt.lastFact'
-
 /**
- * One fun fact for this opening of the tab.
+ * What the insights card opens on, drawn where the history lands.
  *
- * The last one is remembered so the same figure cannot come up twice running.
- * Both storage calls are wrapped because a blocked or cleared profile must
- * cost a repeat, not a crash - and a null back from `pickFact` means there was
- * nothing worth saying, which the row renders by leaving the tile out.
+ * A random number and the id shown last time, both read in the payload
+ * handler rather than while rendering: choosing involves `Math.random` and
+ * `localStorage`, and the render path must stay pure (see the comment on the
+ * state below for the two versions that were not). `InsightCard` turns them
+ * into an opening insight for whatever range the card is set to.
  */
-function chooseFact(data: Analytics): Fact | null {
-  let last: string | null = null
+function insightOpening(): { seed: number; avoid: string | null } {
+  let avoid: string | null = null
   try {
-    last = localStorage.getItem(FACT_KEY)
+    avoid = localStorage.getItem(INSIGHT_KEY)
   } catch {
-    /* storage blocked; the worst case is repeating the last fact */
+    /* storage blocked; the worst case is opening on the same one again */
   }
-  const chosen = pickFact(buildFacts(data), Math.random(), last)
-  try {
-    if (chosen !== null) localStorage.setItem(FACT_KEY, chosen.id)
-  } catch {
-    /* same */
-  }
-  return chosen
+  return { seed: Math.random(), avoid }
 }
 
 function AnalyticsTab(): React.JSX.Element {
@@ -1029,32 +1015,25 @@ function AnalyticsTab(): React.JSX.Element {
     }))
   })
   /*
-   * The fact is chosen where the history lands, not while rendering it.
+   * The insights card's opening is drawn where the history lands, not while
+   * rendering it.
    *
-   * Two earlier versions picked it in the body. A `useState` initializer was
-   * the first, and it can only sit after this component's early returns for
-   * loading and failure, so it ran on some renders and not others - React
-   * error #310, and the tab rendered white. A ref filled in during render was
-   * the second, and it works, but choosing involves `Math.random` and a
-   * `localStorage` write, which is a side effect in the render phase whatever
-   * holds the result; the compiler rejects both the impure call and the ref.
+   * Two earlier versions of the fun fact picked in the body. A `useState`
+   * initializer was the first, and it can only sit after this component's
+   * early returns for loading and failure, so it ran on some renders and not
+   * others - React error #310, and the tab rendered white. A ref filled in
+   * during render was the second, and it works, but choosing involves
+   * `Math.random` and `localStorage`, which is a side effect in the render
+   * phase whatever holds the result; the compiler rejects both.
    *
-   * The payload handler below is where it belongs: it runs once, off the
-   * render path, and `setFact` batches with `setData`, so the tile arrives
-   * with the rest of the row rather than a frame after it.
+   * So the payload handler draws a random number and reads the last id shown,
+   * once, off the render path, and `setOpening` batches with `setData`.
+   * `InsightCard` turns the two into an insight for whatever range the card
+   * is set to, which is a pure function of them - and since only the seed is
+   * held, the list can change under it with the range without anything
+   * impure happening in render.
    */
-  /*
-   * The *id* is chosen once, not the fact.
-   *
-   * The tile now has its own range control, so the list of facts changes
-   * under it - a unit with nothing in the past week drops out entirely. The
-   * choice still has to be made off the render path, because it involves
-   * `Math.random` and a `localStorage` write, so what is held is the id and
-   * the fact is looked up from whatever the current range supports. Same
-   * fact across a range change where it survives, a sensible one where it
-   * does not, and no impurity in render either way.
-   */
-  const [factId, setFactId] = useState<string | null>(null)
+  const [opening, setOpening] = useState<{ seed: number; avoid: string | null } | null>(null)
   const [data, setData] = useState<Analytics | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading')
 
@@ -1073,7 +1052,7 @@ function AnalyticsTab(): React.JSX.Element {
           return
         }
         setData(payload as Analytics)
-        setFactId(chooseFact(payload as Analytics)?.id ?? null)
+        setOpening(insightOpening())
         setState('ready')
       })
       .catch(() => {
@@ -1174,39 +1153,17 @@ function AnalyticsTab(): React.JSX.Element {
   const above = recentPerDay === null ? null : aboveBaseline(recentPerDay, base)
 
   /*
-   * The fun fact over its own range.
+   * The insights card over its own range.
    *
-   * Rebuilt here rather than held in state, because the range can change it:
-   * 292,358 words all time is 1,400 words in the past week, and the unit may
-   * not clear the thresholds in a short window at all. The id chosen on load
-   * is used when the new list still has it, so moving the range does not
-   * also reshuffle which fact you are looking at.
+   * It keeps the fun fact's range target, `fact`, so a range chosen for the
+   * fun fact carries over. Every insight is built from dated sessions, so
+   * unlike the fun fact - which had to drop its lifetime figures on a
+   * narrowed range - all of them follow the control.
    */
   const factRange = rangeFor(layout, 'fact')
-  const factSpan = spanOf(
-    factRange,
-    today,
-    data.firstDate,
-    parseSpan(customTextFor(layout, 'fact')).days
-  )
-  const everyFact = buildFacts({
-    ...data,
-    unitTotals: unitTotalsIn(data.unitDays, factSpan)
-  })
-  /*
-   * On a narrowed range, only the facts that narrowed with it.
-   *
-   * The output facts follow the control because `unitTotals` is recomputed
-   * above; the rest - lifetime hours, the longest session ever, the
-   * most-worked project - do not, and cannot without dating aggregates that
-   * have no date. Left in, the tile could answer a dropdown reading "past
-   * month" with "2,755 h of deep work since 03/27/2023", which is a control
-   * that visibly does nothing to the thing beside it. They come back at all
-   * time, where they are exactly right.
-   */
-  const facts =
-    factSpan === null ? everyFact : everyFact.filter((one) => one.id.startsWith('unit:'))
-  const fact = facts.find((one) => one.id === factId) ?? facts[0] ?? null
+  const factCustomDays = parseSpan(customTextFor(layout, 'fact')).days
+  const factSpan = spanOf(factRange, today, data.firstDate, factCustomDays)
+  const factLabel = windowDefFor(factRange, factCustomDays).label
 
   const glanceRow = (
     <div className="an-stats">
@@ -1253,21 +1210,22 @@ function AnalyticsTab(): React.JSX.Element {
         </div>
       )}
 
-      {fact !== null && (
-        <div className="an-stat">
-          <strong>{fact.value}</strong>
-          <span>
-            {fact.label}
-            {fact.detail === '' ? '' : ` ${fact.detail}`}
-          </span>
-          <RangePicker
-            value={factRange}
-            onChange={(next) => setRange('fact', next)}
-            label="the fun fact"
-            customText={customTextFor(layout, 'fact')}
-            onCustomText={(next) => setCustom('fact', next)}
-          />
-        </div>
+      {opening !== null && (
+        <InsightCard
+          // Optional-chained although the type says it is there: a payload
+          // from a main process built before this field existed has none,
+          // and the card must not be able to take the tab down with it.
+          rows={data.sessionRows ?? []}
+          range={factSpan}
+          label={factLabel}
+          today={today}
+          seed={opening.seed}
+          avoid={opening.avoid}
+          rangeId={factRange}
+          onRange={(next) => setRange('fact', next)}
+          customText={customTextFor(layout, 'fact')}
+          onCustomText={(next) => setCustom('fact', next)}
+        />
       )}
     </div>
   )

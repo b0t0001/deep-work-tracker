@@ -2,6 +2,11 @@
  * The "fun fact" tile: one figure pulled from the history, chosen at random
  * each time the Analytics tab is opened.
  *
+ * **Superseded on screen by `insights.ts`**, which took over the tile. What
+ * lives on from here is the vocabulary - `verbFor`, `pluralUnit`,
+ * `formatCount`, `formatHours` - which the insights and the charts both use.
+ * `buildFacts` and `pickFact` are no longer rendered.
+ *
  * Their words: *"what's the total # of questions i've answered, ever? how many
  * videos have i put out? how many hours have i spent editing in total? these
  * should just be some interesting facts, pulled from the data."*
@@ -72,6 +77,11 @@ export const MAX_UNIT_FACTS = 20
  * was done and is kept; it never matches here because it is not a bare word.
  */
 const TIME_UNITS = new Set(['second', 'sec', 'minute', 'min', 'hour', 'hr'])
+
+/** Whether a unit measures time rather than output. Shared with `insights.ts`. */
+export function isTimeUnit(unit: string): boolean {
+  return TIME_UNITS.has(unit.trim().toLowerCase())
+}
 
 /**
  * What doing a unit is called.

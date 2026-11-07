@@ -95,6 +95,36 @@ export interface LongestSession {
   hours: number
 }
 
+/**
+ * One counted session, cut down to what the insights card reads.
+ *
+ * Per session rather than per day, unlike every other dated field here,
+ * because the insights are mostly about the shape of individual sessions - a
+ * median session length, the longest one in a range, which course a task was
+ * for, a rate within one unit and one course. None of those survive being
+ * summed by day. It is about 2,500 small rows, which is nothing on the wire.
+ */
+export interface SessionRow {
+  /** Local `YYYY-MM-DD`. Rows with no date are not sent. */
+  date: string
+  project: string | null
+  task: string | null
+  /** One lap, as stored - see CLAUDE.md on `planned_duration_s`. */
+  plannedS: number
+  runningS: number
+  laps: number
+  source: string
+  /**
+   * The local hour the session started, 0-23, for app-recorded rows only.
+   * Imported and manual rows are null whatever they hold: an imported row has
+   * no clock time, and a manual one has a remembered one.
+   */
+  hour: number | null
+  unit: string | null
+  /** Null when absent or marked unquantifiable - never zero for "unknown". */
+  quantity: number | null
+}
+
 export interface Analytics {
   /** Null when the database is empty. */
   firstDate: string | null
@@ -201,6 +231,8 @@ export interface Analytics {
    * strings would be on the wire for nothing.
    */
   unitTasks: Record<string, string[]>
+  /** Every counted dated session, for `shared/insights.ts`. See `SessionRow`. */
+  sessionRows: SessionRow[]
 }
 
 export interface Streaks {
