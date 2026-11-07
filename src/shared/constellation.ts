@@ -799,12 +799,13 @@ export function colourRanks(all: readonly StarRow[]): Map<string, number> {
  * it is a pool, not a project, and should not compete.
  */
 /**
- * The first look's saturation and lightness, which the user settled on:
- * *"I actually think the current brightness is alright."* A muted 0.42 and a
- * 0.74 were both tried and both read as too dim.
+ * A little under the first look's 0.78 / 0.66. The user asked for the glow
+ * to be toned down "just a little", and these move only as far as that
+ * needs: a LiDAR-grey version (0.42) was tried and was more change than
+ * was asked for.
  */
-export const MUTED_SATURATION = 0.78
-export const MUTED_LIGHTNESS = 0.66
+export const MUTED_SATURATION = 0.74
+export const MUTED_LIGHTNESS = 0.64
 
 export function armColours(
   wedges: readonly Wedge[],
@@ -852,13 +853,6 @@ export function armColours(
     })
   }
   for (const arm of arms) out[arm.i] = hslToHex(arm.hue, MUTED_SATURATION, MUTED_LIGHTNESS)
-  // Unspread, the largest project ever is the accent itself, exactly, so the
-  // panel belongs to the same app as every other chart.
-  if (!cramped) {
-    for (const arm of arms) {
-      if ((ranks.get(wedges[arm.i].projects[0]) ?? arm.i) === 0) out[arm.i] = accentHex
-    }
-  }
   return out
 }
 

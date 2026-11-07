@@ -31,7 +31,11 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
+  AddEquation,
   AdditiveBlending,
+  CustomBlending,
+  OneFactor,
+  OneMinusDstColorFactor,
   BufferGeometry,
   Color,
   Float32BufferAttribute,
@@ -72,6 +76,12 @@ import { ChartTip } from './AnalyticsCharts'
 
 const STAGE_BG = '#05060a'
 const SHAPE_KEY = 'dwt.constellation.shape'
+/**
+ * How bright the glow is, 1 being the first look. *"I just want you to tone
+ * down the brightness, the intensity just a little."* A third off: the same
+ * glow, halo, swell and twinkle, quieter.
+ */
+const GLOW_INTENSITY = 0.66
 const MODE_KEY = 'dwt.constellation.mode'
 
 /** Galaxy: glowing stars. LiDAR: solid scan points. Same cloud, same buffers. */
@@ -457,6 +467,7 @@ uniform float uFogNear;
 uniform float uFogFar;
 uniform float uTime;
 uniform float uWave;
+uniform float uIntensity;
 varying vec3 vColor;
 varying float vAlpha;
 varying float vHot;
@@ -472,7 +483,9 @@ void main() {
   float wave = exp(-pow((bright - uWave) * 9.0, 2.0));
   vColor = color;
   vHot = wave;
-  vAlpha = (0.2 + 0.8 * bright + 0.9 * wave) * fog * dim * twinkle;
+  // uIntensity scales the whole glow. 0.66 is the user's "tone down the
+  // brightness, the intensity just a little" - the same look, a third dimmer.
+  vAlpha = (0.2 + 0.8 * bright + 0.75 * wave) * fog * dim * twinkle * uIntensity;
   gl_PointSize = clamp(size * (1.0 + 0.45 * wave) * uScale / depth, 1.6, 72.0) * uPixelRatio;
   gl_Position = projectionMatrix * mv;
 }
@@ -491,20 +504,29 @@ void main() {
   // per point in the shader rather than as a full-screen pass.
   float core = exp(-d * 28.0);
   float body = exp(-d * 9.0) * 0.55;
-  float halo = exp(-d * 2.6) * 0.22 * (1.0 - d);
+  float halo = exp(-d * 2.6) * 0.16 * (1.0 - d);
   float a = (core + body + halo) * vAlpha;
-  vec3 c = mix(vColor * 1.15, vec3(1.0), clamp(core * 0.7 + vHot * 0.25, 0.0, 1.0));
-  gl_FragColor = vec4(c, a);
+  // Less white in the pinpoint than before, so a dense arm sums towards its
+  // own colour rather than towards white.
+  vec3 c = mix(vColor * 1.1, vec3(1.0), clamp(core * 0.45 + vHot * 0.2, 0.0, 1.0));
+  // Premultiplied, for the screen blend below.
+  gl_FragColor = vec4(c * a, a);
 }
 `
 
 /*
- * LiDAR: a laser scan rather than a sky. Each session is a solid, opaque,
- * hard-edged disc - no halo, no blending, depth-tested so near points cover
- * far ones the way a scan does. Smaller and nearly uniform in size, so the
- * cloud reads by density and shape. Depth comes from size and a little fog
- * towards the stage colour. Shares every uniform with the galaxy material, so
- * switching mode is a material swap on the same buffers.
+ * LiDAR: a laser scan rather than a sky. The user pointed at two real scans -
+ * a forest, and what a self-driving car sees - and asked for points that
+ * "emit like a little bit of light, but not too much". So each session is a
+ * crisp, solid, saturated dot that glows faintly at its edge: the core is a
+ * hard disc covering the inner part of the sprite, and around it a tight
+ * falloff of its own colour, far narrower and weaker than a galaxy star's
+ * halo. Smaller and nearly uniform in size, so the cloud reads by density and
+ * shape. Screen blending, so where scan points crowd the light builds up the
+ * way a dense scan does, towards white only asymptotically.
+ *
+ * Shares every uniform with the galaxy material, so switching mode is a
+ * material swap on the same buffers.
  */
 const LIDAR_VERT = `
 attribute vec3 color;
@@ -520,31 +542,45 @@ uniform float uFogFar;
 uniform float uWave;
 uniform vec3 uStage;
 varying vec3 vColor;
+varying float vFade;
 void main() {
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   float depth = max(0.1, -mv.z);
   float on = (uIsolate < -0.5 || abs(arm - uIsolate) < 0.5) ? 1.0 : 0.0;
-  float dim = mix(1.0, mix(0.12, 1.0, on), uFocus);
-  float fog = 0.55 * smoothstep(uFogNear, uFogFar, depth);
+  float dim = mix(1.0, mix(0.08, 1.0, on), uFocus);
+  float fog = 0.6 * smoothstep(uFogNear, uFogFar, depth);
   float wave = exp(-pow((bright - uWave) * 9.0, 2.0));
-  vec3 c = color * (0.78 + 0.22 * bright) + vec3(0.12 * wave);
-  vColor = mix(uStage, mix(c, uStage, fog), dim);
-  // Output still sizes a point, but gently: 1x to 1.6x rather than 2.5x.
+  vec3 c = color * (0.82 + 0.28 * bright) + vec3(0.14 * wave);
+  // Scan colours are vivid: without a wide halo to carry the hue, a point has
+  // only its own few pixels to say which arm it is on.
+  c = clamp(mix(vec3(dot(c, vec3(0.299, 0.587, 0.114))), c, 1.4), 0.0, 1.0);
+  vColor = c;
+  vFade = (1.0 - fog) * dim;
+  // The sprite is a little over twice the dot, to leave room for the glow.
   float k = size / 0.25;
-  float world = 0.1 * (1.0 + (k - 1.0) * 0.4);
-  gl_PointSize = clamp(world * uScale / depth, 1.5, 14.0) * uPixelRatio;
+  float world = 0.085 * (1.0 + (k - 1.0) * 0.4) * 2.6;
+  gl_PointSize = clamp(world * uScale / depth, 3.0, 28.0) * uPixelRatio;
   gl_Position = projectionMatrix * mv;
 }
 `
 
 const LIDAR_FRAG = `
 varying vec3 vColor;
+varying float vFade;
 void main() {
   vec2 p = gl_PointCoord * 2.0 - 1.0;
-  float d = dot(p, p);
-  if (d > 1.0) discard;
-  // A hair of shading towards the rim, so touching points stay separable.
-  gl_FragColor = vec4(vColor * (1.0 - 0.18 * d), 1.0);
+  float r = length(p);
+  if (r > 1.0) discard;
+  // The dot: solid out to a third of the sprite, then a sharp edge.
+  float core = 1.0 - smoothstep(0.3, 0.38, r);
+  // The light it gives off: a little, tight, gone by the sprite's edge.
+  float glow = exp(-r * r * 5.0) * 0.42 * (1.0 - r);
+  float a = clamp(core + glow * (1.0 - core), 0.0, 1.0) * vFade;
+  // A faintly hotter centre, which is what makes a dot read as a source of
+  // light rather than as paint.
+  vec3 c = mix(vColor, vec3(1.0), 0.18 * (1.0 - smoothstep(0.0, 0.3, r)));
+  // Premultiplied, for the screen blend.
+  gl_FragColor = vec4(c * a, a);
 }
 `
 
@@ -595,7 +631,7 @@ void main() {
   vec2 p = gl_PointCoord * 2.0 - 1.0;
   float d = dot(p, p);
   if (d > 1.0) discard;
-  gl_FragColor = vec4(vec3(0.75, 0.82, 1.0), (1.0 - d) * vAlpha * 0.5);
+  gl_FragColor = vec4(vec3(0.75, 0.82, 1.0), (1.0 - d) * vAlpha * 0.4);
 }
 `
 
@@ -1189,20 +1225,34 @@ export default function Constellation({
         uPixelRatio: { value: pixelRatio },
         uTime: { value: 0 },
         uWave: { value: -5 },
+        uIntensity: { value: GLOW_INTENSITY },
         uStage: { value: rawColour(STAGE_BG) }
       },
+      /*
+       * Screen blending: light that adds up like the additive glow it
+       * replaced, but towards white asymptotically instead of linearly.
+       * A sparse arm glows exactly as before; the dense cores (HW, College
+       * Apps), which used to sum past white into flat blobs, keep their
+       * colour and their texture. Needs premultiplied output - see STAR_FRAG.
+       */
       transparent: true,
       depthWrite: false,
-      blending: AdditiveBlending
+      blending: CustomBlending,
+      blendEquation: AddEquation,
+      blendSrc: OneMinusDstColorFactor,
+      blendDst: OneFactor
     })
     // The same uniform object, so the loop's writes reach whichever is on.
     const lidarMat = new ShaderMaterial({
       vertexShader: LIDAR_VERT,
       fragmentShader: LIDAR_FRAG,
       uniforms: starMat.uniforms,
-      transparent: false,
-      depthWrite: true,
-      depthTest: true
+      transparent: true,
+      depthWrite: false,
+      blending: CustomBlending,
+      blendEquation: AddEquation,
+      blendSrc: OneMinusDstColorFactor,
+      blendDst: OneFactor
     })
     // Shared uniform objects, so one write moves stars and lines together.
     const lineMat = new ShaderMaterial({

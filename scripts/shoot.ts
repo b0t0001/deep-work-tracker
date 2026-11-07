@@ -465,6 +465,25 @@ document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await w
     note: 'The sphere at fullscreen size.'
   },
   {
+    // Fullscreen is the HTML Fullscreen API on the stage, which a hidden
+    // window cannot enter. The stage is given the window's size instead, with
+    // the fullscreen-only overlays forced on, which is what fullscreen draws.
+    id: 'cst-lidar-fullscreen-1900',
+    width: 1900,
+    height: 1000,
+    route: '/dashboard',
+    drive:
+      CST_OPEN +
+      `
+      const s = document.createElement('style');
+      s.textContent = '.cst__stage{position:fixed!important;inset:0!important;height:100vh!important;border-radius:0!important;z-index:9999}.cst__stage .cst__title{display:block!important}.cst__stage .cst__exit{display:inline-flex!important}';
+      document.head.appendChild(s);
+      const lidar = stage.closest('.an-panel').querySelector('.cst__shape').querySelectorAll('button')[1]; lidar.click(); await wait(700);
+      await wait(900);
+    `,
+    note: 'LiDAR at fullscreen size, to judge the points close up.'
+  },
+  {
     // WebGL, the frame clock and the per-frame cost, read off the live page.
     // `constellationBench` renders N frames back to back and waits for the GPU
     // to finish each, so the figure is the true cost of a frame rather than
