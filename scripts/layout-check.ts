@@ -15,6 +15,9 @@
 import {
   DEFAULT_COMPARE,
   DEFAULT_RANGES,
+  SECTION_IDS,
+  resolveSections,
+  withSections,
   PANEL_IDS,
   SECTIONS,
   defaultLayout,
@@ -97,7 +100,8 @@ eq(
     fontScale: 1.25,
     ranges: { projects: '1y', timeOfDay: '8w' },
     customRanges: { projects: '45 days' },
-    compare: { statistic: 'median', grain: 'week', range: '3m', custom: '' }
+    compare: { statistic: 'median', grain: 'week', range: '3m', custom: '' },
+    sections: ['habits', 'glance', 'output', 'hours']
   }
   eq('a full custom layout round-trips', parseLayout(serialiseLayout(mine)), mine)
 }
@@ -211,6 +215,59 @@ eq('and it holds no panels - the figure row is not draggable', SECTIONS[0].panel
 eq('sectionOf agrees with the table', sectionOf('calendar'), 'hours')
 
 console.log('')
+console.log('--- the section order ---')
+
+/*
+ * The migration case, and the only one that can break an existing user: a
+ * layout stored before sections could be dragged has no `sections` key at
+ * all. It must read as the declared order - which is exactly what that user
+ * was already looking at - rather than as an empty list, which would render
+ * no sections and an empty tab.
+ */
+eq(
+  'a layout stored before sections existed reads as the declared order',
+  resolveLayout({ order: [...PANEL_IDS], hidden: [], fontScale: 1 }).sections,
+  SECTION_IDS
+)
+eq('and so does nothing at all', resolveLayout(null).sections, SECTION_IDS)
+eq('an order that is not an array is ignored', resolveSections('hours'), SECTION_IDS)
+eq('a stored order is kept', resolveSections(['output', 'glance', 'habits', 'hours']), [
+  'output',
+  'glance',
+  'habits',
+  'hours'
+])
+eq(
+  'a section that no longer exists is dropped',
+  resolveSections(['output', 'gone', 'glance']).includes('gone' as never),
+  false
+)
+eq('and a duplicate appears once', resolveSections(['hours', 'hours']).length, SECTION_IDS.length)
+/*
+ * The same rule panels follow, for the same reason: a section added later
+ * must appear for someone who has already dragged things, in its declared
+ * position rather than last. Invisible until the first section added after
+ * someone customises, which is the worst time to find out.
+ */
+eq(
+  'a section never opined about lands in its declared position, not last',
+  resolveSections(['glance', 'habits', 'output']),
+  SECTION_IDS
+)
+eq(
+  'withSections resolves what it is given',
+  withSections(defaultLayout(), ['output', 'glance'] as never).sections.length,
+  SECTION_IDS.length
+)
+eq(
+  'and a section order round-trips through storage',
+  parseLayout(
+    serialiseLayout(withSections(defaultLayout(), ['output', 'habits', 'hours', 'glance'] as never))
+  ).sections,
+  ['output', 'habits', 'hours', 'glance']
+)
+
+console.log('')
 console.log('--- the comparison box: statistic, grain and range ---')
 
 /*
@@ -279,7 +336,8 @@ eq('an unwritten layout reads as defaults', readLayout(), defaultLayout())
     fontScale: 1.5,
     ranges: { pace: '1m', projects: '2y' },
     customRanges: { pace: '3 weeks' },
-    compare: { statistic: 'mean', grain: 'month', range: 'custom', custom: '10 months' }
+    compare: { statistic: 'mean', grain: 'month', range: 'custom', custom: '10 months' },
+    sections: ['output', 'habits', 'hours', 'glance']
   }
   eq('what is written is what is read back', writeLayout(mine), mine)
   eq('and it survives a reopen', readLayout(), mine)

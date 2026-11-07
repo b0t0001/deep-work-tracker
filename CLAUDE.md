@@ -1001,6 +1001,109 @@ it can be checked rather than trusted.
   for the fun fact carries over. `buildFacts`/`pickFact` in `facts.ts` are no
   longer rendered; `scripts/stats-check.ts` still covers them.
 
+**One tooltip for every chart: a quiet caption and a loud number.** *"just
+make whatever the text is like gray and then make the font size smaller. The
+actual statistic should be white and it should pop out and it should be in a
+bigger font size."* Recharts' default draws `Hours : 10.51 h` - one line, one
+size, the label and the figure given equal weight and joined by a colon. The
+figure is the only part anyone hovers for, so it is 17px and white and the
+words around it are 10.5px and dim; the colon went with the single line,
+because a label above its value needs no punctuation to join them.
+
+It is a `content` component (`ChartTip`), not the `contentStyle` /
+`labelStyle` props, because those can only colour the default markup - they
+cannot put the name and the value on separate lines at different sizes. It
+names no font family: the app is on one face and chart text inherits it, so
+naming it again would be a second place to change it.
+
+**No hover highlight anywhere.** *"I hate this highlight effect. Get rid of
+it."* `cursor={false}` on every chart. The grey band Recharts paints behind
+the hovered band reads as a selection the user did not make, and on this tab
+it also sat over the value labels that exist so the bars can be read without
+hovering at all.
+
+**The heatmaps are not affected and cannot be.** Their hover text is an SVG
+`<title>` element, which the OS draws - there is no Recharts tooltip and no
+cursor rectangle to remove, and the native tooltip takes no styling. Making
+those match would mean building a hover layer for them, which is a separate
+piece of work and was not asked for.
+
+`scripts/tooltip-check.ts` hovers a bar on all four bar charts through CDP
+and reads the **computed** size and colour of the value against the words
+around it, rather than trusting that a class was applied - and asserts that
+no `.recharts-tooltip-cursor` exists while a tooltip is open, which is the
+only way to tell `cursor={false}` from a cursor that is merely transparent.
+
+**Sections and panels are dragged with pointer events, and the rest of the
+page moves out of the way as you go.** *"when I'm modifying the layout of the
+analytics tab, I should be able to move the headers around. And also, I want
+you to add like a live preview of how my dragging is affecting the other
+panels."*
+
+**Why not HTML5 drag-and-drop**, which is what this used and is less code:
+during a native drag the browser owns the gesture, the drag image is a
+snapshot taken at `dragstart` and cannot be styled, and the only position
+information arriving is a `dragover` per sibling rather than a continuous
+track - so the siblings can be re-ordered but not animated. Native drag also
+interacts with `-webkit-app-region`, which this project has lost three builds
+to. Pointer events give a continuous position and leave the DOM ours to
+animate; the cost is that capture and cancellation are ours to get right,
+which is most of `renderer/src/lib/arrange.ts`.
+
+- **Slot positions are captured once, at drag start**, and the target is
+  "which captured slot centre is the pointer nearest". They are a property of
+  the layout, not of what currently sits in them. Re-measuring each frame
+  reads positions that are mid-animation and feeds them back into the hit
+  test, which oscillates.
+- **FLIP for the siblings**: measure, set the inverse transform with no
+  transition, force a reflow so the browser takes the start position as a
+  fact, then transition to zero. Skipping the reflow read collapses both
+  writes into one frame and nothing animates. The dragged element is excluded
+  and follows the pointer - it must not be 170ms behind the hand.
+- **The preview lives in the hook, not in the layout.** `onCommit` fires only
+  on a successful drop, which is what makes Escape and a release outside into
+  cancels without either being handled at the call site.
+- **`prefers-reduced-motion` is honoured in the hook**, not only in CSS: a
+  `transition: none` rule would stop the tween but the element would still be
+  given a transform and then have it cleared, which is a flash rather than an
+  instant move.
+- **The grip is the handle, not the whole panel.** A drag that could start
+  anywhere would swallow every click inside a panel, including the range
+  dropdowns, which stay usable while arranging.
+- **Cross-section panel drops are still refused.** A section is a property of
+  a panel (see `SECTIONS`); now that sections themselves move, the way to put
+  Habits above Hours is to drag Habits.
+- **"At a glance" is a section like the others.** It used to be rendered above
+  the loop because its body is the figure row rather than a grid - which also
+  made it the one header that could not be dragged. It goes through the same
+  loop and the same drag group now; only its body differs.
+- **`Layout.sections` is separate from `order`.** Panels move within a
+  section and sections move as wholes; one flat list would make "which
+  section is this panel in" a function of position. A stored layout with no
+  `sections` key resolves to the declared order, so old layouts need no
+  migration beyond that.
+
+**The Modify panels bar is one row, at the right edge, with no instructions.**
+*"I don't need the instructions when im modifying the layout of the data. All
+it really should do is just the buttons should just move all the way to the
+side. The done button should move all the way to the side."* The hint
+sentence is gone - it was written when entering the mode was the only chance
+to explain it, and the grips and hide buttons now appear on every panel the
+instant the mode opens. Everything stays in the header row rather than
+opening a second one, so nothing below the header moves when the mode is
+entered, which matters because the next thing the user does is drag the
+things underneath. **Done is last**, in the place Modify panels occupied, so
+the button pressed to come in is the button pressed to leave.
+
+`scripts/arrange-check.ts` drives a real drag through CDP and asserts a
+sibling has moved **while the pointer is still down** - a behaviour no amount
+of reading the component can confirm. Pointer events are dispatched through
+CDP rather than synthesised in the page: a synthetic `PointerEvent` does not
+go through the capture machinery, so a handler bound with
+`setPointerCapture` never sees the moves. It also captures mid-gesture, which
+is the only way to screenshot something that is over before any other tool
+could look.
+
 **Every dropdown offers the same presets, and one of them is Custom.**
 *"every timescale dropdown should have the same presets... and then a custom
 field where i can insert anything"*. Panels used to narrow the list for
