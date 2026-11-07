@@ -177,7 +177,48 @@ const DRIVE_HELPERS = `
  */
 let engine = new TimerEngine()
 
+/**
+ * The insights card, stepped through. `Math.random` is pinned and the last
+ * shown id cleared so a run opens on the strongest insight every time, and
+ * each shot presses Next a set number of times from there. `range` sets the
+ * card's own dropdown first, the way a user would.
+ */
+function insightShot(width: number, steps: number, range = 'all'): Shot {
+  return {
+    id: `insights-${width}-${range}-${steps}`,
+    width,
+    height: 560,
+    route: '/dashboard',
+    drive: `
+      Math.random = () => 0;
+      try { localStorage.removeItem('dwt.lastInsight') } catch {}
+      click('.tabs .tab:nth-child(3)'); await wait(2800);
+      const card = document.querySelector('.an-insight');
+      if (${JSON.stringify(range)} !== 'all') {
+        const sel = card.querySelector('select');
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, ${JSON.stringify(range)});
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(400);
+      }
+      for (let i = 0; i < ${steps}; i++) {
+        document.querySelector('.an-insight button[aria-label="Next insight"]').click();
+        await wait(120);
+      }
+      await wait(300);
+    `,
+    note: `The insights card at ${width}px, ${range}, ${steps} steps past the strongest.`
+  }
+}
+
+const INSIGHT_SHOTS: Shot[] = [
+  ...[0, 1, 2, 3, 4, 5, 6].map((n) => insightShot(1150, n)),
+  ...[0, 3, 7, 9].map((n) => insightShot(1900, n)),
+  ...[0, 1, 4].map((n) => insightShot(1150, n, '1m')),
+  ...[0, 2].map((n) => insightShot(1900, n, '1w'))
+]
+
 const SHOTS: Shot[] = [
+  ...INSIGHT_SHOTS,
   {
     id: 'probe-add-missing-project',
     width: 1150,
