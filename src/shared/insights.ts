@@ -33,9 +33,11 @@
  *   else in the tab.
  * - **Numbers are exact** where they are figures from the data: 292,358, not
  *   "nearly 300k". Ratios and medians are rounded to what can be read.
- * - **Everything follows the card's range control**, because every input is a
- *   dated session. The two insights that compare against "before" take the
- *   previous period of the same length, as the comparison box does.
+ * - **Each insight picks its own window and says which.** The card has no
+ *   range control (see `PLAN`): records and totals are all time, "now" is the
+ *   past 30 days, habits are the recent stretch, and a comparison takes a
+ *   period against the one of equal length before it. The detail line names
+ *   the window every time.
  *
  * `test` rows never arrive here: `main/db/analytics.ts` reads through its
  * `COUNTED` view.
@@ -44,7 +46,7 @@ import { median, type SessionRow } from './analytics'
 import { courseFrom } from './courses'
 import { formatDate } from './dates'
 import { formatCount, formatHours, isTimeUnit, pluralUnit, verbFor } from './facts'
-import { describeSpan, type Range } from './windows'
+import { describeSpan, windowDef, windowRange, type Range, type WindowId } from './windows'
 
 export interface Insight {
   /** Stable across opens and ranges, so the card can keep its place. */
@@ -61,7 +63,7 @@ export interface Insight {
 
 export interface InsightContext {
   rows: readonly SessionRow[]
-  /** The card's range, or null for all time. */
+  /** The window this insight reads (from `PLAN`), or null for all time. */
   range: Range | null
   /** The window's own words - `past 30 days` - for the sentence. */
   label: string
@@ -329,7 +331,7 @@ export function peakHours(ctx: InsightContext): Insight | null {
   return {
     id: 'peak-hours',
     figure: hourWindow(start),
-    text: `is when you're most active${when(ctx)}`,
+    text: `is when you're most active`,
     detail: `${pct(share)} of your timed hours start then · ${plural(timed.length, 'timed session')}, imported and manual left out`,
     strength: clamp01((share - 2 / 24) / 0.35)
   }
@@ -347,7 +349,7 @@ export function typicalDay(ctx: InsightContext): Insight | null {
   return {
     id: 'typical-day',
     figure: `${num1(sessions)} session${sessions === 1 ? '' : 's'}`,
-    text: `and ${formatHours(hours)} make a typical working day${when(ctx)}`,
+    text: `and ${formatHours(hours)} make a typical working day`,
     detail: `medians over ${plural(days.size, 'day')} with work · the middle session runs ${formatMinutes(session)}`,
     strength: 0.45
   }
@@ -390,7 +392,7 @@ export function weekdayPattern(ctx: InsightContext): Insight | null {
       return {
         id: 'weekday',
         figure: 'Weekends',
-        text: `are when you do the most${when(ctx)}: ${pct(lift)} more a day than weekdays`,
+        text: `are when you do the most: ${pct(lift)} more a day than weekdays`,
         detail: `${perDay(weekend)} a weekend day, ${perDay(weekdays)} a weekday · ${lightest} · days off counted`,
         strength: clamp01(lift / 0.6)
       }
@@ -401,7 +403,7 @@ export function weekdayPattern(ctx: InsightContext): Insight | null {
   return {
     id: 'weekday',
     figure: `${WEEKDAYS[top]}s`,
-    text: `are your strongest day${when(ctx)}, ${pct(lift)} above your average day`,
+    text: `are your strongest day, ${pct(lift)} above your average day`,
     detail: `${perDay(per[top])} on an average ${WEEKDAYS[top]}, ${perDay(avg)} across all days · ${lightest}`,
     strength: clamp01(lift / 0.6)
   }
@@ -433,7 +435,7 @@ export function topCourse(ctx: InsightContext): Insight | null {
   return {
     id: 'top-course',
     figure: name,
-    text: `has taken the most time of your courses${when(ctx)}`,
+    text: `has taken the most time of your courses`,
     detail: `${formatHours(top.hours)} across ${plural(top.sessions, 'session')} · next is ${nextName} at ${formatHours(next.hours)}`,
     strength: clamp01(0.35 + recent + 0.3 * clamp01(lead))
   }
@@ -452,7 +454,7 @@ export function topProject(ctx: InsightContext): Insight | null {
   return {
     id: 'top-project',
     figure: pct(share),
-    text: `of your time${when(ctx)} went to ${named[0][0]}`,
+    text: `of your time went to ${named[0][0]}`,
     detail: `${formatHours(named[0][1])} of ${formatHours(total)} · next is ${named[1][0]} at ${pct(named[1][1] / total)}`,
     strength: clamp01((share - 0.2) / 0.5)
   }
@@ -570,7 +572,7 @@ export function stoppedEarly(ctx: InsightContext): Insight | null {
   return {
     id: 'stopped-early',
     figure: pct(early / runs.length),
-    text: `of your timers${when(ctx)} were stopped before they ran out`,
+    text: `of your timers were stopped before they ran out`,
     detail: `a typical run used ${pct(Math.min(used, 1))} of the time set · ${formatCount(early)} of ${formatCount(runs.length)} single-lap runs, loops counted separately`,
     strength: 0.5
   }
@@ -589,7 +591,7 @@ export function loopLength(ctx: InsightContext): Insight | null {
   return {
     id: 'loops',
     figure: `${num1(typical)} laps`,
-    text: `is how long a looped session typically runs${when(ctx)}`,
+    text: `is how long a looped session typically runs`,
     detail: `laps of the length set, median over ${plural(loops.length, 'loop')} · longest ${num1(longest.runningS / longest.plannedS)} laps${what ? ` on "${what}"` : ''}`,
     strength: 0.5
   }
@@ -643,7 +645,7 @@ export function streak(ctx: InsightContext): Insight | null {
     return {
       id: 'streak',
       figure: `${formatCount(s.best)} days`,
-      text: `in a row and counting: your longest streak${when(ctx)}`,
+      text: `in a row and counting: your longest streak`,
       detail: `every day since ${formatDate(s.currentSince)}`,
       strength: 0.8
     }
@@ -651,7 +653,7 @@ export function streak(ctx: InsightContext): Insight | null {
   return {
     id: 'streak',
     figure: `${formatCount(s.best)} days`,
-    text: `in a row is your longest streak${when(ctx)}, ending ${formatDate(s.bestEnd)}`,
+    text: `in a row is your longest streak, ending ${formatDate(s.bestEnd)}`,
     detail:
       s.current > 0
         ? `you're on day ${formatCount(s.current)} of the current one`
@@ -687,7 +689,7 @@ export function consistency(ctx: InsightContext): Insight | null {
     text:
       ctx.range === null
         ? 'of days since you started had some work in them'
-        : `of days${when(ctx)} had some work in them`,
+        : 'of days had some work in them',
     detail: `${formatCount(worked.length)} of ${formatCount(b.days)} days${breakLine}`,
     strength: 0.4
   }
@@ -712,7 +714,7 @@ export function biggestDay(ctx: InsightContext): Insight | null {
   return {
     id: 'biggest-day',
     figure: formatHours(hours),
-    text: `on ${formatDate(date)}, your biggest day${when(ctx)}`,
+    text: `on ${formatDate(date)}, your biggest day`,
     detail: `${num1(hours / typical)}× a typical working day of ${formatHours(typical)}${mostly ? ` · mostly ${mostly[0]}` : ''}`,
     strength: 0.45
   }
@@ -732,7 +734,7 @@ export function longestSession(ctx: InsightContext): Insight | null {
   return {
     id: 'longest',
     figure: formatHours(top.runningS / 3600),
-    text: `on "${what}", your longest single session${when(ctx)}`,
+    text: `on "${what}", your longest single session`,
     detail: `${formatDate(top.date)}${top.project ? ` · ${top.project}` : ''} · a typical session runs ${formatMinutes(typical)}`,
     strength: 0.4
   }
@@ -782,7 +784,7 @@ export function outputs(ctx: InsightContext): Insight[] {
       return {
         id: `unit:${unit}`,
         figure: formatCount(u.quantity),
-        text: `${label}${when(ctx)}: ${novels >= 1 ? `${num1(novels)} novels' worth` : `${pct(novels)} of a novel`}`,
+        text: `${label}: ${novels >= 1 ? `${num1(novels)} novels' worth` : `${pct(novels)} of a novel`}`,
         detail: `at ${formatCount(NOVEL_WORDS)} words a novel · ${sessions}`,
         strength: 0.5
       }
@@ -795,7 +797,7 @@ export function outputs(ctx: InsightContext): Insight[] {
     return {
       id: `unit:${unit}`,
       figure: formatCount(u.quantity),
-      text: `${label}${when(ctx)}${pace}`,
+      text: `${label}${pace}`,
       detail: minutes > 0 ? `${sessions} · ${formatHours(minutes / 60)} spent on them` : sessions,
       strength: clamp01(0.35 - rank * 0.03)
     }
@@ -818,7 +820,7 @@ export function hoursTotal(ctx: InsightContext): Insight | null {
   return {
     id: 'total',
     figure: formatHours(hours),
-    text: `of deep work${when(ctx)}: ${weeks >= 1.5 ? `${num1(weeks)} forty-hour work weeks` : `${pct(weeks)} of a forty-hour work week`}`,
+    text: `of deep work: ${weeks >= 1.5 ? `${num1(weeks)} forty-hour work weeks` : `${pct(weeks)} of a forty-hour work week`}`,
     detail:
       ctx.range === null
         ? `since ${formatDate(b.from)} · ${plural(rows.length, 'session')}`
@@ -838,7 +840,7 @@ export function editing(ctx: InsightContext): Insight | null {
   return {
     id: 'editing',
     figure: formatHours(hours),
-    text: `spent editing${when(ctx)}, ${pct(hours / total)} of all your time`,
+    text: `spent editing, ${pct(hours / total)} of all your time`,
     detail: `${plural(edits.length, 'session')} with "edit" in the task`,
     strength: 0.3
   }
@@ -868,44 +870,75 @@ export function sessionTrend(ctx: InsightContext): Insight | null {
   }
 }
 
-/** ` over the past 30 days`, or nothing for all time. */
-function when(ctx: InsightContext): string {
-  return ctx.range === null ? '' : ` over the ${ctx.label}`
-}
-
 /* ----------------------------------------------------------------------- *
  * The list and the choosing
  * ----------------------------------------------------------------------- */
 
+/** What `buildInsights` reads: the counted history, and today. */
+export interface InsightInput {
+  rows: readonly SessionRow[]
+  /** Local `YYYY-MM-DD`. Windows end the day before, as every window does. */
+  today: string
+}
+
+type Builder = (ctx: InsightContext) => Insight | Insight[] | null
+
 /**
- * Every insight the range supports, strongest first.
+ * The window each insight reads, chosen for what it says.
  *
- * Empty when there is nothing worth saying; the card is then left out rather
- * than showing a statement about nothing.
+ * The card has no range control - the user's call: *"only that panel should
+ * NOT have a timescale button"*. So each insight takes the window its
+ * sentence needs. Records, streaks, totals and output are all time, because
+ * a record over the past month is not a record. What is taking your time now
+ * is the past 30 days. Habits (how a day, a week, a timer usually goes) are
+ * the recent stretch, which is what "usually" means, without the 2023 rows
+ * that predate how the user works now. Comparisons take a period against the
+ * one of equal length before it.
+ *
+ * The detail line starts with the window, so the reader always knows which
+ * one an insight used. `named` marks the ones whose detail already says it -
+ * a comparison names both of its periods, and the total says "since".
  */
-export function buildInsights(ctx: InsightContext): Insight[] {
-  const all: Array<Insight | null> = [
-    peakHours(ctx),
-    typicalDay(ctx),
-    weekdayPattern(ctx),
-    topCourse(ctx),
-    topProject(ctx),
-    projectShift(ctx),
-    ...paceChanges(ctx),
-    stoppedEarly(ctx),
-    loopLength(ctx),
-    streak(ctx),
-    consistency(ctx),
-    biggestDay(ctx),
-    longestSession(ctx),
-    ...outputs(ctx),
-    hoursTotal(ctx),
-    editing(ctx),
-    sessionTrend(ctx)
-  ]
-  return all
-    .filter((i): i is Insight => i !== null)
-    .sort((a, b) => b.strength - a.strength || (a.id < b.id ? -1 : 1))
+const PLAN: ReadonlyArray<{ build: Builder; window: WindowId; named?: true }> = [
+  { build: peakHours, window: 'all' },
+  { build: typicalDay, window: '3m' },
+  { build: weekdayPattern, window: '1y' },
+  { build: topCourse, window: '1m' },
+  { build: topProject, window: '1m' },
+  { build: projectShift, window: '1y', named: true },
+  { build: paceChanges, window: 'all' },
+  { build: stoppedEarly, window: '1y' },
+  { build: loopLength, window: 'all' },
+  { build: streak, window: 'all' },
+  { build: consistency, window: '1y' },
+  { build: biggestDay, window: 'all' },
+  { build: longestSession, window: 'all' },
+  { build: outputs, window: 'all' },
+  { build: hoursTotal, window: 'all', named: true },
+  { build: editing, window: 'all' },
+  { build: sessionTrend, window: '3m', named: true }
+]
+
+/**
+ * Every insight the history supports, each over its own window, strongest
+ * first. Empty when there is nothing worth saying.
+ */
+export function buildInsights(input: InsightInput): Insight[] {
+  let first: string | null = null
+  for (const r of input.rows) if (first === null || r.date < first) first = r.date
+  const out: Insight[] = []
+  for (const step of PLAN) {
+    const def = windowDef(step.window)
+    // All time is no filter, not `windowRange('all')`: the latter ends
+    // yesterday, which would drop today's session from a total or a streak.
+    const range = step.window === 'all' ? null : windowRange(step.window, input.today, first)
+    if (step.window !== 'all' && range === null) continue
+    const ctx: InsightContext = { rows: input.rows, range, label: def.label, today: input.today }
+    const built = step.build(ctx)
+    const list = built === null ? [] : Array.isArray(built) ? built : [built]
+    for (const i of list) out.push(step.named ? i : { ...i, detail: `${def.label} · ${i.detail}` })
+  }
+  return out.sort((a, b) => b.strength - a.strength || (a.id < b.id ? -1 : 1))
 }
 
 /**
@@ -929,16 +962,4 @@ export function pickInsight(
     if (r < 0) return choices[i]
   }
   return choices[choices.length - 1]
-}
-
-/** The id after `current`, wrapping; the first when `current` is not in the list. */
-export function nextInsightId(
-  insights: readonly Insight[],
-  current: string | null,
-  step: 1 | -1 = 1
-): string | null {
-  if (insights.length === 0) return null
-  const at = insights.findIndex((i) => i.id === current)
-  if (at === -1) return insights[0].id
-  return insights[(at + step + insights.length) % insights.length].id
 }

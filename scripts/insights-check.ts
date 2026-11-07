@@ -24,7 +24,6 @@ import {
   hoursTotal,
   loopLength,
   longestSession,
-  nextInsightId,
   outputs,
   paceChanges,
   peakHours,
@@ -41,6 +40,7 @@ import {
   weekdayPattern,
   type InsightContext
 } from '../src/shared/insights'
+import { resolveLayout } from '../src/shared/layout'
 import type { Range } from '../src/shared/windows'
 
 let pass = 0
@@ -396,12 +396,56 @@ console.log('--- the range is respected ---')
   ]
   const p = topProject(ctx(rows, range(day(30), day(59)), 'past 30 days'))
   has('rows outside the range are not counted', p?.detail, '6 h of 11 h')
-  has('and the sentence names the range', p?.text, 'over the past 30 days')
+}
+
+console.log('--- each insight reads its own window, and says which ---')
+{
+  // 400 days, so the year windows are full. HW exists only in the last 30
+  // days (windows end yesterday: days 370-399), so naming it proves the
+  // "now" insight read that window rather than all time, where Old leads.
+  const rows: SessionRow[] = []
+  for (let d = 0; d < 400; d += 1)
+    rows.push(
+      row(day(d), d % 7 === 0 ? 240 : 45, {
+        project: d >= 370 ? (d % 3 ? 'HW' : 'Job') : d % 2 ? 'Old' : 'Job'
+      })
+    )
+  const list = buildInsights({ rows, today: day(400) })
+  const byId = new Map(list.map((x) => [x.id, x]))
+  const top = byId.get('top-project')
+  has('what is taking your time now is the past 30 days', top?.detail, 'past 30 days · ')
+  has('and over those 30 days it is the recent project', top?.text, 'went to HW')
+  has('a record is all time', byId.get('biggest-day')?.detail, 'all time · ')
+  has('a streak is all time', byId.get('streak')?.detail, 'all time · ')
+  has('a habit is the past 12 months', byId.get('stopped-early')?.detail, 'past 12 months · ')
+  has('consistency is the past 12 months', byId.get('consistency')?.detail, '365 of 365 days')
+  has('a typical day is the past 90 days', byId.get('typical-day')?.detail, 'past 90 days · ')
+  has('the total says since, once', byId.get('total')?.detail, 'since ')
+  eq('and is not also labelled all time', byId.get('total')?.detail.startsWith('all time'), false)
+  eq(
+    'no sentence carries a window of its own',
+    list.filter((x) => x.text.includes(' over the past')).map((x) => x.id),
+    []
+  )
+  eq(
+    'every detail line names its window',
+    list
+      .filter((x) => !/^(all time|past \d+ (days|months)) · |since |the past /.test(x.detail))
+      .map((x) => x.id),
+    []
+  )
+}
+
+console.log('--- an old stored range for the card is ignored ---')
+{
+  const resolved = resolveLayout({ ranges: { fact: '1w', baseline: '1m' } })
+  eq('the card has no stored range', 'fact' in resolved.ranges, false)
+  eq('the baseline keeps its own', resolved.ranges.baseline, '1m')
 }
 
 console.log('--- the list and the choosing ---')
 {
-  eq('an empty history has no insights', buildInsights(ctx([])), [])
+  eq('an empty history has no insights', buildInsights({ rows: [], today: day(0) }), [])
   const rows: SessionRow[] = []
   for (let d = 0; d < 120; d += 1) {
     rows.push(
@@ -411,7 +455,7 @@ console.log('--- the list and the choosing ---')
       })
     )
   }
-  const list = buildInsights(ctx(rows))
+  const list = buildInsights({ rows, today: day(120) })
   eq('several insights from a plain history', list.length >= 6, true)
   eq(
     'strongest first',
@@ -431,10 +475,6 @@ console.log('--- the list and the choosing ---')
     pickInsight([list[0]], 0.5, list[0].id)?.id,
     list[0].id
   )
-  eq('next walks the list', nextInsightId(list, list[0].id), list[1].id)
-  eq('next wraps', nextInsightId(list, list[list.length - 1].id), list[0].id)
-  eq('previous wraps', nextInsightId(list, list[0].id, -1), list[list.length - 1].id)
-  eq('an id that is gone starts from the top', nextInsightId(list, 'gone'), list[0].id)
   eq('nothing to pick', pickInsight([], 0.5), null)
 }
 

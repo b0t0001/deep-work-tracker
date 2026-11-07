@@ -1055,7 +1055,7 @@ function LayoutBar({
  * handler rather than while rendering: choosing involves `Math.random` and
  * `localStorage`, and the render path must stay pure (see the comment on the
  * state below for the two versions that were not). `InsightCard` turns them
- * into an opening insight for whatever range the card is set to.
+ * into the one insight it shows.
  */
 function insightOpening(): { seed: number; avoid: string | null } {
   let avoid: string | null = null
@@ -1103,10 +1103,9 @@ function AnalyticsTab(): React.JSX.Element {
    *
    * So the payload handler draws a random number and reads the last id shown,
    * once, off the render path, and `setOpening` batches with `setData`.
-   * `InsightCard` turns the two into an insight for whatever range the card
-   * is set to, which is a pure function of them - and since only the seed is
-   * held, the list can change under it with the range without anything
-   * impure happening in render.
+   * `InsightCard` turns the two into one insight, a pure function of them.
+   * This tab mounts each time it is shown, so each visit draws again: a new
+   * insight per opening, and none while you are looking at it.
    */
   const [opening, setOpening] = useState<{ seed: number; avoid: string | null } | null>(null)
   const [data, setData] = useState<Analytics | null>(null)
@@ -1245,19 +1244,6 @@ function AnalyticsTab(): React.JSX.Element {
   const recentPerDay = recent === null ? null : averagePerDay(data.daily, recent).perDay
   const above = recentPerDay === null ? null : aboveBaseline(recentPerDay, base)
 
-  /*
-   * The insights card over its own range.
-   *
-   * It keeps the fun fact's range target, `fact`, so a range chosen for the
-   * fun fact carries over. Every insight is built from dated sessions, so
-   * unlike the fun fact - which had to drop its lifetime figures on a
-   * narrowed range - all of them follow the control.
-   */
-  const factRange = rangeFor(layout, 'fact')
-  const factCustomDays = parseSpan(customTextFor(layout, 'fact')).days
-  const factSpan = spanOf(factRange, today, data.firstDate, factCustomDays)
-  const factLabel = windowDefFor(factRange, factCustomDays).label
-
   const glanceRow = (
     <div className="an-stats">
       {/* The box, in the place the two tiles it replaces used to take. */}
@@ -1309,15 +1295,9 @@ function AnalyticsTab(): React.JSX.Element {
           // from a main process built before this field existed has none,
           // and the card must not be able to take the tab down with it.
           rows={data.sessionRows ?? []}
-          range={factSpan}
-          label={factLabel}
           today={today}
           seed={opening.seed}
           avoid={opening.avoid}
-          rangeId={factRange}
-          onRange={(next) => setRange('fact', next)}
-          customText={customTextFor(layout, 'fact')}
-          onCustomText={(next) => setCustom('fact', next)}
         />
       )}
     </div>

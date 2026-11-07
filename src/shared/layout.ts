@@ -97,7 +97,11 @@ export function sectionOf(id: PanelId): SectionId {
 /**
  * Things in the figure row that carry a range but are not panels.
  *
- * The fun fact, and the baseline tile. The average and the period comparison
+ * The baseline tile. The insights card is deliberately not here: it has no
+ * range control at the user's request, because each insight reads its own
+ * window. A `fact` range stored by an earlier build is not a target any more,
+ * so `resolveLayout` drops it on read like any other unknown key - nothing
+ * to migrate. The average and the period comparison
  * used to be here and are gone with the tiles that held them - the comparison
  * box replaced all three and keeps its own choices in `compare` below,
  * because a range is one of the three things it lets you set.
@@ -110,7 +114,7 @@ export function sectionOf(id: PanelId): SectionId {
  * version got wrong - and it is why the caption has to name the window it
  * used, not just say "now".
  */
-export const STAT_RANGE_IDS = ['fact', 'baseline'] as const
+export const STAT_RANGE_IDS = ['baseline'] as const
 export type StatRangeId = (typeof STAT_RANGE_IDS)[number]
 
 /** Anything that carries its own range control. */
@@ -126,7 +130,6 @@ export type RangeTargetId = PanelId | StatRangeId
  * change.
  */
 export const DEFAULT_RANGES: Record<RangeTargetId, WindowId> = {
-  fact: 'all',
   baseline: '1y',
   calendar: 'all',
   hoursPerWeek: '8w',

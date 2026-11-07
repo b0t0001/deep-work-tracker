@@ -816,8 +816,9 @@ local.
   compares the first year against the last and both ends have to be fixed for
   that to mean anything; wired to a control it read +321% on one setting and
   +295% on another, the same claim with two numbers. (The baseline tile has
-  since gained a one-ended control, below; the insights card follows its own
-  range in full, because every insight is built from dated sessions.) A
+  since gained a one-ended control, below; the insights card has no control
+  at all, because each insight reads its own window - see "The fun fact
+  became insights".) A
   dropdown that cannot change the figure beside it is worse than no dropdown.
 - **Narrowing has two shapes, and `shared/ranges.ts` exists because of it.**
   An aggregate that still carries dates — `daily`, `ratesByUnit`, `pace` — is
@@ -957,10 +958,30 @@ not from guesses about what the words might mean. That is where `components`
 amount of work. It could also be about the efficiency... The fun fact should
 help me make sense of the data. It shouldn't just be raw data... I want you to
 basically just have insights."* `shared/insights.ts` builds every statement
-the chosen range supports; `components/InsightCard.tsx` shows one at a time,
-strongest first, with ‹ › and `3 / 14` to step through them. Each is a figure,
-the sentence it completes, and one small line of the numbers it rests on, so
-it can be checked rather than trusted.
+the history supports; `components/InsightCard.tsx` shows **exactly one**.
+Each is a figure, the sentence it completes, and one small line of the
+numbers it rests on, so it can be checked rather than trusted.
+
+- **One at a time, chosen when the tab opens, with no way to step.** *"there
+  should only be 1 fun fact at a time. i don't want an arrow button to click
+  through these."* There was a ‹ › stepper with `3 / 21`; it is gone. The
+  Analytics tab mounts each time it is shown, and the payload handler draws a
+  random number and reads the id shown last (`dwt.lastInsight`, so it holds
+  across launches). `pickInsight` weights toward the strong insights and
+  never repeats the last one. Nothing changes while the tab is being looked
+  at. Both values are read off the render path, for the reasons given beside
+  the old fun-fact state.
+- **No range control - the one panel without one.** *"only that panel should
+  NOT have a timescale button."* Each insight reads the window its sentence
+  needs, set in `PLAN` in `insights.ts`, and its detail line starts by naming
+  it: records, streaks, totals, output and pace trends are all time; what is
+  taking your time now (top project, top course) is the past 30 days; habits
+  (weekdays, timers stopped early, share of days worked) are the past 12
+  months and a typical working day the past 90; a comparison takes a period
+  against the one of equal length before it (project share: past 12 months
+  against the year before; session length: past 90 days against the 90
+  before). The sentences themselves carry no window, so the detail line is
+  the one place it is said.
 
 - **What it says:** the busiest two hours of the day; a typical working day
   (median sessions and hours over days with work, median session length);
@@ -996,27 +1017,21 @@ it can be checked rather than trusted.
   detail line shows both rates, so the user can judge what changed.
 - **Stopping early is reported as a habit, not a failure rate**, for the
   reasons under "There is deliberately no `completed` boolean".
-- **Everything follows the card's range.** The payload carries
+- **Every insight is built from dated sessions.** The payload carries
   `sessionRows` - every counted, dated session, cut to the fields the card
   reads - because medians, records, courses and rates do not survive being
   summed by day. Its `hour` is null for any row not recorded by the app, so a
   time-of-day claim cannot be built from an imported row by forgetting a
   filter.
-- **It opens somewhere different each time**, weighted toward the strong
-  ones and never on the one shown last (`dwt.lastInsight`). The random number
-  and the last id are read in the payload handler, off the render path, for
-  the reasons given beside the old fun-fact state. Changing the range keeps
-  your place where that insight still applies.
-- **Its range control sits in the card's footer, beside the stepper**, not in
-  the top-right corner like the other tiles. The figure can be a word -
-  `MATH 1410`, `Weekends` - and at 1150px a corner control either ran under
-  it or, given clearance, broke a course code across two lines.
-- **A range with nothing to say still renders the card**, saying so, because
-  the range control is on the card: a card that vanished would take the only
-  way back with it.
-- It keeps the fun fact's range target id, `fact`, so a range already chosen
-  for the fun fact carries over. `buildFacts`/`pickFact` in `facts.ts` are no
-  longer rendered; `scripts/stats-check.ts` still covers them.
+- **With nothing worth saying the card is left out** and the row closes up.
+  It used to say so in place, because the range control lived on the card
+  and a vanished card would have taken the only way back with it; with no
+  control there is nothing to keep it for.
+- **The old `fact` range target is gone.** A `fact` value stored by an
+  earlier build is not a range target any more, so `resolveLayout` drops it
+  on read like any unknown key - nothing to migrate, and `insights-check`
+  asserts it. `buildFacts`/`pickFact` in `facts.ts` are no longer rendered;
+  `scripts/stats-check.ts` still covers them.
 
 **One tooltip for every chart: a quiet caption and a loud number.** *"just
 make whatever the text is like gray and then make the font size smaller. The
@@ -1218,6 +1233,12 @@ defensible local reasons - the calendar dropped the shortest windows, the
 comparison box offered five of eight, the baseline tile four - and together
 those meant no two dropdowns looked alike. The list now lives once in
 `shared/windows.ts` and every picker renders all of it.
+
+**The single exception is the insights card, which has no dropdown at all**,
+at the user's request: *"only that panel should NOT have a timescale
+button"*. Each insight picks its own window and names it in its detail line
+(see "The fun fact became insights"). It is not a panel with a shorter list;
+it is the one panel with no list.
 
 - **The order is the user's and is deliberately not monotonic.** 60 days sits
   before 8 weeks although 56 is shorter, and 30 days after 4 weeks although
