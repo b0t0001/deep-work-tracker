@@ -17,19 +17,22 @@ import { formatDate, formatDateRange, formatDateTime } from '@shared/dates'
 import { rankProjects } from '@shared/projects'
 import { listOf, missingForEdit, missingForNewSession } from '@shared/sessionForm'
 import { parseSpan } from '@shared/span'
+import { useArrange, type DragHandle } from './lib/arrange'
 import {
   MAX_FONT_SCALE,
   MIN_FONT_SCALE,
   SECTIONS,
   customTextFor,
+  panelsInSection,
   rangeFor,
   sectionOf,
-  visiblePanels,
   withCustomRange,
   withRange,
+  withSections,
   type Layout,
   type PanelId,
-  type RangeTargetId
+  type RangeTargetId,
+  type SectionId
 } from '@shared/layout'
 import {
   hourTotalsIn,
@@ -775,38 +778,44 @@ function panelFor(
 }
 
 /**
- * Moves `moved` to sit where `target` currently is.
+ * The flat panel order with one section's panels put in a new sequence.
  *
- * A drop onto a panel in a different section does nothing. Sections are a
- * property of a panel rather than a second arrangement (see `SECTIONS`), so
- * the alternative is not "the panel moves section" - it is "the flat order
- * changes and the panel stays visibly where it was", which reads as the drag
- * having failed. Refusing it means the drop target simply does not accept,
- * which the cursor already says.
+ * The layout keeps one list of every panel, and a drag rearranges one
+ * section. Rather than splicing, the positions that section's panels occupy
+ * are collected and refilled in the new order - so panels of other sections
+ * interleaved with them (which a hand-edited or migrated layout can have)
+ * stay exactly where they are.
  */
-function reorder(order: PanelId[], moved: PanelId, target: PanelId): PanelId[] {
-  if (moved === target) return order
-  if (sectionOf(moved) !== sectionOf(target)) return order
-  const next = order.filter((id) => id !== moved)
-  const at = next.indexOf(target)
-  if (at === -1) return order
-  next.splice(at, 0, moved)
+function reorderWithin(order: PanelId[], section: SectionId, within: PanelId[]): PanelId[] {
+  const slots: number[] = []
+  order.forEach((id, index) => {
+    if (sectionOf(id) === section) slots.push(index)
+  })
+  const next = [...order]
+  slots.forEach((index, n) => {
+    const id = within[n]
+    if (id !== undefined) next[index] = id
+  })
   return next
 }
 
 function Slot({
   id,
   editing,
-  dragging,
-  onDragging,
+  lifted,
+  grab,
+  slotRef,
+  style,
   layout,
   onChange,
   children
 }: {
   id: PanelId
   editing: boolean
-  dragging: PanelId | null
-  onDragging: (id: PanelId | null) => void
+  lifted: boolean
+  grab: DragHandle
+  slotRef: (element: HTMLElement | null) => void
+  style?: React.CSSProperties
   layout: Layout
   onChange: (next: Layout | ((prev: Layout) => Layout)) => void
   children: React.ReactNode
@@ -814,36 +823,20 @@ function Slot({
   const meta = PANELS[id]
   return (
     <div
-      className={`an-slot${meta.full ? ' an-slot--full' : ''}${dragging === id ? ' is-dragging' : ''}`}
-      draggable={editing}
-      onDragStart={(event) => {
-        onDragging(id)
-        // A drag will not start at all unless some data is set.
-        event.dataTransfer.effectAllowed = 'move'
-        event.dataTransfer.setData('text/plain', id)
-      }}
-      onDragOver={(event) => {
-        if (!editing || dragging === null) return
-        // Not a valid target, so the drop is never accepted and the cursor
-        // says so rather than the drag silently doing nothing.
-        if (sectionOf(dragging) !== sectionOf(id)) return
-        event.preventDefault()
-        event.dataTransfer.dropEffect = 'move'
-      }}
-      onDrop={(event) => {
-        if (!editing || dragging === null) return
-        event.preventDefault()
-        onChange({ ...layout, order: reorder(layout.order, dragging, id) })
-        onDragging(null)
-      }}
-      onDragEnd={() => onDragging(null)}
+      ref={slotRef}
+      className={`an-slot${meta.full ? ' an-slot--full' : ''}${lifted ? ' is-lifted' : ''}`}
+      style={style}
     >
       {children}
       {/* Declared after the panel it overlays, which is the house rule for
           anything sitting on top of another surface. */}
       {editing && (
         <div className="an-slot__tools">
-          <span className="an-slot__grip" aria-hidden="true">
+          {/* The grip is the handle now, not the whole slot. A pointer drag
+              that could start anywhere would swallow every click inside a
+              panel - including the range dropdowns, which stay usable while
+              arranging. */}
+          <span className="an-slot__grip" aria-hidden="true" {...grab}>
             <Icon name="grip" />
           </span>
           <button
@@ -895,30 +888,54 @@ function LayoutBar({
     }))
   }
 
+  /*
+   * One row, at the right edge, and no instructions.
+   *
+   * "I don't need the instructions when im modifying the layout of the data.
+   * All it really should do is just the buttons should just move all the way
+   * to the side. The done button should move all the way to the side."
+   *
+   * The hint sentence is gone. It was written for the moment entering the
+   * mode was the only chance to explain what it did; the grips and the hide
+   * buttons appear on every panel the instant you are in it, and a sentence
+   * that says what you can already see is a sentence in the way.
+   *
+   * Everything stays in the header row rather than opening a second one
+   * underneath, so nothing below the header moves when the mode is entered -
+   * which matters more than usual here, because the next thing the user does
+   * is drag the things underneath. **Done sits last**, in the place Modify
+   * panels occupied, so the button you pressed to come in is the button you
+   * press to leave.
+   */
   return (
     <div className={`an-bar${editing ? ' is-arranging' : ''}`}>
-      {/* "Modify panels", at the user's request, replacing "Rearrange or hide
-          panels".
-
-          The long name was chosen deliberately - the verbs rather than a noun,
-          because the user had asked for movable panels and then reported never
-          getting them while the control was on screen the whole time. The
-          short name is theirs and it is the one that goes in, but the grip
-          glyph stays and matters more now: it is what still says the panels
-          can be dragged when the words no longer do. */}
-      <button type="button" className="an-bar__toggle" onClick={() => onEditing(!editing)}>
-        {editing ? (
-          'Done'
-        ) : (
-          <>
-            <Icon name="grip" />
-            Modify panels
-          </>
-        )}
-      </button>
-
       {editing && (
         <>
+          {layout.hidden.length > 0 && (
+            <div className="an-tray">
+              <span className="an-tray__label">Hidden</span>
+              {layout.hidden.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  className="an-tray__item"
+                  title={`Show ${PANELS[id].label}`}
+                  onClick={() =>
+                    onChange({ ...layout, hidden: layout.hidden.filter((other) => other !== id) })
+                  }
+                >
+                  {PANELS[id].label} <span aria-hidden="true">+</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {!persists && (
+            <span className="an-bar__warn" role="status">
+              Not saved &mdash; this session only
+            </span>
+          )}
+
           <div className="an-bar__scale" role="group" aria-label="Text size">
             <button
               type="button"
@@ -940,46 +957,24 @@ function LayoutBar({
             </button>
           </div>
 
-          {layout.hidden.length > 0 && (
-            <div className="an-tray">
-              <span className="an-tray__label">Hidden</span>
-              {layout.hidden.map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  className="an-tray__item"
-                  title={`Show ${PANELS[id].label}`}
-                  onClick={() =>
-                    onChange({ ...layout, hidden: layout.hidden.filter((other) => other !== id) })
-                  }
-                >
-                  {PANELS[id].label} <span aria-hidden="true">+</span>
-                </button>
-              ))}
-            </div>
-          )}
-
           <button type="button" className="an-bar__reset" onClick={onReset}>
             Reset
           </button>
-
-          {!persists && (
-            <span className="an-bar__warn" role="status">
-              Not saved &mdash; this session only
-            </span>
-          )}
-
-          {/* Entering the mode is the only moment the feature can explain
-              itself, because every affordance it adds is hidden until then.
-              Hiding gets named first: seven panels exist and none has ever
-              been hidden, so that is the capability least likely to be
-              guessed. */}
-          <span className="an-bar__hint">
-            Drag a panel to move it &middot; &times; hides one, and hidden panels come back from
-            here
-          </span>
         </>
       )}
+
+      {/* Last, so it is the rightmost control in both modes and lands under
+          the pointer that opened the mode. */}
+      <button type="button" className="an-bar__toggle" onClick={() => onEditing(!editing)}>
+        {editing ? (
+          'Done'
+        ) : (
+          <>
+            <Icon name="grip" />
+            Modify panels
+          </>
+        )}
+      </button>
     </div>
   )
 }
@@ -1015,7 +1010,24 @@ function AnalyticsTab(): React.JSX.Element {
   const accent = useAccentSync()
   const { layout, persists, update, reset } = useLayout()
   const [editing, setEditing] = useState(false)
-  const [dragging, setDragging] = useState<PanelId | null>(null)
+  /*
+   * One commit point for both kinds of drag.
+   *
+   * `useArrange` holds the preview in its own state and calls this only on a
+   * successful drop, so an abandoned drag - Escape, or a pointer released
+   * outside - writes nothing. That is what makes "dropping outside cancels"
+   * true rather than a thing that has to be remembered at each call site.
+   */
+  const arrange = useArrange(editing, (group, order) => {
+    if (group === 'sections') {
+      update((prev) => withSections(prev, order as SectionId[]))
+      return
+    }
+    update((prev) => ({
+      ...prev,
+      order: reorderWithin(prev.order, group as SectionId, order as PanelId[])
+    }))
+  })
   /*
    * The fact is chosen where the history lands, not while rendering it.
    *
@@ -1196,6 +1208,70 @@ function AnalyticsTab(): React.JSX.Element {
     factSpan === null ? everyFact : everyFact.filter((one) => one.id.startsWith('unit:'))
   const fact = facts.find((one) => one.id === factId) ?? facts[0] ?? null
 
+  const glanceRow = (
+    <div className="an-stats">
+      {/* The box, in the place the two tiles it replaces used to take. */}
+      <CompareBox
+        daily={data.daily}
+        today={today}
+        firstDate={data.firstDate}
+        choice={layout.compare}
+        onChoice={(next) => update((prev) => ({ ...prev, compare: next }))}
+        customText={layout.compare.custom}
+        onCustomText={(next) =>
+          update((prev) => ({ ...prev, compare: { ...prev.compare, custom: next } }))
+        }
+      />
+
+      {/* Hidden rather than shown as nothing when the history is under a
+              year: a baseline needs a first year to be a baseline. */}
+      {above !== null && (
+        <div className="an-stat">
+          <strong className={above >= 0 ? 'is-up' : 'is-down'}>
+            {above >= 0 ? '+' : ''}
+            {Math.round(above)}%
+          </strong>
+          <span>
+            {/* The window is named rather than called "now". With a control
+                    on the recent end, "2.93 h now" would be the same three
+                    words over a figure that changes by a factor of two
+                    depending on a dropdown - which is exactly the ambiguity
+                    this tile was criticised for before it had one. */}
+            against your first year &middot; {base?.perDay.toFixed(2)} h a day then,{' '}
+            {recentPerDay === null
+              ? ''
+              : `${recentPerDay.toFixed(2)} h a day over the ${baselineDef.label}`}
+          </span>
+          <RangePicker
+            value={baselineRange}
+            onChange={(next) => setRange('baseline', next)}
+            label="the window compared with your first year"
+            disabled={BASELINE_DISABLED}
+            customText={customTextFor(layout, 'baseline')}
+            onCustomText={(next) => setCustom('baseline', next)}
+          />
+        </div>
+      )}
+
+      {fact !== null && (
+        <div className="an-stat">
+          <strong>{fact.value}</strong>
+          <span>
+            {fact.label}
+            {fact.detail === '' ? '' : ` ${fact.detail}`}
+          </span>
+          <RangePicker
+            value={factRange}
+            onChange={(next) => setRange('fact', next)}
+            label="the fun fact"
+            customText={customTextFor(layout, 'fact')}
+            onCustomText={(next) => setCustom('fact', next)}
+          />
+        </div>
+      )}
+    </div>
+  )
+
   return (
     // The text scale lives here rather than on the panel grid, because the
     // figure row is a sibling of that grid and not a child of it. Set lower
@@ -1256,69 +1332,6 @@ function AnalyticsTab(): React.JSX.Element {
        * moves with its own picker and the baseline only grows; the comparison
        * can fall, and it sits last, told fairly, as it did before.
        */}
-      <h3 className="an-section__title an-section__title--first">{SECTIONS[0].title}</h3>
-
-      <div className="an-stats">
-        {/* The box, in the place the two tiles it replaces used to take. */}
-        <CompareBox
-          daily={data.daily}
-          today={today}
-          firstDate={data.firstDate}
-          choice={layout.compare}
-          onChoice={(next) => update((prev) => ({ ...prev, compare: next }))}
-          customText={layout.compare.custom}
-          onCustomText={(next) =>
-            update((prev) => ({ ...prev, compare: { ...prev.compare, custom: next } }))
-          }
-        />
-
-        {/* Hidden rather than shown as nothing when the history is under a
-            year: a baseline needs a first year to be a baseline. */}
-        {above !== null && (
-          <div className="an-stat">
-            <strong className={above >= 0 ? 'is-up' : 'is-down'}>
-              {above >= 0 ? '+' : ''}
-              {Math.round(above)}%
-            </strong>
-            <span>
-              {/* The window is named rather than called "now". With a control
-                  on the recent end, "2.93 h now" would be the same three
-                  words over a figure that changes by a factor of two
-                  depending on a dropdown - which is exactly the ambiguity
-                  this tile was criticised for before it had one. */}
-              against your first year &middot; {base?.perDay.toFixed(2)} h a day then,{' '}
-              {recentPerDay === null
-                ? ''
-                : `${recentPerDay.toFixed(2)} h a day over the ${baselineDef.label}`}
-            </span>
-            <RangePicker
-              value={baselineRange}
-              onChange={(next) => setRange('baseline', next)}
-              label="the window compared with your first year"
-              disabled={BASELINE_DISABLED}
-              customText={customTextFor(layout, 'baseline')}
-              onCustomText={(next) => setCustom('baseline', next)}
-            />
-          </div>
-        )}
-
-        {fact !== null && (
-          <div className="an-stat">
-            <strong>{fact.value}</strong>
-            <span>
-              {fact.label}
-              {fact.detail === '' ? '' : ` ${fact.detail}`}
-            </span>
-            <RangePicker
-              value={factRange}
-              onChange={(next) => setRange('fact', next)}
-              label="the fun fact"
-              customText={customTextFor(layout, 'fact')}
-              onCustomText={(next) => setCustom('fact', next)}
-            />
-          </div>
-        )}
-      </div>
 
       {/* Rows rather than one column: a chart that reads fine at half the
           width should not stretch a 220px plot across the whole panel. The
@@ -1334,28 +1347,71 @@ function AnalyticsTab(): React.JSX.Element {
           empty heading. The headings are fixed, so one over a gap would be the
           only part of the tab that reports something that is not there. */}
 
-      {SECTIONS.map((section) => {
-        if (section.panels.length === 0) return null
-        const ids = visiblePanels(layout).filter((id) => sectionOf(id) === section.id)
-        if (ids.length === 0) return null
+      {/*
+       * "At a glance" is a section like the others and moves with them.
+       *
+       * It used to be rendered above the loop, because it holds the figure
+       * row rather than a grid of panels - which also meant its heading was
+       * the one header that could not be dragged. The user asked to move
+       * the headers around and named this one in the list, so it goes
+       * through the same loop and the same drag group; only its body
+       * differs.
+       */}
+      {/*
+       * Sections are rendered in the layout's order and are draggable as
+       * whole units; panels drag within their own section. Two groups, one
+       * engine - `useArrange` is given a group name and a key, and does not
+       * know what either is.
+       */}
+      {arrange.orderOf('sections', layout.sections).map((id, index) => {
+        const sectionId = id as SectionId
+        const section = SECTIONS.find((one) => one.id === sectionId)
+        if (section === undefined) return null
+        const ids = panelsInSection(layout, sectionId)
+        // A section with every panel hidden renders nothing at all, not an
+        // empty heading. `glance` is the exception: its body is the figure
+        // row, which is never hidden.
+        if (sectionId !== 'glance' && ids.length === 0) return null
+        const lifted = arrange.dragging?.group === 'sections' && arrange.dragging.key === sectionId
         return (
-          <div key={section.id}>
-            <h3 className="an-section__title">{section.title}</h3>
-            <div className={`an${editing ? ' is-arranging' : ''}`}>
-              {ids.map((id) => (
-                <Slot
-                  key={id}
-                  id={id}
-                  editing={editing}
-                  dragging={dragging}
-                  onDragging={setDragging}
-                  layout={layout}
-                  onChange={update}
-                >
-                  {panelFor(id, data, accent, today, layout, setRange, setCustom)}
-                </Slot>
-              ))}
-            </div>
+          <div
+            key={sectionId}
+            ref={arrange.ref('sections', sectionId)}
+            className={`an-section${editing ? ' is-arranging' : ''}${lifted ? ' is-lifted' : ''}`}
+            style={arrange.liftStyle('sections', sectionId)}
+          >
+            <h3
+              className={`an-section__title${index === 0 ? ' an-section__title--first' : ''}`}
+              {...(editing ? arrange.grab('sections', sectionId) : {})}
+            >
+              {editing && (
+                <span className="an-section__grip" aria-hidden="true">
+                  <Icon name="grip" />
+                </span>
+              )}
+              {section.title}
+            </h3>
+            {sectionId === 'glance' ? (
+              glanceRow
+            ) : (
+              <div className={`an${editing ? ' is-arranging' : ''}`}>
+                {arrange.orderOf(sectionId, ids).map((id) => (
+                  <Slot
+                    key={id}
+                    id={id as PanelId}
+                    editing={editing}
+                    lifted={arrange.dragging?.group === sectionId && arrange.dragging.key === id}
+                    grab={arrange.grab(sectionId, id)}
+                    slotRef={arrange.ref(sectionId, id)}
+                    style={arrange.liftStyle(sectionId, id)}
+                    layout={layout}
+                    onChange={update}
+                  >
+                    {panelFor(id as PanelId, data, accent, today, layout, setRange, setCustom)}
+                  </Slot>
+                ))}
+              </div>
+            )}
           </div>
         )
       })}

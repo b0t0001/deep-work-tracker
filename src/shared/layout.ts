@@ -65,6 +65,18 @@ export const SECTIONS = [
 
 export type SectionId = (typeof SECTIONS)[number]['id']
 
+/** Section ids in their declared order, which is the default arrangement. */
+export const SECTION_IDS = SECTIONS.map((section) => section.id) as SectionId[]
+
+export function sectionTitle(id: SectionId): string {
+  return SECTIONS.find((section) => section.id === id)?.title ?? id
+}
+
+/** The panels a section holds, in the order the layout puts them. */
+export function panelsInSection(layout: Layout, id: SectionId): PanelId[] {
+  return visiblePanels(layout).filter((panel) => sectionOf(panel) === id)
+}
+
 /** Which section a panel belongs to. Every panel is in exactly one. */
 export function sectionOf(id: PanelId): SectionId {
   for (const section of SECTIONS) {
@@ -167,6 +179,16 @@ export interface Layout {
    * entry to mean.
    */
   compare: CompareChoice
+  /**
+   * The order of the sections themselves.
+   *
+   * Separate from `order`, which is the flat list of panels, because the two
+   * are arranged independently: a panel moves within its section and a
+   * section moves as a whole. Flattening them into one list would make
+   * "which section is this panel in" a function of position, and the whole
+   * argument for sections is that it is not - see `SECTIONS`.
+   */
+  sections: SectionId[]
 }
 
 /** What the comparison box is set to: statistic, grain, and over how long. */
@@ -200,8 +222,52 @@ export function defaultLayout(): Layout {
     fontScale: 1,
     ranges: {},
     customRanges: {},
-    compare: { ...DEFAULT_COMPARE }
+    compare: { ...DEFAULT_COMPARE },
+    sections: [...SECTION_IDS]
   }
+}
+
+/** A layout with the sections in a new order. */
+export function withSections(layout: Layout, sections: SectionId[]): Layout {
+  return { ...layout, sections: resolveSections(sections) }
+}
+
+/**
+ * A stored section order reconciled against the sections that exist.
+ *
+ * The same three rules as `resolveLayout` applies to panels, and for the same
+ * reasons: an unknown id is dropped, a section nobody has expressed an
+ * opinion about is **appended in its declared position** rather than last,
+ * and anything unparseable means the default. The second is what makes a
+ * section added later appear for someone who has already dragged things -
+ * invisible until the first section added after someone customises, which is
+ * the worst possible time to find out.
+ *
+ * A layout stored before sections could be moved has no `sections` at all,
+ * and lands here as an empty list: every section is then "never opined
+ * about" and the result is the declared order, which is exactly what that
+ * user was seeing. That is the migration, and it needs no version bump.
+ */
+export function resolveSections(stored: unknown): SectionId[] {
+  const known = new Set<string>(SECTION_IDS)
+  const seen = new Set<SectionId>()
+  const out: SectionId[] = []
+  if (Array.isArray(stored)) {
+    for (const id of stored) {
+      if (typeof id !== 'string' || !known.has(id) || seen.has(id as SectionId)) continue
+      seen.add(id as SectionId)
+      out.push(id as SectionId)
+    }
+  }
+  for (const id of SECTION_IDS) {
+    if (seen.has(id)) continue
+    const at = SECTION_IDS.indexOf(id)
+    const before = out.findIndex((other) => SECTION_IDS.indexOf(other) > at)
+    if (before === -1) out.push(id)
+    else out.splice(before, 0, id)
+    seen.add(id)
+  }
+  return out
 }
 
 /** The range a target is actually showing: what was stored, or its default. */
@@ -348,7 +414,15 @@ export function resolveLayout(stored: unknown): Layout {
     if (isRangeTarget(target) && typeof text === 'string') customRanges[target] = text
   }
 
-  return { order, hidden, fontScale: clampScale(raw.fontScale), ranges, customRanges, compare }
+  return {
+    order,
+    hidden,
+    fontScale: clampScale(raw.fontScale),
+    ranges,
+    customRanges,
+    compare,
+    sections: resolveSections(raw.sections)
+  }
 }
 
 /** The JSON that goes into `app_settings`. Resolved first, so what is stored is always valid. */
