@@ -798,9 +798,10 @@ local.
 - **Two tiles in the figure row deliberately have none.** The baseline tile
   compares the first year against the last and both ends have to be fixed for
   that to mean anything; wired to a control it read +321% on one setting and
-  +295% on another, the same claim with two numbers. The fun fact is drawn
-  from the whole history by construction. A dropdown that cannot change the
-  figure beside it is worse than no dropdown.
+  +295% on another, the same claim with two numbers. (The baseline tile has
+  since gained a one-ended control, below; the insights card follows its own
+  range in full, because every insight is built from dated sessions.) A
+  dropdown that cannot change the figure beside it is worse than no dropdown.
 - **Narrowing has two shapes, and `shared/ranges.ts` exists because of it.**
   An aggregate that still carries dates — `daily`, `ratesByUnit`, `pace` — is
   filtered in the renderer. Three others had already thrown their dates away:
@@ -932,9 +933,73 @@ not from guesses about what the words might mean. That is where `components`
   reads well and throws away the figure the card exists to show - *"no. big
   numbers should always be exact"*. 292,358, and a fractional quantity keeps
   its real precision with trailing zeros trimmed.
-- **On a narrowed range, only the facts that narrowed with it.** Lifetime
-  hours and the longest session ever cannot follow a range control, so they
-  drop out rather than answering "past month" with a figure since 2023.
+- **The verb map is still where output sentences get their verbs**, now
+  read by the insights card below rather than by a fact tile.
+
+**The fun fact became insights.** *"It doesn't just have to be about the total
+amount of work. It could also be about the efficiency... The fun fact should
+help me make sense of the data. It shouldn't just be raw data... I want you to
+basically just have insights."* `shared/insights.ts` builds every statement
+the chosen range supports; `components/InsightCard.tsx` shows one at a time,
+strongest first, with ‹ › and `3 / 14` to step through them. Each is a figure,
+the sentence it completes, and one small line of the numbers it rests on, so
+it can be checked rather than trusted.
+
+- **What it says:** the busiest two hours of the day; a typical working day
+  (median sessions and hours over days with work, median session length);
+  the strongest weekday, or weekends against weekdays when that is the story;
+  which course is taking the most time; the share of time one project took;
+  the project whose share moved most against the previous period of equal
+  length (all time: the past 12 months against the 12 before); pace within
+  one unit and one course, latest half of the sessions against the first
+  half; how often timers are stopped before they run out and how much of the
+  set time a typical run uses; how many laps a looped session runs; the
+  longest streak and the current one; the share of calendar days worked and
+  the longest break; the biggest day against a typical one; the longest
+  session; output per unit with its pace (words as novels, at 90,000 a
+  novel); hours as forty-hour work weeks; hours spent editing; and whether
+  sessions are getting longer.
+- **Every insight has a minimum sample and is skipped below it**, and every
+  comparison has a floor below which it is not worth saying - a weekday 3%
+  above average is not a strongest day. The numbers are `INSIGHT_MIN`, and
+  `scripts/insights-check.ts` tests each insight's arithmetic on a fixture
+  worked out by hand and again one step under its threshold, where it must
+  not appear. An insight that speaks from too little data looks exactly like
+  one that works.
+- **Time of day is app-timed rows only**, at least 20 sessions over 5 days,
+  and the busiest two hours must hold a quarter of the timed hours. On the
+  history as of 11/06/2026 there are two, so it is built and silent - which
+  is right, and it will turn itself on.
+- **Pace is never compared across units or courses**, only within one of
+  each, and pooled (total quantity over total minutes), with manual rows and
+  runs under five minutes left out - the rate panel's rules. The sentence
+  says "pace", never "better": a course getting harder is the usual reason a
+  rate falls, and the card cannot tell the difference. The CIS 1200 question
+  pace reads +679% on the real history; the arithmetic is right and the
+  detail line shows both rates, so the user can judge what changed.
+- **Stopping early is reported as a habit, not a failure rate**, for the
+  reasons under "There is deliberately no `completed` boolean".
+- **Everything follows the card's range.** The payload carries
+  `sessionRows` - every counted, dated session, cut to the fields the card
+  reads - because medians, records, courses and rates do not survive being
+  summed by day. Its `hour` is null for any row not recorded by the app, so a
+  time-of-day claim cannot be built from an imported row by forgetting a
+  filter.
+- **It opens somewhere different each time**, weighted toward the strong
+  ones and never on the one shown last (`dwt.lastInsight`). The random number
+  and the last id are read in the payload handler, off the render path, for
+  the reasons given beside the old fun-fact state. Changing the range keeps
+  your place where that insight still applies.
+- **Its range control sits in the card's footer, beside the stepper**, not in
+  the top-right corner like the other tiles. The figure can be a word -
+  `MATH 1410`, `Weekends` - and at 1150px a corner control either ran under
+  it or, given clearance, broke a course code across two lines.
+- **A range with nothing to say still renders the card**, saying so, because
+  the range control is on the card: a card that vanished would take the only
+  way back with it.
+- It keeps the fun fact's range target id, `fact`, so a range already chosen
+  for the fun fact carries over. `buildFacts`/`pickFact` in `facts.ts` are no
+  longer rendered; `scripts/stats-check.ts` still covers them.
 
 **Every dropdown offers the same presets, and one of them is Custom.**
 *"every timescale dropdown should have the same presets... and then a custom
