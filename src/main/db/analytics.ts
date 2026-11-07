@@ -94,7 +94,8 @@ export function analytics(): Analytics {
     plannedRuns: [],
     unitDays: [],
     unitTasks: {},
-    sessionRows: []
+    sessionRows: [],
+    sessionClock: []
   }
   if (span.first === null || span.last === null || Number(span.sessions) === 0) return empty
   const rawDaily = (
@@ -470,22 +471,34 @@ export function analytics(): Analytics {
    * taken only where it means something - app-recorded rows - so no consumer
    * can build a time-of-day claim out of an imported or remembered row by
    * forgetting a filter. Same for quantity: an unquantifiable row sends null.
+   *
+   * The same query fills `sessionClock` for the Constellation panel - the id
+   * and, for app-recorded rows only, the clock in epoch seconds - so the
+   * panel costs one more column read rather than a second pass over every
+   * session. `unixepoch` in SQL rather than `Date.parse` per row in
+   * JavaScript, because this runs in the process that keeps the timer's time.
    */
+  const sessionClock: number[] = []
   const sessionRows: SessionRow[] = (
     db
       .prepare(
-        `SELECT s.session_date AS date, p.name AS project, s.task AS task,
+        `SELECT s.id AS id, s.session_date AS date, p.name AS project, s.task AS task,
                 s.planned_duration_s AS planned, s.running_duration_s AS running,
                 s.laps AS laps, s.source AS source,
                 CASE WHEN s.source = 'app' AND s.started_at IS NOT NULL
                      THEN CAST(strftime('%H', s.started_at, 'localtime') AS INTEGER) END AS hour,
                 NULLIF(s.work_unit, '') AS unit,
-                CASE WHEN s.unquantifiable = 0 THEN s.work_quantity END AS quantity
+                CASE WHEN s.unquantifiable = 0 THEN s.work_quantity END AS quantity,
+                CASE WHEN s.source = 'app' THEN unixepoch(s.started_at) END AS startS,
+                CASE WHEN s.source = 'app' THEN unixepoch(s.ended_at) END AS endS
            FROM ${COUNTED} s LEFT JOIN projects p ON p.id = s.project_id
           WHERE s.session_date IS NOT NULL
-          ORDER BY s.session_date, s.started_at`
+          ORDER BY s.session_date, s.started_at, s.id`
       )
       .all() as Array<{
+      id: number
+      startS: number | null
+      endS: number | null
       date: string
       project: string | null
       task: string | null
@@ -497,18 +510,25 @@ export function analytics(): Analytics {
       unit: string | null
       quantity: number | null
     }>
-  ).map((row) => ({
-    date: row.date,
-    project: row.project,
-    task: row.task,
-    plannedS: Number(row.planned ?? 0),
-    runningS: Number(row.running ?? 0),
-    laps: Math.max(1, Number(row.laps ?? 1)),
-    source: row.source,
-    hour: row.hour === null ? null : Number(row.hour),
-    unit: row.unit,
-    quantity: row.quantity === null ? null : Number(row.quantity)
-  }))
+  ).map((row) => {
+    sessionClock.push(
+      Number(row.id),
+      row.startS === null ? -1 : Number(row.startS),
+      row.endS === null ? -1 : Number(row.endS)
+    )
+    return {
+      date: row.date,
+      project: row.project,
+      task: row.task,
+      plannedS: Number(row.planned ?? 0),
+      runningS: Number(row.running ?? 0),
+      laps: Math.max(1, Number(row.laps ?? 1)),
+      source: row.source,
+      hour: row.hour === null ? null : Number(row.hour),
+      unit: row.unit,
+      quantity: row.quantity === null ? null : Number(row.quantity)
+    }
+  })
 
   const dayMs = 86_400_000
   const calendarDays =
@@ -540,6 +560,7 @@ export function analytics(): Analytics {
     plannedRuns,
     unitDays,
     unitTasks,
-    sessionRows
+    sessionRows,
+    sessionClock
   }
 }

@@ -233,6 +233,21 @@ export interface Analytics {
   unitTasks: Record<string, string[]>
   /** Every counted dated session, for `shared/insights.ts`. See `SessionRow`. */
   sessionRows: SessionRow[]
+  /**
+   * The Constellation panel's extra per-session numbers, flat and aligned
+   * with `sessionRows`: for row i, `[3i]` is the session id, `[3i+1]` and
+   * `[3i+2]` its start and end in epoch seconds, or -1. Clock times are sent
+   * for app-recorded rows only, for the reason `hour` is: an imported row has
+   * none and a manual one has a remembered one, which must not decide whether
+   * two sessions were one sitting.
+   *
+   * Numbers beside `sessionRows` rather than a second array of session
+   * objects: everything else the panel and its tooltip need is already in
+   * `sessionRows`, and the first version - which repeated it - added 428 KB
+   * and 5 ms to a payload built in the process that keeps the timer's time.
+   * See `starRows` in `shared/constellation.ts`.
+   */
+  sessionClock: number[]
 }
 
 export interface Streaks {

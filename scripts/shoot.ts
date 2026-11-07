@@ -68,6 +68,18 @@ const failAnalytics = process.argv.includes('--fail-analytics')
 // banner can be seen - including its worst line, a change it could not save.
 const asPreview = process.argv.includes('--preview')
 const outDir = resolve(arg('out') ?? join(process.cwd(), 'shots'))
+/*
+ * `--live` shows the window - off screen - instead of keeping it hidden, with
+ * occlusion tracking off so Chromium does not throttle a window it cannot
+ * see. A hidden window draws about one frame a second, which is fine for a
+ * picture and useless for measuring smoothness. `--expose-gc` lets a memory
+ * probe force a collection before it reads the heap.
+ */
+const live = process.argv.includes('--live')
+if (live) {
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+  app.commandLine.appendSwitch('js-flags', '--expose-gc')
+}
 const only = arg('only')
   ?.split(',')
   .map((s) => s.trim())
@@ -217,8 +229,303 @@ const INSIGHT_SHOTS: Shot[] = [
   ...[0, 2].map((n) => insightShot(1900, n, '1w'))
 ]
 
+/**
+ * The Constellation panel. Its stage is a WebGL canvas, which this hidden
+ * window renders (verified by `probe-cst-gl`), so these are real pictures of
+ * the cloud rather than of an empty box.
+ *
+ * `cstDrive` opens the tab, scrolls the panel to the top of the window and
+ * stops the idle turn, so a shot is of a known angle rather than of wherever
+ * the rotation had reached when the capture fired. `then` drives it further.
+ */
+const CST_OPEN = `
+  // The shape is remembered per viewer, and the profile outlives a shot.
+  try { localStorage.removeItem('dwt.constellation.shape') } catch {}
+  click('.tabs .tab:nth-child(3)'); await wait(2800);
+  const stage = document.querySelector('.cst__stage');
+  stage.closest('.an-section').scrollIntoView({ block: 'start' });
+  await wait(900);
+  stage.constellationStill();
+`
+
+/** Finds a star by sweeping the pointer over the canvas until the tooltip shows. */
+const CST_HOVER = `
+  const canvas = stage.querySelector('canvas');
+  const box = canvas.getBoundingClientRect();
+  const tip = stage.querySelector('.cst__tip');
+  let found = false;
+  const cx = box.left + box.width * 0.56, cy = box.top + box.height * 0.5;
+  for (let ring = 30; ring < Math.min(box.width, box.height) * 0.45 && !found; ring += 9) {
+    for (let a = 0; a < Math.PI * 2 && !found; a += 0.35) {
+      const x = cx + Math.cos(a) * ring, y = cy + Math.sin(a) * ring * 0.6;
+      canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true }));
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      await wait(16);
+      if (tip.style.visibility === 'visible' && tip.textContent.length > 0) found = true;
+    }
+  }
+  document.title = found ? 'hovered: ' + tip.textContent : 'no star found';
+`
+
+function cstShot(id: string, width: number, then = '', height = 900): Shot {
+  return {
+    id,
+    width,
+    height,
+    route: '/dashboard',
+    drive: CST_OPEN + then,
+    note: `The Constellation panel at ${width}px${then === '' ? '' : ', driven'}.`
+  }
+}
+
+const CONSTELLATION_SHOTS: Shot[] = [
+  cstShot('cst-default-1150', 1150),
+  cstShot('cst-default-1900', 1900, '', 1000),
+  cstShot(
+    'cst-isolate-1150',
+    1150,
+    `stage.querySelectorAll('.cst__arm')[1].click(); await wait(900);`
+  ),
+  cstShot(
+    'cst-isolate-1900',
+    1900,
+    `stage.querySelectorAll('.cst__arm')[0].click(); await wait(900);`,
+    1000
+  ),
+  cstShot('probe-cst-hover-1150', 1150, CST_HOVER),
+  cstShot(
+    'cst-sphere-1150',
+    1150,
+    `const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape button')[1]; sphere.click(); await wait(900);`
+  ),
+  cstShot(
+    'cst-sphere-1900',
+    1900,
+    `const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape button')[1]; sphere.click(); await wait(900);`,
+    1000
+  ),
+  cstShot(
+    'cst-sphere-isolate-1900',
+    1900,
+    `const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape button')[1]; sphere.click(); await wait(900); stage.querySelectorAll('.cst__arm')[1].click(); await wait(900);`,
+    1000
+  ),
+  cstShot('probe-cst-hover-1900', 1900, CST_HOVER, 1000),
+  cstShot(
+    'cst-range-1150',
+    1150,
+    `
+    const sel = stage.closest('.an-panel').querySelector('.an-range select');
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, '3m');
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await wait(1200);
+  `
+  ),
+  {
+    // Fullscreen is the HTML Fullscreen API on the stage, which a hidden
+    // window cannot enter. The stage is given the window's size instead, with
+    // the fullscreen-only overlays forced on, which is what fullscreen draws.
+    id: 'cst-fullscreen-1900',
+    width: 1900,
+    height: 1000,
+    route: '/dashboard',
+    drive:
+      CST_OPEN +
+      `
+      const s = document.createElement('style');
+      s.textContent = '.cst__stage{position:fixed!important;inset:0!important;height:100vh!important;border-radius:0!important;z-index:9999}.cst__stage .cst__title{display:block!important}.cst__stage .cst__exit{display:inline-flex!important}';
+      document.head.appendChild(s);
+      await wait(900);
+    `,
+    note: 'The stage at the size fullscreen gives it, with the fullscreen overlays.'
+  },
+  {
+    // Fullscreen is the HTML Fullscreen API on the stage, which a hidden
+    // window cannot enter. The stage is given the window's size instead, with
+    // the fullscreen-only overlays forced on, which is what fullscreen draws.
+    id: 'cst-sphere-fullscreen-1900',
+    width: 1900,
+    height: 1000,
+    route: '/dashboard',
+    drive:
+      CST_OPEN +
+      `
+      const s = document.createElement('style');
+      s.textContent = '.cst__stage{position:fixed!important;inset:0!important;height:100vh!important;border-radius:0!important;z-index:9999}.cst__stage .cst__title{display:block!important}.cst__stage .cst__exit{display:inline-flex!important}';
+      document.head.appendChild(s);
+      const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape button')[1]; sphere.click(); await wait(900);
+      await wait(900);
+    `,
+    note: 'The sphere at fullscreen size.'
+  },
+  {
+    // WebGL, the frame clock and the per-frame cost, read off the live page.
+    // `constellationBench` renders N frames back to back and waits for the GPU
+    // to finish each, so the figure is the true cost of a frame rather than
+    // the time to queue one.
+    id: 'probe-cst-gl',
+    width: 1900,
+    height: 1000,
+    route: '/dashboard',
+    drive:
+      CST_OPEN +
+      `
+      const gl = !!document.createElement('canvas').getContext('webgl2');
+      let frames = 0; const t0 = performance.now();
+      await new Promise((done) => { const f = () => { frames++; performance.now() - t0 < 2000 ? requestAnimationFrame(f) : done(); }; requestAnimationFrame(f); });
+      const raf = frames / ((performance.now() - t0) / 1000);
+      const bench = stage.constellationBench ? stage.constellationBench(300) : null;
+      const stars = stage.dataset.stars;
+      document.title = 'webgl2=' + gl + ' raf=' + raf.toFixed(1) + 'fps bench=' + JSON.stringify(bench) + ' stars=' + stars;
+    `,
+    note: 'Not a picture: WebGL availability and frame cost at all time.'
+  },
+  {
+    // Range switching must not leak: ten switches, then the renderer's own
+    // count of live geometries and the number of canvases on the page.
+    id: 'probe-cst-leak',
+    width: 1150,
+    height: 900,
+    route: '/dashboard',
+    drive:
+      CST_OPEN +
+      `
+      const sel = stage.closest('.an-panel').querySelector('.an-range select');
+      const set = (v) => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, v); sel.dispatchEvent(new Event('change', { bubbles: true })); };
+      const before = stage.constellationBench(1);
+      for (const v of ['1w','3m','1y','all','1m','6m','all','2y','8w','all']) { set(v); await wait(250); }
+      const after = stage.constellationBench(1);
+      // Away to another tab and back, five times: the panel unmounts each time.
+      for (let i = 0; i < 5; i++) { click('.tabs .tab:nth-child(2)'); await wait(400); click('.tabs .tab:nth-child(3)'); await wait(1500); }
+      const canvases = document.querySelectorAll('.cst__stage canvas').length;
+      const again = document.querySelector('.cst__stage').constellationBench(1);
+      document.title = 'before=' + JSON.stringify(before) + ' afterRanges=' + JSON.stringify(after) + ' afterTabs=' + JSON.stringify(again) + ' canvases=' + canvases;
+    `,
+    note: 'Not a picture: live geometries and canvases after range and tab switches.'
+  }
+]
+
+/**
+ * Performance probes for the Constellation panel. Run with `--live`: the
+ * hidden window these shots normally use has no frame clock (about one frame
+ * a second), so it can say what a frame costs but not how smoothly frames
+ * arrive. `--live` shows the window off screen with Chromium's occlusion
+ * tracking turned off, so it runs at the display's real rate.
+ */
+const CST_STATS = `const stats = (reset) => document.querySelector('.cst__stage').constellationStats(reset);`
+const CST_PERF_SHOTS: Shot[] = [
+  {
+    // Median and p95 of the CPU cost of a frame, and of the gap between
+    // frames, over five seconds of the idle turn at all time.
+    id: 'probe-cst-perf',
+    width: 1900,
+    height: 1000,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(2)'); await wait(1200);
+      const t0 = performance.now();
+      click('.tabs .tab:nth-child(3)');
+      // The panel is the last on the tab and draws nothing until it is seen,
+      // so this is two numbers: click to the panel existing (chunk loaded,
+      // cloud built), then scrolled into view to its first frame.
+      let st = null;
+      while (performance.now() - t0 < 8000) {
+        st = document.querySelector('.cst__stage');
+        if (st && st.constellationStats) break;
+        await wait(2);
+      }
+      const mounted = performance.now() - t0;
+      const t1 = performance.now();
+      st.closest('.an-section').scrollIntoView({ block: 'start' });
+      while (st.constellationStats().firstFrameAt === null && performance.now() - t1 < 5000) await wait(2);
+      const first = st.constellationStats().firstFrameAt - t1;
+      await wait(1500);
+      ${CST_STATS}
+      stats(true);
+      const d0 = stats().drawn;
+      await wait(5000);
+      const turn = stats(true);
+      const turnFrames = turn.drawn - d0;
+      // Still: the turn stopped, nothing moving. On demand means nothing drawn.
+      st.constellationStill();
+      await wait(1500);
+      const s0 = stats().drawn;
+      await wait(3000);
+      const stillFrames = stats().drawn - s0;
+      // Off screen: scrolled away with the turn running again.
+      st.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      document.querySelector('.an-section').scrollIntoView({ block: 'start' });
+      await wait(800);
+      const o0 = stats().drawn;
+      await wait(3000);
+      const offFrames = stats().drawn - o0;
+      document.title = JSON.stringify({ clickToPanelMs: Math.round(mounted), inViewToFirstFrameMs: Math.round(first), turn5s: { frames: turnFrames, cpuMedian: turn.cpuMedian, cpuP95: turn.cpuP95, gapMedian: turn.gapMedian, gapP95: turn.gapP95, calls: turn.calls, pixelRatio: turn.pixelRatio }, stillFramesIn3s: stillFrames, offscreenFramesIn3s: offFrames });
+    `,
+    note: 'Not a picture: frame timing turning, still and off screen.'
+  },
+  {
+    // Twenty trips away from the tab and back. JS heap after a forced GC, the
+    // renderer's live geometry count, and how many canvases exist.
+    id: 'probe-cst-memory',
+    width: 1900,
+    height: 1000,
+    route: '/dashboard',
+    drive: `
+      const heap = async () => { if (window.gc) { window.gc(); await wait(200); window.gc(); } return Math.round(performance.memory.usedJSHeapSize / 1024 / 1024 * 10) / 10; };
+      const show = async () => { click('.tabs .tab:nth-child(3)'); await wait(1200); document.querySelector('.cst__stage').closest('.an-section').scrollIntoView({ block: 'start' }); await wait(300); };
+      await show(); await wait(1000);
+      const before = await heap();
+      const geo0 = document.querySelector('.cst__stage').constellationStats().geometries;
+      for (let i = 0; i < 20; i++) {
+        click('.tabs .tab:nth-child(2)'); await wait(300);
+        await show();
+      }
+      await wait(1000);
+      const after = await heap();
+      const geo1 = document.querySelector('.cst__stage').constellationStats().geometries;
+      document.title = JSON.stringify({ heapMBBefore: before, heapMBAfter20Switches: after, geometriesBefore: geo0, geometriesAfter: geo1, canvases: document.querySelectorAll('canvas').length, gc: !!window.gc });
+    `,
+    note: 'Not a picture: memory across twenty tab switches.'
+  },
+  {
+    // The timer window loads the same bundle. It must never fetch the chunk.
+    id: 'probe-cst-timer-scripts',
+    width: 250,
+    height: 150,
+    route: '',
+    drive: `
+      await wait(1500);
+    `,
+    note: 'Not a picture: which scripts the timer window loaded.'
+  },
+  {
+    // The dashboard on its other tabs: Settings, Data, Import. No chunk.
+    id: 'probe-cst-settings-scripts',
+    width: 1150,
+    height: 900,
+    route: '/dashboard',
+    drive: `
+      for (const n of [1, 2, 4, 1]) { click('.tabs .tab:nth-child(' + n + ')'); await wait(700); }
+    `,
+    note: 'Not a picture: the dashboard without the Analytics tab loads no chunk.'
+  },
+  {
+    // The control: the dashboard does fetch it, once the tab opens.
+    id: 'probe-cst-dashboard-scripts',
+    width: 1150,
+    height: 900,
+    route: '/dashboard',
+    drive: `
+      click('.tabs .tab:nth-child(3)'); await wait(2500);
+    `,
+    note: 'Not a picture: the chunk loads with the Analytics tab and not before.'
+  }
+]
+
 const SHOTS: Shot[] = [
   ...INSIGHT_SHOTS,
+  ...CONSTELLATION_SHOTS,
+  ...CST_PERF_SHOTS,
   {
     id: 'probe-add-missing-project',
     width: 1150,
@@ -1141,14 +1448,16 @@ let canvas: BrowserWindow | null = null
 function surface(): BrowserWindow {
   if (canvas && !canvas.isDestroyed()) return canvas
   canvas = new BrowserWindow({
-    show: false,
+    show: live,
+    ...(live ? { x: -6000, y: -3000, skipTaskbar: true, focusable: false } : {}),
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
     useContentSize: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      backgroundThrottling: !live
     }
   })
   return canvas
@@ -1167,6 +1476,28 @@ async function shoot(shot: Shot): Promise<string> {
   // document is a same-document navigation - the hash changes, the module is
   // never re-run, and the window keeps rendering the previous route. That is
   // how the pace shot came back showing the timer.
+  /*
+   * A `-scripts` shot lists every script the page requested, read from the
+   * DevTools protocol. Resource Timing records nothing for file:// pages, so
+   * asking the page itself would report an empty list whatever was loaded.
+   */
+  const requested: string[] = []
+  const logRequests = shot.id.endsWith('-scripts')
+  const onMessage = (
+    _event: unknown,
+    method: string,
+    params: { request?: { url?: string } }
+  ): void => {
+    const url = params.request?.url ?? ''
+    if (method === 'Network.requestWillBeSent' && url.endsWith('.js')) {
+      requested.push(url.split('/').pop() ?? url)
+    }
+  }
+  if (logRequests) {
+    if (!window.webContents.debugger.isAttached()) window.webContents.debugger.attach('1.3')
+    await window.webContents.debugger.sendCommand('Network.enable')
+    window.webContents.debugger.on('message', onMessage)
+  }
   await window.loadURL('about:blank')
   await (shot.route === '' ? window.loadFile(html) : window.loadFile(html, { hash: shot.route }))
 
@@ -1186,6 +1517,11 @@ async function shoot(shot: Shot): Promise<string> {
   // in its drive script and it is printed. Measuring the live page is how the
   // ring-mode chrome bug was found - the CSS said opacity 0 and the pixels
   // disagreed.
+  if (logRequests) {
+    console.log('    scripts requested, in order:', JSON.stringify(requested))
+    window.webContents.debugger.removeListener('message', onMessage)
+    window.webContents.debugger.detach()
+  }
   if (shot.id.startsWith('probe-')) {
     console.log('    probe:', await window.webContents.executeJavaScript('document.title', true))
   }

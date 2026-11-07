@@ -1338,12 +1338,150 @@ fix was signed off. `.dashboard select:focus` drops the outline and tints the
 border instead.
 
 **Panels sit in named sections: At a glance, Hours and consistency, Habits,
-Projects and output.** A section is a property of a panel, like its width, not
+Projects and output, Explore.** A section is a property of a panel, like its width, not
 a second arrangement the user maintains — otherwise a heading describes
 whatever happens to be under it and stops being worth reading. So a drag
 across a section boundary is refused rather than silently reordering the flat
 list. A section with everything in it hidden renders nothing, not an empty
 heading.
+
+**Constellation: every session as one star in a 3D cloud.** *"I want like a
+point cloud ... like one of those LiDAR things ... those obsidian mind maps
+... every single point is like a session, but the three axes are like some
+sort of characteristic."* It is the last panel, alone in an **Explore**
+section, full width. The geometry is `shared/constellation.ts` (pure, tested
+by `scripts/constellation-check.ts`); `components/Constellation.tsx` only
+draws it with three.js (pinned `three@0.187.0`, bundled, no CDN).
+
+**It is mostly about looks, and that is the brief.** The user, on seeing the
+design: *"this is low-key more about looks than anything... it's good that you
+found a way to connect the functionality to the looks, but this is just so it
+looks sick."* So the data mapping holds, and where looks and mapping pull
+apart, looks win - the spiral twist, the travelling swell and the dust are
+there for that and carry no data.
+
+**And it must cost nothing the timer would notice.** *"This thing needs to run
+like buttery smooth... it should not take so much bandwidth that I can't run
+the timer normally."* The budgets and what was measured are below; any change
+to this panel re-runs `--live` probes and keeps them.
+
+- **Distance from the centre is hours worked up to that session**, not the
+  calendar date - the user's own words were "the distance from the origin can
+  be the hours worked". It also makes the rings honest: a ring is drawn where
+  each year (quarter, month, week or day, whichever gives three or more) began,
+  so the band between two rings is as wide as that period was productive, the
+  way a tree records a good year. On a date radius every year would be the same
+  width and the rings would say nothing.
+- **Angle is the project**: a wedge per project as wide as its share of the
+  hours in range, largest first, with a gentle spiral (`TWIST`) applied to
+  every arm equally. At most nine arms; projects under 2.5% of the hours pool
+  into **Other**, which the legend lists by name, and no arm is narrower than
+  a fortieth of the circle. Unlabelled sessions go to Other when there is one.
+- **The coordinate system is one swappable function, `place()`.** Everything
+  above produces three normalised numbers - out from the core, angle, length -
+  and only `place` turns them into x, y, z. `cylinder` (the default, shown as
+  **Disc**): height is session length on a log scale, 2 minutes to 8 hours.
+  `sphere`: the project is longitude and length is latitude, short in the
+  south, long in the north. The user asked whether spherical would be better
+  and decided *"we can change the coordinate system if it doesn't look cool"*,
+  so both exist behind a Disc / Sphere switch in the panel head, remembered per
+  viewer in localStorage (a way of looking, not a setting the app acts on). The
+  height ruler stands outside the rim on the right of the view and follows the
+  camera; the sphere has none, because latitude is not a straight scale.
+- **Size is output as a percentile within its own unit** (`unitKey` collapses
+  plural and case), ranked over the whole history so a star does not grow when
+  the range cuts its neighbours away. Units are never compared numerically.
+  **Brightness is recency** within the range.
+- **Colour belongs to the project, not the range.** Ranked within the range,
+  College Apps was pink at all time and green at 90 days. Colours step round
+  the hue circle by the golden angle from the accent in order of *all-time*
+  hours (`colourRanks`), so the biggest project ever is the accent everywhere.
+- **Lines join one sitting.** App rows: consecutive by clock, same date, under
+  30 minutes from the end of the sitting so far (a nested timer does not pull
+  it back), across projects. Rows without trustworthy clock times - imported
+  and manual - join only consecutive rows of the same date *and* project,
+  because without a clock there is no gap to measure and a cross-project join
+  would be a guess. The caption states both rules.
+- **The look, all in the shader.** Each star is a white-hot pinpoint, a
+  coloured body and a wide faint halo; the halos overlap and add up under
+  additive blending, which is the bloom - no full-screen post pass, which
+  would cost more than the whole frame does now. A slow swell of light travels
+  outward through time while the cloud turns, a soft accent light marks the
+  core, and 900 points of fixed dust on a far shell slide behind the cloud as
+  it turns, which is what makes it read as standing in space.
+- **Interaction**: drag to orbit, slow idle turn that stops on any
+  interaction or hover and resumes after five seconds, hover for a `ChartTip`
+  (date and project small, duration big, output below) plus a ring on the star
+  and its whole sitting drawn bright, click a legend row to isolate an arm,
+  double-click to reset, fullscreen for filming. `prefers-reduced-motion`
+  turns off the turn, the swell, the twinkle, damping and the isolation fade.
+- **The wheel scrolls the page until the cloud has been clicked.** A canvas
+  that took the wheel on sight would stop the tab scrolling whenever the
+  pointer crossed it. After a click or drag the wheel zooms until the pointer
+  leaves; in fullscreen it always zooms; a wheel on the idle cloud shows a
+  one-line hint saying so.
+- **In Modify panels the stage takes no pointer events**, so a drag that starts
+  on it does nothing rather than orbiting; the grip is the handle, as for every
+  panel.
+
+How it stays cheap:
+
+- **A lazy chunk.** `Dashboard.tsx` imports the panel with `lazy()`, so
+  three.js and this code are their own file (`Constellation-*.js`, 1.18 MB
+  unminified like the rest of the bundle). Verified through DevTools network
+  events (Resource Timing records nothing for file:// pages): the timer
+  window requests only `index-*.js`; the dashboard on Settings, Data and
+  Import requests only `index-*.js`; opening Analytics adds the chunk.
+- **Drawn on demand.** A frame is drawn when something asks (`invalidate`):
+  the controls moving, a hover, isolation, a resize, the range. The loop runs
+  on only while there is motion - the idle turn, damping settling, isolation
+  easing - and a still cloud draws **nothing**. Off screen
+  (IntersectionObserver), with the window hidden or minimised
+  (`document.hidden`) or with another tab open (the panel is unmounted) it
+  draws nothing either. A request made *during* a frame is absorbed by that
+  frame (`frame = -1` while drawing): the controls fire `change` from inside
+  `update()`, and before that guard every frame scheduled two - 37,866 frames
+  in five seconds, measured, before it was found.
+- **One draw call for the stars and one for the lines**: a single `Points`
+  and a single `LineSegments` over typed buffers, glow in the fragment shader.
+  Nine draw calls a frame in all, counting dust, the core light, rings and
+  ruler. `devicePixelRatio` is capped at 1.5 and MSAA is off - soft sprites
+  and faint additive lines show no stair-steps, and MSAA was the larger half
+  of the frame cost. Shaders are compiled when the cloud is built, usually
+  while the panel is still below the fold.
+- **Hover is screen-space nearest-point**, at most once per frame on
+  pointermove: 2,478 projections, no raycaster.
+- **Range changes swap buffers in the same WebGL context**; the context is
+  released with `forceContextLoss()` on unmount, because Chromium keeps at
+  most sixteen and drops the oldest.
+- **The payload adds numbers, not rows.** The panel reads `sessionRows`, which
+  the insights card already gets, plus `sessionClock`: id, start and end in
+  epoch seconds (app rows only), flat, from the same query, with `unixepoch`
+  in SQL rather than `Date.parse` per row in the main process. A first version
+  sent a second array of session objects: +428 KB and +5 ms on the process
+  that keeps the timer's time.
+- **The cloud is memoised on the payload arrays and the range's dates**, not
+  on a filtered array. `within()` makes a new array every render, and handed
+  one the panel re-uploaded every buffer whenever anything on the tab changed.
+
+Measured on the real-size copy (2,478 sessions, 1,169 sitting lines), 11/06/2026:
+
+| | |
+| --- | --- |
+| `analytics()` | 41 ms median against 39 before (80 runs each), +26 KB |
+| turning, all time, 1900px (`--live`) | 120 fps (frames 8.3 ms apart, p95 8.5); CPU per frame 0.6 ms median, 1.2 ms p95 |
+| GPU-synced frame, 2248x775 device px | 2.1 ms (5 ms with MSAA on) |
+| still, 3 s | 0 frames |
+| scrolled off screen, turning, 3 s | 0 frames |
+| 20 trips Data <-> Analytics | JS heap 20.7 MB -> 20.7 MB after GC, 9 live geometries -> 9, 1 canvas |
+| click Analytics -> panel built | ~500 ms (the whole tab's payload and the chunk) |
+| panel scrolled into view -> first frame | ~140 ms |
+
+`npx electron out/shoot/index.js --live --db <copy> --only
+probe-cst-perf,probe-cst-memory,probe-cst-timer-scripts,probe-cst-settings-scripts,probe-cst-dashboard-scripts`
+reproduces every row but the first. `--live` shows the harness window off
+screen with occlusion tracking off; the normal hidden window draws about one
+frame a second, which is fine for a picture and useless for smoothness.
 
 **Nothing caps the width of text, and Settings is one section per row.**
 Panels were once capped at 900px, then paragraphs at `78ch`, on the usual

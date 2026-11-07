@@ -94,14 +94,15 @@ eq(
       'timeOfDay',
       'projects',
       'plannedRatio',
-      'hoursPerWeek'
+      'hoursPerWeek',
+      'constellation'
     ],
     hidden: ['timeOfDay'],
     fontScale: 1.25,
     ranges: { projects: '1y', timeOfDay: '8w' },
     customRanges: { projects: '45 days' },
     compare: { statistic: 'median', grain: 'week', range: '3m', custom: '' },
-    sections: ['habits', 'glance', 'output', 'hours']
+    sections: ['habits', 'glance', 'output', 'hours', 'explore']
   }
   eq('a full custom layout round-trips', parseLayout(serialiseLayout(mine)), mine)
 }
@@ -231,11 +232,14 @@ eq(
 )
 eq('and so does nothing at all', resolveLayout(null).sections, SECTION_IDS)
 eq('an order that is not an array is ignored', resolveSections('hours'), SECTION_IDS)
+// Written before Explore existed, which makes it the case `resolveSections`
+// exists for: the stored order is kept and the newer section is appended.
 eq('a stored order is kept', resolveSections(['output', 'glance', 'habits', 'hours']), [
   'output',
   'glance',
   'habits',
-  'hours'
+  'hours',
+  'explore'
 ])
 eq(
   'a section that no longer exists is dropped',
@@ -264,7 +268,7 @@ eq(
   parseLayout(
     serialiseLayout(withSections(defaultLayout(), ['output', 'habits', 'hours', 'glance'] as never))
   ).sections,
-  ['output', 'habits', 'hours', 'glance']
+  ['output', 'habits', 'hours', 'glance', 'explore']
 )
 
 console.log('')
@@ -337,7 +341,7 @@ eq('an unwritten layout reads as defaults', readLayout(), defaultLayout())
     ranges: { pace: '1m', projects: '2y' },
     customRanges: { pace: '3 weeks' },
     compare: { statistic: 'mean', grain: 'month', range: 'custom', custom: '10 months' },
-    sections: ['output', 'habits', 'hours', 'glance']
+    sections: ['output', 'habits', 'hours', 'glance', 'explore']
   }
   eq('what is written is what is read back', writeLayout(mine), mine)
   eq('and it survives a reopen', readLayout(), mine)
