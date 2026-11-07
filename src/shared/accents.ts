@@ -20,3 +20,115 @@ export const DEFAULT_ACCENT = ACCENTS[0].value
 export function isKnownAccent(value: string | null): value is string {
   return ACCENTS.some((option) => option.value === value)
 }
+
+/* ------------------------------------------------------------------------ *
+ * The opposite of the accent.
+ *
+ * "in the data tab, I want the color of the text that says manual to be
+ * whatever the opposite of the current accent color is. So if it's red, then
+ * it should be blue. And if it's like green, it should be whatever the
+ * opposite, like the opposite color from the color wheel is."
+ *
+ * Opposite on the wheel is the hue turned 180 degrees with the saturation
+ * kept, which is what makes Ruby read as a cyan and Jade as a magenta rather
+ * than as some other red. It is computed rather than listed per accent so a
+ * colour added to ACCENTS later cannot arrive without one.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Below this there is no hue to turn.
+ *
+ * Moonstone is `#9aa0a6`, a saturation of 0.06: rotating that produces another
+ * grey nobody could tell from the first. The user's answer when asked: "The
+ * opposite for moonstone can just be white or something." It is the app's own
+ * text white rather than `#fff`, so the badge matches every other bright thing
+ * on the page instead of being the one pure white pixel in the window.
+ */
+const MIN_SATURATION = 0.15
+
+/** What a hue-less accent, or an unreadable one, resolves to. */
+export const NEUTRAL_COMPLEMENT = '#f2f4f7'
+
+/**
+ * The complement is lifted to at least this lightness, and the number is
+ * measured rather than chosen.
+ *
+ * The badge is 11px text on `--surface-raised` (`#23262d`), so WCAG's 4.5:1
+ * for small text is the bar. Straight hue rotation fails it twice: Turquoise
+ * turns into a dark red at 2.7:1 against the row and Jade into a dark magenta
+ * at 3.3:1 - legible as a colour, unreadable as a word. Sweeping the floor
+ * against the chip the badge actually sits on:
+ *
+ *   floor 0.60 -> worst 4.02    floor 0.65 -> worst 4.66
+ *   floor 0.62 -> worst 4.25    floor 0.68 -> worst 5.12
+ *
+ * 0.65 is the first that clears 4.5, and it is taken rather than a safer 0.70
+ * because every step past the bar pastels the colour and costs the thing the
+ * user asked for - that it look like the opposite of their accent. Worst case
+ * is then Turquoise at 4.66 on the chip and 5.6 on the row; the brightest,
+ * Sapphire, is 13.2.
+ */
+export const COMPLEMENT_MIN_LIGHTNESS = 0.65
+
+function parseHex(hex: string): [number, number, number] | null {
+  const text = hex.trim().replace(/^#/, '')
+  if (!/^[0-9a-fA-F]{6}$/.test(text)) return null
+  return [
+    parseInt(text.slice(0, 2), 16) / 255,
+    parseInt(text.slice(2, 4), 16) / 255,
+    parseInt(text.slice(4, 6), 16) / 255
+  ]
+}
+
+function toHex(r: number, g: number, b: number): string {
+  const part = (c: number): string =>
+    Math.round(Math.min(1, Math.max(0, c)) * 255)
+      .toString(16)
+      .padStart(2, '0')
+  return `#${part(r)}${part(g)}${part(b)}`
+}
+
+/** Hue in turns (0-1), then saturation and lightness, as HSL. */
+export function toHsl(hex: string): { h: number; s: number; l: number } | null {
+  const rgb = parseHex(hex)
+  if (rgb === null) return null
+  const [r, g, b] = rgb
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  if (max === min) return { h: 0, s: 0, l }
+  const d = max - min
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  const h =
+    max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4
+  return { h: h / 6, s, l }
+}
+
+function fromHsl(h: number, s: number, l: number): string {
+  if (s === 0) return toHex(l, l, l)
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+  const p = 2 * l - q
+  const channel = (t: number): number => {
+    const x = (t + 1) % 1
+    if (x < 1 / 6) return p + (q - p) * 6 * x
+    if (x < 1 / 2) return q
+    if (x < 2 / 3) return p + (q - p) * (2 / 3 - x) * 6
+    return p
+  }
+  return toHex(channel(h + 1 / 3), channel(h), channel(h - 1 / 3))
+}
+
+/**
+ * The accent's opposite, as a hex string.
+ *
+ * Pure, so the one place that applies the accent can derive this beside it and
+ * every window gets the same answer. Anything unreadable returns the neutral
+ * rather than throwing: a badge in the wrong colour is a blemish, a renderer
+ * that throws while painting a table is not.
+ */
+export function complementAccent(hex: string): string {
+  const hsl = toHsl(hex)
+  if (hsl === null) return NEUTRAL_COMPLEMENT
+  if (hsl.s < MIN_SATURATION) return NEUTRAL_COMPLEMENT
+  return fromHsl((hsl.h + 0.5) % 1, hsl.s, Math.max(hsl.l, COMPLEMENT_MIN_LIGHTNESS))
+}

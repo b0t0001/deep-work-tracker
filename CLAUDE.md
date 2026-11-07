@@ -329,6 +329,23 @@ Amber, Moonstone — defined once in `shared/accents.ts` and read by every windo
 through `useAccentSync`. The hex value is what gets stored, so renaming one
 cannot orphan a saved choice.
 
+**The accent has an opposite, and it is computed.** *"in the data tab, I
+want the color of the text that says manual to be whatever the opposite of
+the current accent color is."* `complementAccent` in `shared/accents.ts` turns
+the hue 180° and keeps the saturation (Diamond gives orange, Ruby cyan, Jade
+magenta), lifted to a lightness of at least 0.65 because straight rotation
+failed contrast for Turquoise and Jade; Moonstone, which has no hue, gets the
+app's text white, as the user asked. `useAccentSync` sets `--accent` and
+`--accent-complement` together, so every window follows a change live. Only
+the `manual` source badge uses it. `scripts/accents-check.ts` asserts the
+relationship.
+
+**The dashboard mounts `useAccentSync` once, at its root.** It used to set
+`--accent` itself and mount the hook only inside Analytics, so on every other
+tab there was an accent and no complement until Analytics had been opened,
+and the manual badge fell back to white. That is exactly the drift the
+one-hook rule exists to prevent: no window or tab sets `--accent` on its own.
+
 **Sizing is taken from Hourglass, not guessed.** The user's Hourglass config
 runs it at 250x150 — its own minimum — and its XAML caps the timer text at
 18 pt (~24 px) with 10 px padding. An earlier attempt rendered a 40 px clock in
@@ -1022,17 +1039,51 @@ the hovered band reads as a selection the user did not make, and on this tab
 it also sat over the value labels that exist so the bars can be read without
 hovering at all.
 
-**The heatmaps are not affected and cannot be.** Their hover text is an SVG
-`<title>` element, which the OS draws - there is no Recharts tooltip and no
-cursor rectangle to remove, and the native tooltip takes no styling. Making
-those match would mean building a hover layer for them, which is a separate
-piece of work and was not asked for.
+**The heatmaps now show the same box**, which took building them a hover
+layer: they are hand-drawn svg, not Recharts, and their hover text was an svg
+`<title>` that the OS draws - a different font, a different delay, a
+different corner of the screen, and nothing about it stylable. Two tooltip
+designs in one tab is the kind of difference the user notices before anyone
+else does.
 
-`scripts/tooltip-check.ts` hovers a bar on all four bar charts through CDP
+- **The box is a child of the panel**, positioned in the panel's
+  coordinates. Not a `<foreignObject>`, which would inherit the svg's scale
+  and grow with the grid; not a portal to `document.body`, which would escape
+  the one rectangle it has to stay inside. It is clamped on both axes - at
+  the right-hand edge of a 52-week grid it would otherwise be clipped by the
+  panel's border radius.
+- **The cell's position is read from the DOM, not from the viewBox.** The
+  grid is scaled by `maxWidth`, so a cell's position in viewBox units is not
+  its position on screen and the two disagree by the scale factor.
+- **Every `<title>` is gone**, element and attribute both. Leaving one beside
+  the styled box shows two tooltips, one of them late and in the OS's font.
+  The empty-state track carried the *attribute* form, which a check counting
+  only elements would have passed.
+- **The hovered cell takes a thin stroke, not a rectangle behind it.** The
+  objection to the chart cursor was a grey block appearing *behind* the thing
+  hovered, which reads as a selection nobody made; a stroke on the square's
+  own edge reads as the square lighting up.
+- **The cells are deliberately not focusable.** Making 1,300 calendar squares
+  tab stops would be a worse keyboard experience than none, and it is not a
+  regression: a native `<title>` was never reachable by keyboard either. The
+  svg keeps its `role="img"` and `aria-label`. If this is ever wanted, the
+  answer is roving tabindex on one cell with arrow-key movement, not a stop
+  per square.
+
+`scripts/tooltip-check.ts` hovers a bar on all four bar charts and a cell on
+both heatmaps through CDP
 and reads the **computed** size and colour of the value against the words
 around it, rather than trusting that a class was applied - and asserts that
 no `.recharts-tooltip-cursor` exists while a tooltip is open, which is the
 only way to tell `cursor={false}` from a cursor that is merely transparent.
+
+Two things that check got wrong about itself first, both now recorded in it:
+it computed a bar's position, waited 420ms and then hovered the coordinates,
+which went stale the moment a layout change moved the panel - so it reported
+"no tooltip" for a tooltip that was fine. And it hovered the middle cell of
+each grid, which on this history is an empty day, so it proved the box opens
+without ever proving it can show a figure; it now hovers candidates until one
+answers with a digit.
 
 **Sections and panels are dragged with pointer events, and the rest of the
 page moves out of the way as you go.** *"when I'm modifying the layout of the
@@ -1309,27 +1360,25 @@ draws it with three.js (pinned `three@0.187.0`, bundled, no CDN).
   on it does nothing rather than orbiting; the grip is the handle, as for every
   panel.
 
-**Width belongs to prose, not to panels.** `.panel` capped at 900px and
-`.panel--wide` at 1500px, which reads as sensible — cap the container and no
-line of text can grow too long to follow. The user's report is what is wrong
-with it: *"expanding the settings window should resize all the information on
-all the tabs. this doesn't happen right now"*. At 1900px every tab was three
-quarters of a screen of content with a quarter of empty grey beside it,
-including the tabs that are mostly tables and grids and have no lines to keep
-short. The cap now sits on paragraphs (`78ch`, so it tracks the font and
-survives the text-size control) and the panels take the window.
+**Nothing caps the width of text, and Settings is one section per row.**
+Panels were once capped at 900px, then paragraphs at `78ch`, on the usual
+argument that very long lines are hard to follow. The user rejected both:
+*"any text, for example in the backup section, all the text just doesn't flow
+across the page. I need the text to resize so that whenever the window
+resizes, the text will follow it. It should not just be fixed to like a
+maximum length. also this is because the opening the file folder stretches
+across the entire window so naturally the text should as well."* The last
+clause is the reason, not a preference: the folder path beside the prose
+already spans the window, so a paragraph stopping short reads as text that
+failed to fill its box. If line length is ever the complaint, narrow the
+section, never the paragraph inside it.
 
-- **Settings lays its groups out in a responsive grid**, because lifting the
-  cap alone makes that tab worse: a toggle and three key bindings stretched
-  across 1900px are short controls with a metre of empty row each.
-- **`auto-fit` only collapses tracks that are *empty*.** Backups was put in the
-  grid with `grid-column: 1 / -1`, which leaves no track empty, so at 1900px
-  the grid kept five 360px columns and filled the first three. The wide thing
-  has to be outside the grid, not spanning it.
-- **Three columns of charts was tried and removed.** Two sections hold exactly
-  two half-width panels, so a third track put a third of a row of empty grid
-  beside each of them — trading a chart that was already wide enough for a
-  visible hole.
+Settings is **one full-width section per section, stacked, scrolled through**:
+*"I don't want three sections across the page. I want one section per
+section... I just have to scroll down in order to access all the settings."*
+This replaced a responsive three-column grid. Inside a section, controls
+still lay out sensibly - shortcut bindings at the right edge, accent swatches
+in a row.
 
 **The yellow box on clicking a chart was Chromium's, not the app's.** *"why
 does a yellow box appear when i click on something?? remove this"*. Nothing in

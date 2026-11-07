@@ -83,6 +83,17 @@ interface Reading {
 /** Every panel here draws bars, which are the easiest thing to land on. */
 const PANELS = ['Hours per', 'Hours by project', 'Are your timers', 'per minute']
 
+/**
+ * The two hand-drawn grids, hovered by cell rather than by bar.
+ *
+ * They were the one place in the tab still showing an svg `<title>` - an OS
+ * tooltip in its own font, at its own delay, in its own corner. The check
+ * covers them the same way and additionally asserts that **no `<title>`
+ * survives**: leaving one in place beside the styled box shows both, one of
+ * them late, which is worse than either alone.
+ */
+const HEATMAPS = ['Every day', 'Time of day']
+
 app.whenReady().then(async () => {
   const reads: Record<string, () => unknown> = {
     'analytics:get': () => analytics(),
@@ -133,13 +144,31 @@ app.whenReady().then(async () => {
   }
 
   const readings: Reading[] = []
+  const heatmaps: { panel: string; inside: boolean; titles: number }[] = []
 
   for (const name of PANELS) {
+    /*
+     * Scroll, wait, and only then measure.
+     *
+     * The first version did all three in one evaluate and hovered 420ms
+     * later, which worked until a layout change moved the panel during
+     * those 420ms - the coordinates were then a rect that no longer existed
+     * and Recharts registered nothing, so the check reported "no tooltip"
+     * for a tooltip that was fine. A position read after everything has
+     * settled cannot go stale between reading it and using it.
+     */
+    await ask(`(() => {
+      const p = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes(${JSON.stringify(name)}));
+      if (p) p.scrollIntoView({ block: 'center' });
+      return 1;
+    })()`)
+    await settle(420)
+
     const spot = (await ask(`(() => {
       const p = [...document.querySelectorAll('.an-panel')]
         .find((el) => el.textContent.includes(${JSON.stringify(name)}));
       if (!p) return null;
-      p.scrollIntoView({ block: 'center' });
       const bar = p.querySelector('.recharts-bar-rectangle path, .recharts-bar-rectangle rect');
       if (!bar) return null;
       const r = bar.getBoundingClientRect();
@@ -150,7 +179,6 @@ app.whenReady().then(async () => {
       check(`${name}: a bar to hover`, false, 'no bar found')
       continue
     }
-    await settle(420)
     // Twice: Recharts ignores a first move that arrives with no prior
     // position inside the chart, so one event opens nothing.
     await move(spot.x - 5, spot.y)
@@ -193,6 +221,98 @@ app.whenReady().then(async () => {
     }
   }
 
+  for (const name of HEATMAPS) {
+    /*
+     * Hovered by trial rather than by index.
+     *
+     * The first version took the middle cell and both grids answered "No
+     * work" - true, and useless as evidence that the box can show a figure.
+     * Which cells have work is not readable from the DOM without decoding
+     * the fill, so the check hovers candidates until one answers with a
+     * digit, and falls back to whatever it last saw if none does.
+     */
+    await ask(`(() => {
+      const p = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes(${JSON.stringify(name)}));
+      if (p) p.scrollIntoView({ block: 'center' });
+      return 1;
+    })()`)
+    await settle(420)
+
+    let got: (Omit<Reading, 'panel'> & { inside: boolean; titles: number }) | null = null
+    for (const nth of [0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89]) {
+      const spot = (await ask(`(() => {
+      const p = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes(${JSON.stringify(name)}));
+      if (!p) return null;
+      p.scrollIntoView({ block: 'center' });
+      // A cell with work in it, so the box has figures rather than "No work".
+      // hm-cell is a rect in the drawn grid and a span in the empty state's
+      // track. Both are this panel's hover surface, and on a young history
+      // the second is the one actually on screen.
+      const cells = [...p.querySelectorAll('.hm-cell')];
+      const cell = cells[${nth} % Math.max(1, cells.length)];
+      if (!cell) return null;
+      const r = cell.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    })()`)) as { x: number; y: number } | null
+
+      if (spot === null) break
+      await move(spot.x - 4, spot.y)
+      await move(spot.x, spot.y)
+
+      const reading = (await ask(`(() => {
+      const p = [...document.querySelectorAll('.an-panel')]
+        .find((el) => el.textContent.includes(${JSON.stringify(name)}));
+      const tip = p && p.querySelector('.ac-tip');
+      if (!tip) return null;
+      const value = tip.querySelector('.ac-tip__value');
+      const label = tip.querySelector('.ac-tip__name') || tip.querySelector('.ac-tip__when');
+      if (!value || !label) return null;
+      const vs = getComputedStyle(value);
+      const ls = getComputedStyle(label);
+      const when = tip.querySelector('.ac-tip__when');
+      const box = tip.getBoundingClientRect();
+      const panel = p.getBoundingClientRect();
+      return {
+        caption: when ? when.textContent : '',
+        value: value.textContent,
+        valuePx: parseFloat(vs.fontSize),
+        valueColour: vs.color,
+        namePx: parseFloat(ls.fontSize),
+        nameColour: ls.color,
+        cursors: document.querySelectorAll('.recharts-tooltip-cursor').length,
+        inside: box.left >= panel.left - 1 && box.right <= panel.right + 1,
+        // Both forms of OS tooltip: the svg element and the HTML attribute.
+        // Only counting the element would have passed the empty-state track,
+        // which carried the attribute form instead. No backticks in here -
+        // this comment is inside a template literal, and one ends it.
+        titles: p.querySelectorAll('title').length + p.querySelectorAll('[title]').length
+      };
+    })()`)) as (Omit<Reading, 'panel'> & { inside: boolean; titles: number }) | null
+
+      if (reading !== null) got = reading
+      if (reading !== null && /[0-9]/.test(reading.value)) break
+    }
+
+    if (got === null) {
+      check(`${name}: the hover box opens`, false, 'no .ac-tip in the panel')
+      continue
+    }
+    readings.push({ panel: name, ...got })
+    heatmaps.push({ panel: name, inside: got.inside, titles: got.titles })
+
+    if (shotDir !== null) {
+      const image = await window.webContents.capturePage()
+      const file = join(
+        shotDir,
+        `tooltip-${name.replace(/[^a-z]+/gi, '-').toLowerCase()}-${width}.png`
+      )
+      writeFileSync(file, image.toPNG())
+      console.log(`       shot ${file}`)
+    }
+  }
+
   console.log('')
   for (const r of readings) {
     console.log(
@@ -204,9 +324,19 @@ app.whenReady().then(async () => {
   console.log('')
 
   check(
-    'every chart with bars showed a tooltip',
-    readings.length === PANELS.length,
-    `${readings.length} of ${PANELS.length}`
+    'every chart and both heatmaps showed the box',
+    readings.length === PANELS.length + HEATMAPS.length,
+    `${readings.length} of ${PANELS.length + HEATMAPS.length}`
+  )
+  check(
+    'no svg <title> is left on a heatmap to show a second, native tooltip',
+    heatmaps.length === HEATMAPS.length && heatmaps.every((one) => one.titles === 0),
+    heatmaps.map((one) => `${one.panel}: ${one.titles}`).join('; ')
+  )
+  check(
+    'and the box stays inside its panel',
+    heatmaps.length === HEATMAPS.length && heatmaps.every((one) => one.inside),
+    heatmaps.map((one) => `${one.panel}: ${one.inside}`).join('; ')
   )
   check(
     'the statistic is larger than the words around it',
