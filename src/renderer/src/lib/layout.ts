@@ -11,7 +11,7 @@
  * degrades to a layout that works for the session and is not saved, and says
  * so rather than pretending.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DeepWorkApi } from '../../../preload'
 import { defaultLayout, resolveLayout, type Layout } from '@shared/layout'
 
@@ -88,6 +88,37 @@ export function useLayout(): LayoutState {
   // round trip works, and that can only be learned by trying it.
   const [persists, setPersists] = useState(() => channel() !== null)
 
+  /**
+   * The layout as it is now, for resolving the next change against.
+   *
+   * `update` has to know the new layout in order to send it, and a state
+   * updater cannot tell it: React runs an updater when it renders, not when
+   * it is queued. The first version read it out of the updater into a local
+   * variable and sent that, which *looked* right because React evaluates an
+   * updater eagerly when the component has no pending work - true of a click
+   * on a range dropdown, and false of a drop, which commits from inside the
+   * drag engine's own state update. So a dragged section order arrived at the
+   * database as the order it started with, with the screen showing the new
+   * one: `scripts/arrange-check.ts` reported "dropping commits what the
+   * preview showed" while the engine was passing the correct order.
+   *
+   * A ref holds the current layout, so the function form composes - two quick
+   * presses of the text-size button each build on the other - without
+   * depending on when React chooses to run an updater.
+   */
+  const latest = useRef(layout)
+  /*
+   * Both together, always. Writing the ref during render is the obvious
+   * shorthand and `react-hooks/refs` is right to refuse it - a render can be
+   * thrown away, and a ref written in one that was would be a fact nobody
+   * produced. Every assignment to the layout goes through here instead, so
+   * the ref cannot be a render behind.
+   */
+  const settle = useCallback((next: Layout) => {
+    latest.current = next
+    setLayout(next)
+  }, [])
+
   useEffect(() => {
     const api = channel()
     if (api === null) return
@@ -95,7 +126,7 @@ export function useLayout(): LayoutState {
     api
       .get()
       .then((stored) => {
-        if (alive) setLayout(resolveLayout(stored))
+        if (alive) settle(resolveLayout(stored))
       })
       .catch(() => {
         // A failed read is the same situation as no stored layout: show the
@@ -107,46 +138,42 @@ export function useLayout(): LayoutState {
         // the same bridge - so say the layout is not being saved rather than
         // waiting for the user to drag something and find out.
         if (alive) {
-          setLayout(defaultLayout())
+          settle(defaultLayout())
           setPersists(false)
         }
       })
     return () => {
       alive = false
     }
-  }, [])
+  }, [settle])
 
-  const update = useCallback((next: Layout | ((prev: Layout) => Layout)) => {
-    // Optimistic: the layout is what the user just did, so it should move now
-    // and reconcile later rather than wait on a round trip to the database.
-    // Resolved against the layout as it is now, not as it was when the
-    // handler closed over it. Two quick presses of the text-size button
-    // both computed from the same stale value, so the second did
-    // nothing and the step looked like half of what it is.
-    let resolved: Layout = defaultLayout()
-    setLayout((prev) => {
-      resolved = typeof next === 'function' ? next(prev) : next
-      return resolved
-    })
-    void channel()
-      ?.set(resolved)
-      .then((stored) => {
-        // Adopt what was actually stored rather than keeping our own idea of
-        // it. `writeLayout` resolves before writing, so this is where a panel
-        // the renderer has never heard of gets appended and shown instead of
-        // being quietly dropped on the next write.
-        setLayout(resolveLayout(stored))
-        setPersists(true)
-      })
-      .catch(() => {
-        // Still not worth interrupting anyone over - but it must not be
-        // silent either. The rejection is swallowed here and reported by the
-        // flag instead, which is the difference between "we chose not to
-        // shout" and "nobody knew". The bar reads "Not saved - this session
-        // only" from this.
-        setPersists(false)
-      })
-  }, [])
+  const update = useCallback(
+    (next: Layout | ((prev: Layout) => Layout)) => {
+      // Optimistic: the layout is what the user just did, so it should move now
+      // and reconcile later rather than wait on a round trip to the database.
+      const resolved = typeof next === 'function' ? next(latest.current) : next
+      settle(resolved)
+      void channel()
+        ?.set(resolved)
+        .then((stored) => {
+          // Adopt what was actually stored rather than keeping our own idea of
+          // it. `writeLayout` resolves before writing, so this is where a panel
+          // the renderer has never heard of gets appended and shown instead of
+          // being quietly dropped on the next write.
+          settle(resolveLayout(stored))
+          setPersists(true)
+        })
+        .catch(() => {
+          // Still not worth interrupting anyone over - but it must not be
+          // silent either. The rejection is swallowed here and reported by the
+          // flag instead, which is the difference between "we chose not to
+          // shout" and "nobody knew". The bar reads "Not saved - this session
+          // only" from this.
+          setPersists(false)
+        })
+    },
+    [settle]
+  )
 
   const reset = useCallback(() => update(defaultLayout()), [update])
 

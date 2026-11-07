@@ -112,14 +112,27 @@ export function useArrange(
 
   const at = (group: string, key: string): string => `${group}\u0000${key}`
 
-  const ref = useCallback(
-    (group: string, key: string) => (element: HTMLElement | null) => {
-      const id = at(group, key)
+  /*
+   * One ref callback per element, kept.
+   *
+   * Returning a fresh closure each render makes React detach and reattach
+   * every registered node on every render - it calls the old ref with null
+   * and the new one with the element. That is churn for nothing here, and
+   * it is the kind of per-render DOM work the tab is supposed not to do.
+   * Cached by key, so each element keeps the same callback for its life.
+   */
+  const refs = useRef(new Map<string, (element: HTMLElement | null) => void>())
+  const ref = useCallback((group: string, key: string) => {
+    const id = at(group, key)
+    const found = refs.current.get(id)
+    if (found !== undefined) return found
+    const made = (element: HTMLElement | null): void => {
       if (element === null) nodes.current.delete(id)
       else nodes.current.set(id, element)
-    },
-    []
-  )
+    }
+    refs.current.set(id, made)
+    return made
+  }, [])
 
   const orderOf = useCallback(
     (group: string, committed: string[]): string[] => {
@@ -141,11 +154,35 @@ export function useArrange(
   useLayoutEffect(() => {
     const dragged = drag === null ? null : at(drag.group, drag.key)
     const instant = reducedMotion()
+    /*
+     * **Only while a drag is in progress.**
+     *
+     * This effect runs on every render, which is right for *measuring* -
+     * positions must be current when a drag starts, and the thing that moved
+     * them is not expressible as a dependency. It was wrong for *animating*:
+     * any render that changed a height got the full FLIP treatment, so
+     * changing a panel's range threw the whole page to its previous layout
+     * and eased it back.
+     *
+     * That is the bug the user reported as "the panels want to move up or
+     * something like that and then they quickly go back down... just there
+     * for a split second", and it is invisible to a layout assertion -
+     * `offsetTop` never changed. Measured frame by frame on a range change:
+     *
+     *   offsetTop  147 147 147 147 ... 147   (never moves)
+     *   rect.top   -353 147 -853 -839 -779 -682 -608 -482 -391 -367 -358 -353
+     *
+     * A transform thrown 1,000px and eased back over fifteen frames, for a
+     * layout change nobody dragged. `scripts/reflow-check.ts` asserts the
+     * painted position as well as the laid-out one, because the first
+     * version of that check watched `offsetTop` alone and passed.
+     */
+    const animating = drag !== null && !settling.current && !instant
     for (const [id, element] of nodes.current) {
       const now = element.getBoundingClientRect()
       const was = rects.current.get(id)
       rects.current.set(id, now)
-      if (id === dragged || was === undefined || instant || settling.current) continue
+      if (id === dragged || was === undefined || !animating) continue
       const dx = was.left - now.left
       const dy = was.top - now.top
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue
@@ -173,24 +210,40 @@ export function useArrange(
     }
   })
 
+  /**
+   * End the drag, committing the preview or discarding it.
+   *
+   * **`onCommit` is called here, not inside a `setDrag` updater.** It used to
+   * be, which reads as a tidy way to get the drag state and the decision in
+   * one place and is a side effect in a function React is allowed to call
+   * during the render phase - and does. The commit then ran while the
+   * component had pending work, which is exactly the case where
+   * `useLayout`'s `update` could not see its own new layout, so a drop wrote
+   * the layout it started with. `scripts/arrange-check.ts` caught it as
+   * "dropping commits what the preview showed": the preview was right on
+   * screen, the engine passed the right order to `onCommit`, and the order
+   * that reached the database was the one before the drag.
+   *
+   * `drag` and `preview` are read from this render instead. `finish` is in
+   * the listener effect's dependencies, so the handlers always hold the
+   * current one.
+   */
   const finish = useCallback(
     (commit: boolean) => {
-      setDrag((current) => {
-        if (current !== null && commit && preview !== null && preview.group === current.group) {
-          settling.current = true
-          onCommit(current.group, preview.order)
-          // Cleared after the commit has rendered, so the one render where
-          // the real order replaces the preview is not animated - the items
-          // are already where the preview put them.
-          requestAnimationFrame(() => {
-            settling.current = false
-          })
-        }
-        return null
-      })
+      if (drag !== null && commit && preview !== null && preview.group === drag.group) {
+        settling.current = true
+        onCommit(drag.group, preview.order)
+        // Cleared after the commit has rendered, so the one render where the
+        // real order replaces the preview is not animated - the items are
+        // already where the preview put them.
+        requestAnimationFrame(() => {
+          settling.current = false
+        })
+      }
+      setDrag(null)
       setPreview(null)
     },
-    [onCommit, preview]
+    [drag, preview, onCommit]
   )
 
   const grab = useCallback(
