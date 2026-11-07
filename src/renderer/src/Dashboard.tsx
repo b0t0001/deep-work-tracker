@@ -174,13 +174,12 @@ function SettingsTab(): React.JSX.Element {
     void window.api.shortcuts.get().then(setShortcuts)
   }, [])
 
-  useEffect(() => {
-    document.documentElement.style.setProperty('--accent', accent)
-  }, [accent])
-
+  // The colour itself is applied by `useAccentSync`, mounted once for the
+  // whole dashboard, which sets `--accent` and `--accent-complement`
+  // together. Setting `--accent` here as well is how the Data tab once had an
+  // accent and no complement: the manual badge fell back to white.
   function chooseAccent(value: string): void {
     setAccent(value)
-    document.documentElement.style.setProperty('--accent', value)
     try {
       localStorage.setItem(ACCENT_KEY, value)
       // localStorage does not notify the window that wrote it, so the timer is
@@ -563,7 +562,9 @@ function Backups(): React.JSX.Element {
             {status.backups.map((file) => (
               <tr key={file.name}>
                 <td className="mono">{file.name}</td>
-                <td>{when(file.modified)}</td>
+                {/* `11/06/2026 18:23` broke after the date and doubled the row
+                    height - the same fault the Data tab's date column had. */}
+                <td className="nowrap">{when(file.modified)}</td>
                 <td className="num">{size(file.bytes)}</td>
               </tr>
             ))}
@@ -2553,18 +2554,11 @@ function ImportTab(): React.JSX.Element {
 
 export default function Dashboard(): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('settings')
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(ACCENT_KEY)
-      document.documentElement.style.setProperty(
-        '--accent',
-        isKnownAccent(stored) ? stored : DEFAULT_ACCENT
-      )
-    } catch {
-      /* storage blocked; the default accent still applies */
-    }
-  }, [])
+  // Once, for every tab, through the one hook every window uses (CLAUDE.md:
+  // no window gets its own copy). It was only mounted inside Analytics, and
+  // the dashboard set `--accent` itself, so on any other tab the accent had
+  // no complement until Analytics had been opened.
+  useAccentSync()
 
   return (
     <div className="dashboard">
