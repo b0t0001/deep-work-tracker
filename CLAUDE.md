@@ -329,6 +329,23 @@ Amber, Moonstone — defined once in `shared/accents.ts` and read by every windo
 through `useAccentSync`. The hex value is what gets stored, so renaming one
 cannot orphan a saved choice.
 
+**The accent has an opposite, and it is computed.** *"in the data tab, I
+want the color of the text that says manual to be whatever the opposite of
+the current accent color is."* `complementAccent` in `shared/accents.ts` turns
+the hue 180° and keeps the saturation (Diamond gives orange, Ruby cyan, Jade
+magenta), lifted to a lightness of at least 0.65 because straight rotation
+failed contrast for Turquoise and Jade; Moonstone, which has no hue, gets the
+app's text white, as the user asked. `useAccentSync` sets `--accent` and
+`--accent-complement` together, so every window follows a change live. Only
+the `manual` source badge uses it. `scripts/accents-check.ts` asserts the
+relationship.
+
+**The dashboard mounts `useAccentSync` once, at its root.** It used to set
+`--accent` itself and mount the hook only inside Analytics, so on every other
+tab there was an accent and no complement until Analytics had been opened,
+and the manual badge fell back to white. That is exactly the drift the
+one-hook rule exists to prevent: no window or tab sets `--accent` on its own.
+
 **Sizing is taken from Hourglass, not guessed.** The user's Hourglass config
 runs it at 250x150 — its own minimum — and its XAML caps the timer text at
 18 pt (~24 px) with 10 px padding. An earlier attempt rendered a 40 px clock in
@@ -1272,27 +1289,25 @@ across a section boundary is refused rather than silently reordering the flat
 list. A section with everything in it hidden renders nothing, not an empty
 heading.
 
-**Width belongs to prose, not to panels.** `.panel` capped at 900px and
-`.panel--wide` at 1500px, which reads as sensible — cap the container and no
-line of text can grow too long to follow. The user's report is what is wrong
-with it: *"expanding the settings window should resize all the information on
-all the tabs. this doesn't happen right now"*. At 1900px every tab was three
-quarters of a screen of content with a quarter of empty grey beside it,
-including the tabs that are mostly tables and grids and have no lines to keep
-short. The cap now sits on paragraphs (`78ch`, so it tracks the font and
-survives the text-size control) and the panels take the window.
+**Nothing caps the width of text, and Settings is one section per row.**
+Panels were once capped at 900px, then paragraphs at `78ch`, on the usual
+argument that very long lines are hard to follow. The user rejected both:
+*"any text, for example in the backup section, all the text just doesn't flow
+across the page. I need the text to resize so that whenever the window
+resizes, the text will follow it. It should not just be fixed to like a
+maximum length. also this is because the opening the file folder stretches
+across the entire window so naturally the text should as well."* The last
+clause is the reason, not a preference: the folder path beside the prose
+already spans the window, so a paragraph stopping short reads as text that
+failed to fill its box. If line length is ever the complaint, narrow the
+section, never the paragraph inside it.
 
-- **Settings lays its groups out in a responsive grid**, because lifting the
-  cap alone makes that tab worse: a toggle and three key bindings stretched
-  across 1900px are short controls with a metre of empty row each.
-- **`auto-fit` only collapses tracks that are *empty*.** Backups was put in the
-  grid with `grid-column: 1 / -1`, which leaves no track empty, so at 1900px
-  the grid kept five 360px columns and filled the first three. The wide thing
-  has to be outside the grid, not spanning it.
-- **Three columns of charts was tried and removed.** Two sections hold exactly
-  two half-width panels, so a third track put a third of a row of empty grid
-  beside each of them — trading a chart that was already wide enough for a
-  visible hole.
+Settings is **one full-width section per section, stacked, scrolled through**:
+*"I don't want three sections across the page. I want one section per
+section... I just have to scroll down in order to access all the settings."*
+This replaced a responsive three-column grid. Inside a section, controls
+still lay out sensibly - shortcut bindings at the right edge, accent swatches
+in a row.
 
 **The yellow box on clicking a chart was Chromium's, not the app's.** *"why
 does a yellow box appear when i click on something?? remove this"*. Nothing in
