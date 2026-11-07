@@ -2357,8 +2357,25 @@ code {
   outline-offset: -1px;
 }
 
-.an-slot.is-dragging {
-  opacity: 0.4;
+/* The lifted card, while the pointer carries it.
+ *
+ * Raised and slightly transparent rather than hidden: the point of the
+ * gesture is that you are holding this one while the rest get out of its
+ * way, so it has to stay the most legible thing on the page. It is the only
+ * element excluded from the reflow transition - it follows the pointer,
+ * which must not be 170ms behind the hand. */
+.an-slot.is-lifted,
+.an-section.is-lifted {
+  opacity: 0.92;
+  cursor: grabbing;
+}
+
+.an-slot.is-lifted .an-panel,
+.an-section.is-lifted .an-panel {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow:
+    0 10px 26px #00000066,
+    0 2px 6px #00000044;
 }
 
 /* While arranging, a panel's own controls step aside for the drag tools.
@@ -2504,10 +2521,10 @@ code {
   color: var(--accent);
 }
 
-.an-bar__hint {
-  color: var(--text-dim);
-  font-size: 11px;
-}
+/* `.an-bar__hint` lived here: the sentence explaining the mode. Removed at
+   the user's request - "I don't need the instructions when im modifying the
+   layout of the data" - because the grips and hide buttons appear on every
+   panel the moment the mode opens and say it better than a sentence can. */
 
 .an-bar.is-arranging .an-bar__toggle {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
@@ -2792,6 +2809,33 @@ code {
    it has to be distinguishable from a panel title at a glance - both are small
    and bold, and at the same treatment the eye reads eight headings instead of
    four headings and eight panels. */
+/* A section is now a draggable unit, so it needs to be one box. */
+.an-section {
+  position: relative;
+}
+
+/* The header is the handle. It is the only part of a section that is not a
+   panel, so grabbing it cannot be confused with grabbing something inside.
+   Keyed on a class the component sets rather than on `:has()` - the state is
+   known in React, and inferring it from the presence of a descendant is a
+   selector that breaks the next time the tools move. */
+.an-section.is-arranging > .an-section__title {
+  cursor: grab;
+  user-select: none;
+}
+
+.an-section__grip {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-right: 7px;
+  color: var(--accent);
+}
+
+.an-section__grip svg {
+  width: 12px;
+  height: 12px;
+}
+
 .an-section__title {
   margin: 26px 0 10px;
   font-size: 11px;
@@ -3106,4 +3150,25 @@ code {
    beside it to line up with. */
 .set-group--wide > h2:first-child {
   margin-top: 22px;
+}
+
+/* ---------- arranging: motion ---------- */
+
+/*
+ * Everything that moves during a drag is moved by a transform set in
+ * `lib/arrange.ts`, not by a CSS rule, because FLIP has to set the start
+ * position and the transition in a known order. What belongs here is the
+ * one case where the answer is "do not animate at all".
+ *
+ * `prefers-reduced-motion` is honoured in the hook rather than only here -
+ * a `transition: none` rule would stop the tween but the element would still
+ * be given a transform and then have it cleared, which is a flash rather
+ * than an instant move. The rule below is the belt to that braces: it
+ * catches any transition added later by someone who did not read the hook.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .an-slot,
+  .an-section {
+    transition: none !important;
+  }
 }

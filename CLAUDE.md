@@ -936,6 +936,76 @@ not from guesses about what the words might mean. That is where `components`
   hours and the longest session ever cannot follow a range control, so they
   drop out rather than answering "past month" with a figure since 2023.
 
+**Sections and panels are dragged with pointer events, and the rest of the
+page moves out of the way as you go.** *"when I'm modifying the layout of the
+analytics tab, I should be able to move the headers around. And also, I want
+you to add like a live preview of how my dragging is affecting the other
+panels."*
+
+**Why not HTML5 drag-and-drop**, which is what this used and is less code:
+during a native drag the browser owns the gesture, the drag image is a
+snapshot taken at `dragstart` and cannot be styled, and the only position
+information arriving is a `dragover` per sibling rather than a continuous
+track - so the siblings can be re-ordered but not animated. Native drag also
+interacts with `-webkit-app-region`, which this project has lost three builds
+to. Pointer events give a continuous position and leave the DOM ours to
+animate; the cost is that capture and cancellation are ours to get right,
+which is most of `renderer/src/lib/arrange.ts`.
+
+- **Slot positions are captured once, at drag start**, and the target is
+  "which captured slot centre is the pointer nearest". They are a property of
+  the layout, not of what currently sits in them. Re-measuring each frame
+  reads positions that are mid-animation and feeds them back into the hit
+  test, which oscillates.
+- **FLIP for the siblings**: measure, set the inverse transform with no
+  transition, force a reflow so the browser takes the start position as a
+  fact, then transition to zero. Skipping the reflow read collapses both
+  writes into one frame and nothing animates. The dragged element is excluded
+  and follows the pointer - it must not be 170ms behind the hand.
+- **The preview lives in the hook, not in the layout.** `onCommit` fires only
+  on a successful drop, which is what makes Escape and a release outside into
+  cancels without either being handled at the call site.
+- **`prefers-reduced-motion` is honoured in the hook**, not only in CSS: a
+  `transition: none` rule would stop the tween but the element would still be
+  given a transform and then have it cleared, which is a flash rather than an
+  instant move.
+- **The grip is the handle, not the whole panel.** A drag that could start
+  anywhere would swallow every click inside a panel, including the range
+  dropdowns, which stay usable while arranging.
+- **Cross-section panel drops are still refused.** A section is a property of
+  a panel (see `SECTIONS`); now that sections themselves move, the way to put
+  Habits above Hours is to drag Habits.
+- **"At a glance" is a section like the others.** It used to be rendered above
+  the loop because its body is the figure row rather than a grid - which also
+  made it the one header that could not be dragged. It goes through the same
+  loop and the same drag group now; only its body differs.
+- **`Layout.sections` is separate from `order`.** Panels move within a
+  section and sections move as wholes; one flat list would make "which
+  section is this panel in" a function of position. A stored layout with no
+  `sections` key resolves to the declared order, so old layouts need no
+  migration beyond that.
+
+**The Modify panels bar is one row, at the right edge, with no instructions.**
+*"I don't need the instructions when im modifying the layout of the data. All
+it really should do is just the buttons should just move all the way to the
+side. The done button should move all the way to the side."* The hint
+sentence is gone - it was written when entering the mode was the only chance
+to explain it, and the grips and hide buttons now appear on every panel the
+instant the mode opens. Everything stays in the header row rather than
+opening a second one, so nothing below the header moves when the mode is
+entered, which matters because the next thing the user does is drag the
+things underneath. **Done is last**, in the place Modify panels occupied, so
+the button pressed to come in is the button pressed to leave.
+
+`scripts/arrange-check.ts` drives a real drag through CDP and asserts a
+sibling has moved **while the pointer is still down** - a behaviour no amount
+of reading the component can confirm. Pointer events are dispatched through
+CDP rather than synthesised in the page: a synthetic `PointerEvent` does not
+go through the capture machinery, so a handler bound with
+`setPointerCapture` never sees the moves. It also captures mid-gesture, which
+is the only way to screenshot something that is over before any other tool
+could look.
+
 **Every dropdown offers the same presets, and one of them is Custom.**
 *"every timescale dropdown should have the same presets... and then a custom
 field where i can insert anything"*. Panels used to narrow the list for
