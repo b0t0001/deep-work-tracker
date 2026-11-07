@@ -32,10 +32,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   AdditiveBlending,
-  AddEquation,
-  CustomBlending,
-  OneFactor,
-  OneMinusDstColorFactor,
   BufferGeometry,
   Color,
   Float32BufferAttribute,
@@ -76,12 +72,14 @@ import { ChartTip } from './AnalyticsCharts'
 
 const STAGE_BG = '#05060a'
 const SHAPE_KEY = 'dwt.constellation.shape'
-/**
- * How bright the glow is, 1 being the first look. *"I just want you to tone
- * down the brightness, the intensity just a little."* A third off: the same
- * glow, halo, swell and twinkle, quieter.
- */
-const GLOW_INTENSITY = 0.66
+const MODE_KEY = 'dwt.constellation.mode'
+
+/** Galaxy: glowing stars. LiDAR: solid scan points. Same cloud, same buffers. */
+type RenderMode = 'galaxy' | 'lidar'
+const MODES: ReadonlyArray<{ id: RenderMode; label: string }> = [
+  { id: 'galaxy', label: 'Galaxy' },
+  { id: 'lidar', label: 'LiDAR' }
+]
 /** Where the camera looks: a little above the floor, so tall stars are not cropped. */
 const TARGET_Y = HEIGHT * 0.32
 /**
@@ -459,7 +457,6 @@ uniform float uFogNear;
 uniform float uFogFar;
 uniform float uTime;
 uniform float uWave;
-uniform float uIntensity;
 varying vec3 vColor;
 varying float vAlpha;
 varying float vHot;
@@ -475,9 +472,7 @@ void main() {
   float wave = exp(-pow((bright - uWave) * 9.0, 2.0));
   vColor = color;
   vHot = wave;
-  // uIntensity scales the whole glow. 0.66 is the user's "tone down the
-  // brightness, the intensity just a little" - the same look, a third dimmer.
-  vAlpha = (0.2 + 0.8 * bright + 0.75 * wave) * fog * dim * twinkle * uIntensity;
+  vAlpha = (0.2 + 0.8 * bright + 0.9 * wave) * fog * dim * twinkle;
   gl_PointSize = clamp(size * (1.0 + 0.45 * wave) * uScale / depth, 1.6, 72.0) * uPixelRatio;
   gl_Position = projectionMatrix * mv;
 }
@@ -496,13 +491,60 @@ void main() {
   // per point in the shader rather than as a full-screen pass.
   float core = exp(-d * 28.0);
   float body = exp(-d * 9.0) * 0.55;
-  float halo = exp(-d * 2.6) * 0.16 * (1.0 - d);
+  float halo = exp(-d * 2.6) * 0.22 * (1.0 - d);
   float a = (core + body + halo) * vAlpha;
-  // Less white in the pinpoint than before, so a dense arm sums towards its
-  // own colour rather than towards white.
-  vec3 c = mix(vColor * 1.1, vec3(1.0), clamp(core * 0.45 + vHot * 0.2, 0.0, 1.0));
-  // Premultiplied, for the screen blend below.
-  gl_FragColor = vec4(c * a, a);
+  vec3 c = mix(vColor * 1.15, vec3(1.0), clamp(core * 0.7 + vHot * 0.25, 0.0, 1.0));
+  gl_FragColor = vec4(c, a);
+}
+`
+
+/*
+ * LiDAR: a laser scan rather than a sky. Each session is a solid, opaque,
+ * hard-edged disc - no halo, no blending, depth-tested so near points cover
+ * far ones the way a scan does. Smaller and nearly uniform in size, so the
+ * cloud reads by density and shape. Depth comes from size and a little fog
+ * towards the stage colour. Shares every uniform with the galaxy material, so
+ * switching mode is a material swap on the same buffers.
+ */
+const LIDAR_VERT = `
+attribute vec3 color;
+attribute float size;
+attribute float bright;
+attribute float arm;
+uniform float uScale;
+uniform float uPixelRatio;
+uniform float uIsolate;
+uniform float uFocus;
+uniform float uFogNear;
+uniform float uFogFar;
+uniform float uWave;
+uniform vec3 uStage;
+varying vec3 vColor;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  float depth = max(0.1, -mv.z);
+  float on = (uIsolate < -0.5 || abs(arm - uIsolate) < 0.5) ? 1.0 : 0.0;
+  float dim = mix(1.0, mix(0.12, 1.0, on), uFocus);
+  float fog = 0.55 * smoothstep(uFogNear, uFogFar, depth);
+  float wave = exp(-pow((bright - uWave) * 9.0, 2.0));
+  vec3 c = color * (0.78 + 0.22 * bright) + vec3(0.12 * wave);
+  vColor = mix(uStage, mix(c, uStage, fog), dim);
+  // Output still sizes a point, but gently: 1x to 1.6x rather than 2.5x.
+  float k = size / 0.25;
+  float world = 0.1 * (1.0 + (k - 1.0) * 0.4);
+  gl_PointSize = clamp(world * uScale / depth, 1.5, 14.0) * uPixelRatio;
+  gl_Position = projectionMatrix * mv;
+}
+`
+
+const LIDAR_FRAG = `
+varying vec3 vColor;
+void main() {
+  vec2 p = gl_PointCoord * 2.0 - 1.0;
+  float d = dot(p, p);
+  if (d > 1.0) discard;
+  // A hair of shading towards the rim, so touching points stay separable.
+  gl_FragColor = vec4(vColor * (1.0 - 0.18 * d), 1.0);
 }
 `
 
@@ -553,7 +595,7 @@ void main() {
   vec2 p = gl_PointCoord * 2.0 - 1.0;
   float d = dot(p, p);
   if (d > 1.0) discard;
-  gl_FragColor = vec4(vec3(0.75, 0.82, 1.0), (1.0 - d) * vAlpha * 0.4);
+  gl_FragColor = vec4(vec3(0.75, 0.82, 1.0), (1.0 - d) * vAlpha * 0.5);
 }
 `
 
@@ -648,6 +690,12 @@ interface SceneState {
   controls: OrbitControls
   content: Group
   starMat: ShaderMaterial
+  lidarMat: ShaderMaterial
+  /** The star cloud; its material is the mode's. */
+  points: Points | null
+  mode: RenderMode
+  /** Swap the look in place: same buffers, other material. */
+  setMode: (mode: RenderMode) => void
   lineMat: ShaderMaterial
   glowMat: ShaderMaterial
   markMat: ShaderMaterial
@@ -745,7 +793,8 @@ function populate(
   starGeo.setAttribute('size', new Float32BufferAttribute(sizes, 1))
   starGeo.setAttribute('bright', new Float32BufferAttribute(bright, 1))
   starGeo.setAttribute('arm', new Float32BufferAttribute(arms, 1))
-  const points = new Points(starGeo, state.starMat)
+  const points = new Points(starGeo, state.mode === 'lidar' ? state.lidarMat : state.starMat)
+  state.points = points
   points.frustumCulled = false
 
   // Sitting lines, coloured by the stars they join so a line between two
@@ -905,6 +954,12 @@ function populate(
   // Compile the shaders now, while the panel is usually still below the fold,
   // so the first frame after it scrolls into view is not also the frame that
   // waits on the driver's compiler.
+  // Both looks, so the first switch to the other one is a material swap and
+  // not a compile: the mode change must not stutter.
+  const current = points.material
+  points.material = current === state.starMat ? state.lidarMat : state.starMat
+  state.renderer.compile(state.scene, state.camera)
+  points.material = current
   state.renderer.compile(state.scene, state.camera)
   state.invalidate()
   // The guide material belongs to this build, so it goes with it.
@@ -968,6 +1023,25 @@ export default function Constellation({
       return 'cylinder'
     }
   })
+  /*
+   * Galaxy or LiDAR - *"I want two distinct modes that I can change"*.
+   * Remembered beside the shape, for the same reason.
+   */
+  const [mode, setModeState] = useState<RenderMode>(() => {
+    try {
+      return window.localStorage.getItem(MODE_KEY) === 'lidar' ? 'lidar' : 'galaxy'
+    } catch {
+      return 'galaxy'
+    }
+  })
+  const setMode = (next: RenderMode): void => {
+    setModeState(next)
+    try {
+      window.localStorage.setItem(MODE_KEY, next)
+    } catch {
+      // A mode that is not remembered is still the mode on screen.
+    }
+  }
   const setProjection = (next: Projection): void => {
     setProjectionState(next)
     try {
@@ -1115,21 +1189,20 @@ export default function Constellation({
         uPixelRatio: { value: pixelRatio },
         uTime: { value: 0 },
         uWave: { value: -5 },
-        uIntensity: { value: GLOW_INTENSITY }
+        uStage: { value: rawColour(STAGE_BG) }
       },
-      /*
-       * Screen blending: light that adds up like the additive glow it
-       * replaced, but towards white asymptotically instead of linearly.
-       * A sparse arm glows exactly as before; the dense cores (HW, College
-       * Apps), which used to sum past white into flat blobs, keep their
-       * colour and their texture. Needs premultiplied output - see STAR_FRAG.
-       */
       transparent: true,
       depthWrite: false,
-      blending: CustomBlending,
-      blendEquation: AddEquation,
-      blendSrc: OneMinusDstColorFactor,
-      blendDst: OneFactor
+      blending: AdditiveBlending
+    })
+    // The same uniform object, so the loop's writes reach whichever is on.
+    const lidarMat = new ShaderMaterial({
+      vertexShader: LIDAR_VERT,
+      fragmentShader: LIDAR_FRAG,
+      uniforms: starMat.uniforms,
+      transparent: false,
+      depthWrite: true,
+      depthTest: true
     })
     // Shared uniform objects, so one write moves stars and lines together.
     const lineMat = new ShaderMaterial({
@@ -1238,6 +1311,10 @@ export default function Constellation({
       controls,
       content,
       starMat,
+      lidarMat,
+      points: null,
+      mode: 'galaxy',
+      setMode: () => undefined,
       lineMat,
       glowMat,
       markMat,
@@ -1336,6 +1413,16 @@ export default function Constellation({
     })
     controls.addEventListener('end', rest)
     state.resume = rest
+    state.setMode = (mode) => {
+      state.mode = mode
+      const lidar = mode === 'lidar'
+      if (state.points !== null) state.points.material = lidar ? lidarMat : starMat
+      // A scan has no glow and no sky: the core light and the dust are the
+      // galaxy's alone.
+      core.visible = !lidar
+      dust.visible = !lidar
+      invalidate()
+    }
     const panel = stage.parentElement
     const inputs = ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const
     for (const type of inputs) panel?.addEventListener(type, rest, { passive: true })
@@ -1709,7 +1796,8 @@ export default function Constellation({
       markGeo.dispose()
       dustGeo.dispose()
       coreGeo.dispose()
-      for (const mat of [starMat, lineMat, glowMat, markMat, dustMat, coreMat]) mat.dispose()
+      for (const mat of [starMat, lidarMat, lineMat, glowMat, markMat, dustMat, coreMat])
+        mat.dispose()
       renderer.dispose()
       // Release the context now rather than when the garbage collector gets
       // round to the canvas - the sixteen-context cap counts live ones.
@@ -1731,6 +1819,11 @@ export default function Constellation({
     if (state === null || labelLayer === null) return
     return populate(state, labelLayer, model, colours)
   }, [model, colours])
+
+  /* The look: a material swap on the live cloud, nothing rebuilt. */
+  useEffect(() => {
+    sceneRef.current?.setMode(mode)
+  }, [mode])
 
   /* Isolation goes to the shaders through the scene state, eased per frame. */
   useEffect(() => {
@@ -1899,6 +1992,19 @@ export default function Constellation({
               </div>
             ) : null}
           </span>
+          <span className="cst__shape" role="group" aria-label="Look">
+            {MODES.map((option) => (
+              <button
+                type="button"
+                key={option.id}
+                className={mode === option.id ? 'is-on' : ''}
+                aria-pressed={mode === option.id}
+                onClick={() => setMode(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </span>
           <span className="cst__shape" role="group" aria-label="Shape">
             {PROJECTIONS.map((option) => (
               <button
@@ -2012,10 +2118,11 @@ export default function Constellation({
       </div>
 
       <p className="an-panel__note">
-        Every star is a session. <b>Distance from the centre</b> is time: the first session at the
-        core, the end of the range at the rim, counted in hours of work rather than in days - so
-        each ring marks where a {ringWord} began, and a wide band is a busy one. <b>Angle</b> is the
-        project, each arm as wide as its share of the hours in this range;{' '}
+        Every {mode === 'lidar' ? 'point' : 'star'} is a session. <b>Distance from the centre</b> is
+        time: the first session at the core, the end of the range at the rim, counted in hours of
+        work rather than in days - so each ring marks where a {ringWord} began, and a wide band is a
+        busy one. <b>Angle</b> is the project, each arm as wide as its share of the hours in this
+        range;{' '}
         {projection === 'sphere' ? (
           <>
             <b>latitude</b> is session length - short in the south, long in the north.

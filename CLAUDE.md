@@ -1393,29 +1393,47 @@ looks sick."* So the data mapping holds, and where looks and mapping pull
 apart, looks win - the spiral twist, the travelling swell and the dust are
 there for that and carry no data.
 
-**The glow stays; it is a third quieter.** The first look was glowing stars
-with additive halos, and the user found it *"a little too bright"*. A crisp,
-muted LiDAR-style version was built and was the wrong reading: *"The subtle
-glow is really really good though. I like how as time goes on the
-constellation rotates and the points just glow a little bit - that animation
-should be there. I just want you to tone down the brightness, the intensity
-just a little."* So the halo, the outward swell, the twinkle and the core
-light are all as they were, and two things changed:
+**Two looks, switched in the panel head: Galaxy and LiDAR.** Galaxy is the
+default. The way here, in the user's words, because each step corrected the
+one before it:
 
-- **`GLOW_INTENSITY` = 0.66** scales every star's light. Measured at the same
-  camera before and after, the light the cloud adds above the stage fell 29%
-  (22.0 to 15.7 mean luminance over the stage).
-- **Screen blending instead of additive** (`OneMinusDstColor, One`, with
-  premultiplied output). Additive sums linearly, so the dense cores - HW,
-  College Apps - passed white and became flat blobs: 1.4% of the stage was
-  near-white before, 0.002% after. Screen blending adds light the same way in
-  a sparse arm and approaches white asymptotically in a dense one, so the
-  cores still glow and keep their colour and texture. The pinpoint at the
-  centre of each star also mixes less towards white.
+1. The first look - glowing additive stars - was *"a little too bright"*.
+2. A muted, crisp LiDAR version was built, then a version a third dimmer
+   with the glow kept. Both were wrong: *"I actually think the current
+   brightness is alright. I looked at the few new screenshots, it's way too
+   dim. It doesn't look like a LiDAR cloud at all. So I want two distinct
+   modes that I can change... Have a LiDAR point mode where the individual
+   points aren't actually super blurry, they're actually solid. And then
+   have a constellation mode, or a galaxy mode, let's call it that, where it
+   looks like a star."*
 
-Colours are a touch less saturated than the first look (0.74 against 0.78);
-the 0.42 of the LiDAR attempt was more change than was asked for. **The
-sitting lines are exactly as they were** - *"the lines right now are okay."*
+- **Galaxy is the first look, exactly** - its shaders are the 64abd85 ones
+  byte for byte, with the halo, the additive bloom, the outward swell, the
+  twinkle, the core light and the dust. Measured at the same camera against
+  64abd85, the light it adds above the stage is within 1% (21.8 against 22.0
+  mean luminance; the rest is camera drift). The dense cores still clip to
+  white as they did; avoiding that without dimming anything else would take a
+  full-screen tone-mapping pass, and the rule was that original brightness
+  wins.
+- **LiDAR is a scan**: solid, opaque, hard-edged discs with a hair of rim
+  shading, depth-tested and depth-written so near points cover far ones, no
+  blending, no halo. Smaller and nearly uniform (output sizes a point 1x to
+  1.6x, against Galaxy's 2.5x), saturated project colours, depth by size and a
+  little fog towards the stage colour. No core light, no dust, no twinkle; the
+  swell is a slight lift in colour while the cloud turns.
+- **The sitting lines are the same in both** - *"the lines right now are
+  okay."* Against solid points they did not overpower, so they were left
+  as they are.
+- **Switching rebuilds nothing.** Both materials share one uniform object and
+  draw the same buffers; the switch sets `points.material` and toggles the
+  core light and dust. Both programs are compiled when the cloud is built, so
+  the first switch is not a compile either. Measured: 9 live geometries
+  before, after and back again, and 6 programs before the first switch.
+- **Remembered per viewer in localStorage**, beside the shape, for the same
+  reason: a way of looking, not a setting the app acts on. The caption says
+  "star" in Galaxy and "point" in LiDAR.
+- Colours are the first look's (saturation 0.78, the biggest project the
+  accent itself, unless the arms on screen are cramped and get spread).
 
 **And it must cost nothing the timer would notice.** *"This thing needs to run
 like buttery smooth... it should not take so much bandwidth that I can't run
@@ -1486,9 +1504,9 @@ to this panel re-runs `--live` probes and keeps them.
   and manual - join only consecutive rows of the same date *and* project,
   because without a clock there is no gap to measure and a cross-project join
   would be a guess. The caption states both rules.
-- **The look, all in the shader.** Each star is a pinpoint, a coloured body
-  and a wide faint halo; overlapping halos add up under screen blending,
-  which is the bloom - no full-screen post pass. A slow swell of light
+- **The look, all in the shader.** In Galaxy each star is a white-hot
+  pinpoint, a coloured body and a wide faint halo; overlapping halos add up
+  under additive blending, which is the bloom - no full-screen post pass. A slow swell of light
   travels outward through time while the cloud turns, a soft accent light
   marks the core, and 900 points of fixed dust on a far shell slide behind the
   cloud as it turns, which is what makes it read as standing in space.
@@ -1534,8 +1552,8 @@ How it stays cheap:
   in five seconds, measured, before it was found.
 - **One draw call for the stars and one for the lines**: a single `Points`
   and a single `LineSegments` over typed buffers, glow in the fragment
-  shader. Nine draw calls a frame in all, counting dust, the core light, rings
-  and ruler. `devicePixelRatio` is capped at 1.5 and MSAA is off - soft
+  shader. Nine draw calls a frame in Galaxy, counting dust, the core light,
+  rings and ruler; seven in LiDAR, which has neither. `devicePixelRatio` is capped at 1.5 and MSAA is off - soft
   sprites and faint lines show no stair-steps, and MSAA was the larger half of
   the frame cost. Shaders are compiled when the cloud is built, usually
   while the panel is still below the fold.
@@ -1559,8 +1577,9 @@ Measured on the real-size copy (2,478 sessions, 1,169 sitting lines), 11/06/2026
 | | |
 | --- | --- |
 | `analytics()` | 41 ms median against 39 before (80 runs each), +26 KB |
-| turning, all time, 1900px (`--live`) | 120 fps (frames 8.3 ms apart, p95 8.5); CPU per frame 0.6 ms median, 1.3 ms p95 |
-| GPU-synced frame, 2248x775 device px | 1.7 ms (5 ms with MSAA on) |
+| turning, all time, 1900px (`--live`), Galaxy | 120 fps (frames 8.3 ms apart, p95 8.5); CPU per frame 0.4 ms median, 1.1 ms p95 |
+| the same, LiDAR | 120 fps (8.3 / 8.5); CPU 0.4 ms median, 0.9 ms p95 |
+| GPU-synced frame, 2248x775 device px | 1.3-2.2 ms in either mode across runs (5 ms with MSAA on) |
 | still, 3 s | 0 frames |
 | scrolled off screen, turning, 3 s | 0 frames |
 | 20 trips Data <-> Analytics | JS heap 20.7 MB -> 20.7 MB after GC, 9 live geometries -> 9, 1 canvas |
