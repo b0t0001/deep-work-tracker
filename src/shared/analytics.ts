@@ -123,6 +123,29 @@ export interface SessionRow {
   unit: string | null
   /** Null when absent or marked unquantifiable - never zero for "unknown". */
   quantity: number | null
+  /*
+   * The rest are for the insights card and are sent only where they hold
+   * something, so 2,400 imported rows do not each carry a column of nulls.
+   * Clock times and pauses exist for app-recorded rows only, for the reason
+   * `hour` does.
+   */
+  /** Local minutes after midnight the session started. App rows only. */
+  startMin?: number
+  /** Local minutes after midnight the session ended. App rows only. */
+  endMin?: number
+  /** Marked unquantifiable - output that has no number, not a missing one. */
+  unquantifiable?: boolean
+  /** Carries a note. */
+  note?: boolean
+  /** `finished_early`, `tired`, `interrupted` or `other`. */
+  stop?: string
+  /** The pace loop the session ran with: this many per `paceIntervalS`. */
+  paceQty?: number
+  paceIntervalS?: number
+  /** Pauses that ended, their total length, and the longest, in seconds. */
+  pauses?: number
+  pausedS?: number
+  longestPauseS?: number
 }
 
 export interface Analytics {

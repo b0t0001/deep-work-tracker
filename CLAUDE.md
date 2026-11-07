@@ -829,8 +829,9 @@ local.
   compares the first year against the last and both ends have to be fixed for
   that to mean anything; wired to a control it read +321% on one setting and
   +295% on another, the same claim with two numbers. (The baseline tile has
-  since gained a one-ended control, below; the insights card follows its own
-  range in full, because every insight is built from dated sessions.) A
+  since gained a one-ended control, below; the insights card has no control
+  at all, because each insight reads its own window - see "The fun fact
+  became insights".) A
   dropdown that cannot change the figure beside it is worse than no dropdown.
 - **Narrowing has two shapes, and `shared/ranges.ts` exists because of it.**
   An aggregate that still carries dates — `daily`, `ratesByUnit`, `pace` — is
@@ -970,25 +971,44 @@ not from guesses about what the words might mean. That is where `components`
 amount of work. It could also be about the efficiency... The fun fact should
 help me make sense of the data. It shouldn't just be raw data... I want you to
 basically just have insights."* `shared/insights.ts` builds every statement
-the chosen range supports; `components/InsightCard.tsx` shows one at a time,
-strongest first, with ‹ › and `3 / 14` to step through them. Each is a figure,
-the sentence it completes, and one small line of the numbers it rests on, so
-it can be checked rather than trusted.
+the history supports; `components/InsightCard.tsx` shows **exactly one**.
+Each is a figure, the sentence it completes, and one small line of the
+numbers it rests on, so it can be checked rather than trusted.
 
-- **What it says:** the busiest two hours of the day; a typical working day
-  (median sessions and hours over days with work, median session length);
-  the strongest weekday, or weekends against weekdays when that is the story;
-  which course is taking the most time; the share of time one project took;
-  the project whose share moved most against the previous period of equal
-  length (all time: the past 12 months against the 12 before); pace within
-  one unit and one course, latest half of the sessions against the first
-  half; how often timers are stopped before they run out and how much of the
-  set time a typical run uses; how many laps a looped session runs; the
-  longest streak and the current one; the share of calendar days worked and
-  the longest break; the biggest day against a typical one; the longest
-  session; output per unit with its pace (words as novels, at 90,000 a
-  novel); hours as forty-hour work weeks; hours spent editing; and whether
-  sessions are getting longer.
+- **One at a time, chosen when the tab opens, with no way to step.** *"there
+  should only be 1 fun fact at a time. i don't want an arrow button to click
+  through these."* There was a ‹ › stepper with `3 / 21`; it is gone. The
+  Analytics tab mounts each time it is shown, and the payload handler draws a
+  random number and reads the id shown last (`dwt.lastInsight`, so it holds
+  across launches). `pickInsight` weights toward the strong insights and
+  never repeats the last one. Nothing changes while the tab is being looked
+  at. Both values are read off the render path, for the reasons given beside
+  the old fun-fact state.
+- **No range control - the one panel without one.** *"only that panel should
+  NOT have a timescale button."* Each insight reads the window its sentence
+  needs, set in `PLAN` in `insights.ts`, and its detail line starts by naming
+  it: records, streaks, totals, output and pace trends are all time; what is
+  taking your time now (top project, top course) is the past 30 days; habits
+  (weekdays, timers stopped early, share of days worked) are the past 12
+  months and a typical working day the past 90; a comparison takes a period
+  against the one of equal length before it (project share: past 12 months
+  against the year before; session length: past 90 days against the 90
+  before). The sentences themselves carry no window, so the detail line is
+  the one place it is said.
+
+- **What it says** is whatever the user kept from a list of candidates.
+  *"make like a hundred of these fun facts. Make it so that I could never run
+  out"* - so 152 were drafted, each computed on the real history, and written
+  to `Documents/Deep Work Tracker/insight-candidates.md` for the user to mark
+  by number. Everything not cut was built: about 125 builders, 111 of which
+  fire on the history as of 11/06/2026 and the rest waiting on data only this
+  app records. They live in four files by subject: `insights.ts` (the first
+  seventeen, the plan and the choosing), `insightsDays.ts` (calendar, streaks,
+  the shape of a day), `insightsWork.ts` (timers, output, projects,
+  milestones, the quirky ones) and `insightsClock.ts` (time of day, pauses,
+  stop reasons). `insightKit.ts` holds what they share, including the rules
+  below as code. **A new candidate goes on the list for the user to pick,
+  not into the card** - round 2 is on the list, unbuilt.
 - **Every insight has a minimum sample and is skipped below it**, and every
   comparison has a floor below which it is not worth saying - a weekday 3%
   above average is not a strongest day. The numbers are `INSIGHT_MIN`, and
@@ -996,40 +1016,98 @@ it can be checked rather than trusted.
   worked out by hand and again one step under its threshold, where it must
   not appear. An insight that speaks from too little data looks exactly like
   one that works.
-- **Time of day is app-timed rows only**, at least 20 sessions over 5 days,
-  and the busiest two hours must hold a quarter of the timed hours. On the
-  history as of 11/06/2026 there are two, so it is built and silent - which
-  is right, and it will turn itself on.
+- **Time of day is app-timed rows only**, at least 20 sessions over 5 days.
+  On the history as of 11/06/2026 there are two, so the fifteen clock
+  insights are built and silent - which is right, and they turn themselves
+  on.
 - **Pace is never compared across units or courses**, only within one of
   each, and pooled (total quantity over total minutes), with manual rows and
   runs under five minutes left out - the rate panel's rules. The sentence
   says "pace", never "better": a course getting harder is the usual reason a
-  rate falls, and the card cannot tell the difference. The CIS 1200 question
-  pace reads +679% on the real history; the arithmetic is right and the
-  detail line shows both rates, so the user can judge what changed.
+  rate falls, and the card cannot tell the difference.
+
+**The rules the user taught by cutting candidates.** These are the spec for
+every insight written from here on. Each came from a cut, and each is
+enforced in code rather than remembered - `insightKit.ts` holds them and
+`insights-check.ts` asserts that what was cut cannot come back.
+
+- **No comparison under 20%, and never a zero.** *"not really that
+  interesting, number is too low/too small for any causality"* (+3% fall
+  against spring); *"don't have a +0% bro that's sad"* (911.3 h against
+  911.0 h this year to date). `moved()` is the 20% floor every comparison
+  passes through, and `buildInsights` drops any insight whose headline is a
+  zero - in one place, so an insight written later cannot forget.
+- **Patterns of *when* read flexible work only.** *"no shit that's when i
+  scheduled JPL to happen. Now, if it was like 60% of your CIS 1200 HW gets
+  done on wednesdays, THEN that's a little more interesting."* Weekday,
+  month, month-end and time-of-day insights read `flexibleRows`: everything
+  except scheduled projects and meetings. Scheduled is a named list
+  (`SCHEDULED_PROJECTS`: JPL, PER, Scioly, Job, Internship, Boeing,
+  Sprocket) plus a shape test for the rest - one weekday holding 40% of a
+  project's sessions, a third of its tasks meetings, or a typical session of
+  2.5 h or more - which on the real history also catches Brahma Tech. Any
+  task containing "meeting" is scheduled whatever its project. Records and
+  streaks still read everything: a record set at a competition is a record.
+- **Nothing the user obviously knows.** *"Bro i work everyday that's not
+  very interesting lol"*; *"i know how many courses im taking"*. Cut: the
+  same date in every year, days a week, the course count.
+- **Stops, laps and runs to zero come from app-recorded sessions only.**
+  Imported rows were laps of untracked Hourglass loops as often as single
+  runs, so "stopped early" and "ran to zero" read from them were wrong.
+  `isTimerRun` is app-only, and those insights wait for 30 app-recorded runs
+  (`APP_RUNS`, and `INSIGHT_MIN.timerRuns`), loops for 5. Planned length
+  alone - the favourite timer, round five minutes - still reads imports,
+  because what a timer was set to is not affected.
+- **Question counts drifted, so question rates stay recent.** *"inaccurate
+  bc i think i changed how i count question completion"* about a +679% CIS
+  1200 trend. `DRIFT_UNITS` (question, problem) are compared only within the
+  past 90 days and never trended latest-against-first. **This is a known
+  risk for any unit:** a unit's meaning can change without its name
+  changing, and a long-range rate trend would report the change of
+  definition as a change of pace.
+- **An ended project is a finished chapter, not a lapse.** *"sprocket has
+  gone quiet, because im not in high school anymore!"* There is no "gone
+  quiet" insight, and the project-share shift never reports an ended project
+  falling (`ENDED_PROJECTS`, plus anything idle 90 days).
+- **No "came back to <task>".** *"that makes it seem like i don't script
+  videos. false. i just coincidentally had the same session name"*. Task
+  names repeat by coincidence, so a gap between two sessions with the same
+  name says nothing about the work.
+- **Nothing that restates another panel.** *"don't duplicate the baseline
+  tile"*.
+- **Typos in course codes are aliased, not counted.** `CIS 1299` was a
+  sixth course that does not exist; `COURSE_ALIASES` in `courses.ts` maps it
+  to CIS 1200.
+
+**What the user liked, and what that means for the next ones.** Favourites
+open three times as often (`FAVOURITE`) and "where it all started" a
+quarter as often (`NOW_AND_THEN` - *"put it in rotation every so often"*).
+The favourites were calendar moments (8 of 13 holidays had work), on this
+day (*"love the 'this is what you did 2 years ago'"*), what opens and closes
+the day, honest real-world equivalences stated with their basis (*"i did
+NOT know that about 82 wtf"* - 132 decks of slides), hour marks crossed by
+projects, milestones with forward projections (*"because then i want to
+RACE to get there"*), records set recently, and fair before-and-after
+improvements (*"latest 100 h took 24 days against 114 for the first... put
+more stats like these"*). Round 2 of the candidate list is ideas in those
+shapes.
 - **Stopping early is reported as a habit, not a failure rate**, for the
   reasons under "There is deliberately no `completed` boolean".
-- **Everything follows the card's range.** The payload carries
+- **Every insight is built from dated sessions.** The payload carries
   `sessionRows` - every counted, dated session, cut to the fields the card
   reads - because medians, records, courses and rates do not survive being
   summed by day. Its `hour` is null for any row not recorded by the app, so a
   time-of-day claim cannot be built from an imported row by forgetting a
   filter.
-- **It opens somewhere different each time**, weighted toward the strong
-  ones and never on the one shown last (`dwt.lastInsight`). The random number
-  and the last id are read in the payload handler, off the render path, for
-  the reasons given beside the old fun-fact state. Changing the range keeps
-  your place where that insight still applies.
-- **Its range control sits in the card's footer, beside the stepper**, not in
-  the top-right corner like the other tiles. The figure can be a word -
-  `MATH 1410`, `Weekends` - and at 1150px a corner control either ran under
-  it or, given clearance, broke a course code across two lines.
-- **A range with nothing to say still renders the card**, saying so, because
-  the range control is on the card: a card that vanished would take the only
-  way back with it.
-- It keeps the fun fact's range target id, `fact`, so a range already chosen
-  for the fun fact carries over. `buildFacts`/`pickFact` in `facts.ts` are no
-  longer rendered; `scripts/stats-check.ts` still covers them.
+- **With nothing worth saying the card is left out** and the row closes up.
+  It used to say so in place, because the range control lived on the card
+  and a vanished card would have taken the only way back with it; with no
+  control there is nothing to keep it for.
+- **The old `fact` range target is gone.** A `fact` value stored by an
+  earlier build is not a range target any more, so `resolveLayout` drops it
+  on read like any unknown key - nothing to migrate, and `insights-check`
+  asserts it. `buildFacts`/`pickFact` in `facts.ts` are no longer rendered;
+  `scripts/stats-check.ts` still covers them.
 
 **One tooltip for every chart: a quiet caption and a loud number.** *"just
 make whatever the text is like gray and then make the font size smaller. The
@@ -1306,6 +1384,12 @@ defensible local reasons - the calendar dropped the shortest windows, the
 comparison box offered five of eight, the baseline tile four - and together
 those meant no two dropdowns looked alike. The list now lives once in
 `shared/windows.ts` and every picker renders all of it.
+
+**The single exception is the insights card, which has no dropdown at all**,
+at the user's request: *"only that panel should NOT have a timescale
+button"*. Each insight picks its own window and names it in its detail line
+(see "The fun fact became insights"). It is not a panel with a shorter list;
+it is the one panel with no list.
 
 - **The order is the user's and is deliberately not monotonic.** 60 days sits
   before 8 weeks although 56 is shorter, and 30 days after 4 weeks although
