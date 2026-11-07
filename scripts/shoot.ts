@@ -294,6 +294,77 @@ const CONSTELLATION_SHOTS: Shot[] = [
   ),
   cstShot('probe-cst-hover-1150', 1150, CST_HOVER),
   cstShot(
+    'cst-picker-1900',
+    1900,
+    `
+  const panel = stage.closest('.an-panel');
+  panel.querySelector('.cst__pick').click(); await wait(300);
+  const tick = async (name, on) => {
+    const row = [...panel.querySelectorAll('.cst__choice')].find((el) => el.querySelector('.cst__arm-name').textContent === name);
+    if (!row) { document.title += ' missing:' + name; return; }
+    const box = row.querySelector('input');
+    if (box.checked !== on) { box.click(); await wait(150); }
+  };
+  for (const name of ['College Apps', 'Sprocket', 'Scioly', 'JPL', 'SAT']) await tick(name, false);
+  await tick('PER', true);
+  await wait(400);
+`,
+    1000
+  ),
+  cstShot(
+    'cst-chosen-1900',
+    1900,
+    `
+  const panel = stage.closest('.an-panel');
+  panel.querySelector('.cst__pick').click(); await wait(300);
+  const tick = async (name, on) => {
+    const row = [...panel.querySelectorAll('.cst__choice')].find((el) => el.querySelector('.cst__arm-name').textContent === name);
+    if (!row) { document.title += ' missing:' + name; return; }
+    const box = row.querySelector('input');
+    if (box.checked !== on) { box.click(); await wait(150); }
+  };
+  for (const name of ['College Apps', 'Sprocket', 'Scioly', 'JPL', 'SAT']) await tick(name, false);
+  await tick('PER', true);
+  await wait(400);
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await wait(600);`,
+    1000
+  ),
+  cstShot(
+    'cst-chosen-sphere-1900',
+    1900,
+    `
+  const panel = stage.closest('.an-panel');
+  panel.querySelector('.cst__pick').click(); await wait(300);
+  const tick = async (name, on) => {
+    const row = [...panel.querySelectorAll('.cst__choice')].find((el) => el.querySelector('.cst__arm-name').textContent === name);
+    if (!row) { document.title += ' missing:' + name; return; }
+    const box = row.querySelector('input');
+    if (box.checked !== on) { box.click(); await wait(150); }
+  };
+  for (const name of ['College Apps', 'Sprocket', 'Scioly', 'JPL', 'SAT']) await tick(name, false);
+  await tick('PER', true);
+  await wait(400);
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await wait(600); const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape button')[1]; sphere.click(); await wait(900);`,
+    1000
+  ),
+  cstShot(
+    'cst-chosen-1150',
+    1150,
+    `
+  const panel = stage.closest('.an-panel');
+  panel.querySelector('.cst__pick').click(); await wait(300);
+  const tick = async (name, on) => {
+    const row = [...panel.querySelectorAll('.cst__choice')].find((el) => el.querySelector('.cst__arm-name').textContent === name);
+    if (!row) { document.title += ' missing:' + name; return; }
+    const box = row.querySelector('input');
+    if (box.checked !== on) { box.click(); await wait(150); }
+  };
+  for (const name of ['College Apps', 'Sprocket', 'Scioly', 'JPL', 'SAT']) await tick(name, false);
+  await tick('PER', true);
+  await wait(400);
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await wait(600);`
+  ),
+  cstShot(
     'cst-sphere-1150',
     1150,
     `const sphere = stage.closest('.an-panel').querySelectorAll('.cst__shape button')[1]; sphere.click(); await wait(900);`

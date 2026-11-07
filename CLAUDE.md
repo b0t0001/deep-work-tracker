@@ -1360,23 +1360,54 @@ looks sick."* So the data mapping holds, and where looks and mapping pull
 apart, looks win - the spiral twist, the travelling swell and the dust are
 there for that and carry no data.
 
+**A scan, not a constellation - the name stays.** The first look was glowing
+stars with additive halos, and the user turned it down: *"the stars are nice,
+but they are a little too bright for my liking. I'm thinking more of a LiDAR
+point cloud and less constellation. We can just call it a constellation."*
+The dense arms (HW, College Apps) had summed to white blobs. So each session
+is now a small crisp disc with ordinary alpha blending, colours are muted
+(`MUTED_SATURATION`), depth is carried by size attenuation and by fading into
+the stage with distance rather than by glow, the lines are fainter, and the
+core light and twinkle are gone. Density and shape carry the picture.
+
 **And it must cost nothing the timer would notice.** *"This thing needs to run
 like buttery smooth... it should not take so much bandwidth that I can't run
 the timer normally."* The budgets and what was measured are below; any change
 to this panel re-runs `--live` probes and keeps them.
 
-- **Distance from the centre is hours worked up to that session**, not the
-  calendar date - the user's own words were "the distance from the origin can
-  be the hours worked". It also makes the rings honest: a ring is drawn where
+- **Distance from the centre is time**: the first session at the core, the
+  end of the range at the rim. It is counted in hours of work rather than in
+  days (each session sits at the hours worked before it), which makes the
+  rings honest: a ring is drawn where
   each year (quarter, month, week or day, whichever gives three or more) began,
   so the band between two rings is as wide as that period was productive, the
   way a tree records a good year. On a date radius every year would be the same
   width and the rings would say nothing.
 - **Angle is the project**: a wedge per project as wide as its share of the
   hours in range, largest first, with a gentle spiral (`TWIST`) applied to
-  every arm equally. At most nine arms; projects under 2.5% of the hours pool
-  into **Other**, which the legend lists by name, and no arm is narrower than
-  a fortieth of the circle. Unlabelled sessions go to Other when there is one.
+  every arm equally. No arm is narrower than a fortieth of the circle.
+- **The user chooses which projects are shown.** *"there should be a way for
+  me to hide something like College Apps or Sprocket or Scioly or JPL or SAT,
+  because those aren't things I'm doing anymore now that I'm in college.
+  Instead, let's put something like PER on there."* A **Projects** list in the
+  panel head (in-app, never a Windows dialog) lists every project with sessions
+  in range, most hours first, with a search box and All / None / Automatic.
+  Stored as `Layout.constellationHidden`, the names hidden, in the same
+  `app_settings` row as the rest of the layout:
+  - **Absent** - every layout written before this - is the automatic view:
+    the largest projects as arms (at most nine, each over 2.5% of the hours)
+    and the tail pooled into **Other**. Unlabelled goes to Other.
+  - **A list** means the user has chosen. Every project not in it is its own
+    arm and there is **no Other**, so nothing they ticked - PER at 18 hours -
+    can be swallowed by it. Hidden projects are removed, not dimmed, and the
+    wedges re-divide among what is left.
+  - **Hidden, not shown**, so a project created next month appears by itself.
+  - **The first change does not jump** (`withProjectShown`): leaving the
+    automatic view hides everything that was not already an arm, so unticking
+    one project does not turn the thirty pooled ones into thirty new arms.
+  - The panel is memoised on scalars, so it is handed the list as JSON text.
+    The layout is re-parsed on every write, and a new array each time would
+    rebuild the cloud on any unrelated layout change.
 - **The coordinate system is one swappable function, `place()`.** Everything
   above produces three normalised numbers - out from the core, angle, length -
   and only `place` turns them into x, y, z. `cylinder` (the default, shown as
@@ -1394,21 +1425,26 @@ to this panel re-runs `--live` probes and keeps them.
   **Brightness is recency** within the range.
 - **Colour belongs to the project, not the range.** Ranked within the range,
   College Apps was pink at all time and green at 90 days. Colours step round
-  the hue circle by the golden angle from the accent in order of *all-time*
-  hours (`colourRanks`), so the biggest project ever is the accent everywhere.
+  the hue circle by the golden angle from the accent's hue in order of
+  *all-time* hours (`colourRanks`). Thirty-seven projects on a golden angle
+  must collide somewhere, and with the user's own choice two did - PER and
+  Entrepreneurship in one green. So when the arms on screen are closer than
+  28 degrees, they are spread evenly round the wheel in the order their
+  natural hues had, turned by the angle that moves them least: every colour
+  stays near its usual neighbourhood and no two arms are unreadable. The
+  Projects list uses the arm's own colour, so list and legend agree.
 - **Lines join one sitting.** App rows: consecutive by clock, same date, under
   30 minutes from the end of the sitting so far (a nested timer does not pull
   it back), across projects. Rows without trustworthy clock times - imported
   and manual - join only consecutive rows of the same date *and* project,
   because without a clock there is no gap to measure and a cross-project join
   would be a guess. The caption states both rules.
-- **The look, all in the shader.** Each star is a white-hot pinpoint, a
-  coloured body and a wide faint halo; the halos overlap and add up under
-  additive blending, which is the bloom - no full-screen post pass, which
-  would cost more than the whole frame does now. A slow swell of light travels
-  outward through time while the cloud turns, a soft accent light marks the
-  core, and 900 points of fixed dust on a far shell slide behind the cloud as
-  it turns, which is what makes it read as standing in space.
+- **The look, all in the shader.** Each session is a crisp disc with a
+  pixel of soft edge, normal alpha blending, lightness rising with recency, and
+  fog towards the stage colour with distance. A faint swell travels outward
+  through time while the cloud turns, and 500 points of very faint fixed dust
+  on a far shell slide behind the cloud as it turns, which is what makes it
+  read as standing in space. No post pass.
 - **Interaction**: drag to orbit, slow idle turn that stops on any
   interaction or hover and resumes after five seconds, hover for a `ChartTip`
   (date and project small, duration big, output below) plus a ring on the star
@@ -1443,11 +1479,10 @@ How it stays cheap:
   `update()`, and before that guard every frame scheduled two - 37,866 frames
   in five seconds, measured, before it was found.
 - **One draw call for the stars and one for the lines**: a single `Points`
-  and a single `LineSegments` over typed buffers, glow in the fragment shader.
-  Nine draw calls a frame in all, counting dust, the core light, rings and
-  ruler. `devicePixelRatio` is capped at 1.5 and MSAA is off - soft sprites
-  and faint additive lines show no stair-steps, and MSAA was the larger half
-  of the frame cost. Shaders are compiled when the cloud is built, usually
+  and a single `LineSegments` over typed buffers. Eight draw calls a frame in
+  all, counting dust, rings and ruler. `devicePixelRatio` is capped at 1.5 and
+  MSAA is off - soft-edged discs and faint lines show no stair-steps, and
+  MSAA was the larger half of the frame cost. Shaders are compiled when the cloud is built, usually
   while the panel is still below the fold.
 - **Hover is screen-space nearest-point**, at most once per frame on
   pointermove: 2,478 projections, no raycaster.
@@ -1469,13 +1504,13 @@ Measured on the real-size copy (2,478 sessions, 1,169 sitting lines), 11/06/2026
 | | |
 | --- | --- |
 | `analytics()` | 41 ms median against 39 before (80 runs each), +26 KB |
-| turning, all time, 1900px (`--live`) | 120 fps (frames 8.3 ms apart, p95 8.5); CPU per frame 0.6 ms median, 1.2 ms p95 |
-| GPU-synced frame, 2248x775 device px | 2.1 ms (5 ms with MSAA on) |
+| turning, all time, 1900px (`--live`) | 120 fps (frames 8.3 ms apart, p95 8.5); CPU per frame 0.5 ms median, 1.2 ms p95 |
+| GPU-synced frame, 2248x775 device px | 1.8 ms (5 ms with MSAA and the glowing first look) |
 | still, 3 s | 0 frames |
 | scrolled off screen, turning, 3 s | 0 frames |
-| 20 trips Data <-> Analytics | JS heap 20.7 MB -> 20.7 MB after GC, 9 live geometries -> 9, 1 canvas |
-| click Analytics -> panel built | ~500 ms (the whole tab's payload and the chunk) |
-| panel scrolled into view -> first frame | ~140 ms |
+| 20 trips Data <-> Analytics | JS heap 20.7 MB -> 20.7 MB after GC, 8 live geometries -> 8, 1 canvas |
+| click Analytics -> panel built | ~490 ms (the whole tab's payload and the chunk) |
+| panel scrolled into view -> first frame | ~110-140 ms |
 
 `npx electron out/shoot/index.js --live --db <copy> --only
 probe-cst-perf,probe-cst-memory,probe-cst-timer-scripts,probe-cst-settings-scripts,probe-cst-dashboard-scripts`

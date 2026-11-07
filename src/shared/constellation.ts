@@ -316,7 +316,8 @@ export function projectOf(row: StarRow): string {
  * so the circle is exactly filled - the floor is taken from the large arms,
  * which can afford it, rather than overflowing.
  */
-export function buildWedges(rows: readonly StarRow[]): Wedge[] {
+export function buildWedges(rows: readonly StarRow[], options: { pool?: boolean } = {}): Wedge[] {
+  const pool = options.pool ?? true
   const totals = new Map<string, { hours: number; sessions: number }>()
   for (const row of rows) {
     const name = projectOf(row)
@@ -335,15 +336,16 @@ export function buildWedges(rows: readonly StarRow[]): Wedge[] {
   // With few enough projects every one is an arm, however small: the floor
   // width keeps it visible and there is nothing to gain by pooling. Otherwise
   // one arm is kept back for Other.
-  const fits = all.length <= MAX_ARMS
-  const capacity = fits ? MAX_ARMS : MAX_ARMS - 1
+  // Not pooling - the user has chosen exactly what to see - fits by definition.
+  const fits = !pool || all.length <= MAX_ARMS
+  const capacity = fits ? Number.POSITIVE_INFINITY : MAX_ARMS - 1
   const own: typeof all = []
   const pooled: typeof all = []
   for (const p of all) {
     const share = total > 0 ? p.hours / total : 0
     // Unlabelled is never an arm of its own while there is a pool to put it
     // in: it is the absence of a project, and an arm says "this is a thing".
-    if (own.length < capacity && (fits || share >= MIN_SHARE) && p.name !== UNLABELLED) {
+    if (own.length < capacity && (fits || share >= MIN_SHARE) && (!pool || p.name !== UNLABELLED)) {
       own.push(p)
     } else {
       pooled.push(p)
@@ -579,10 +581,13 @@ export function ringLabel(date: string, grain: RingGrain): string {
 export function buildConstellation(
   rows: readonly StarRow[],
   all: readonly StarRow[] = rows,
-  projection: Projection = 'cylinder'
+  projection: Projection = 'cylinder',
+  hidden: readonly string[] | null = null
 ): Constellation {
-  const ordered = chronological(rows.filter((row) => row.runningS > 0))
-  const wedges = buildWedges(ordered)
+  const gone = new Set(hidden ?? [])
+  const ordered = chronological(rows.filter((row) => row.runningS > 0 && !gone.has(projectOf(row))))
+  // Chosen by the user: every shown project is its own arm, no Other.
+  const wedges = buildWedges(ordered, { pool: hidden === null })
   const wedgeOf = new Map<string, number>()
   wedges.forEach((w, i) => w.projects.forEach((p) => wedgeOf.set(p, i)))
   const percentiles = outputPercentiles(all)
@@ -658,6 +663,112 @@ export function buildConstellation(
 }
 
 /**
+ * Which projects the cloud shows. *"there should be a way for me to hide
+ * something like College Apps or Sprocket or Scioly or JPL or SAT, because
+ * those aren't things I'm doing anymore now that I'm in college. Instead,
+ * let's put something like PER on there."*
+ *
+ * Stored as the list of **hidden** projects, and `null` until the user first
+ * changes anything:
+ *
+ * - `null` is the automatic view - the largest projects as arms and the long
+ *   tail pooled into Other - which is what every layout written before this
+ *   existed resolves to.
+ * - A list means the user has chosen: every project not in it is its own arm,
+ *   and there is no Other at all, so nothing they asked to see can be
+ *   swallowed by it. Hidden projects are removed entirely - not dimmed - and
+ *   the wedges re-divide among what is left, so the arms fill the circle.
+ *
+ * Hidden rather than shown, so a project created next month appears on its
+ * own instead of being invisible until someone thinks to tick it - the same
+ * argument as `resolveLayout` appending an unknown panel.
+ */
+export interface ProjectChoice {
+  name: string
+  hours: number
+  sessions: number
+  /** Drawn as its own arm. */
+  shown: boolean
+}
+
+/** Every project with sessions in `rows`, most hours first, and whether it is its own arm. */
+export function projectChoices(
+  rows: readonly StarRow[],
+  hidden: readonly string[] | null
+): ProjectChoice[] {
+  const totals = new Map<string, { hours: number; sessions: number }>()
+  for (const row of rows) {
+    if (!(row.runningS > 0)) continue
+    const name = projectOf(row)
+    const t = totals.get(name) ?? { hours: 0, sessions: 0 }
+    t.hours += row.runningS / 3600
+    t.sessions += 1
+    totals.set(name, t)
+  }
+  const own =
+    hidden === null
+      ? new Set(
+          buildWedges(rows.filter((row) => row.runningS > 0))
+            .filter((w) => !w.other)
+            .flatMap((w) => w.projects)
+        )
+      : null
+  const gone = new Set(hidden ?? [])
+  return [...totals.entries()]
+    .map(([name, t]) => ({
+      name,
+      hours: t.hours,
+      sessions: t.sessions,
+      shown: own === null ? !gone.has(name) : own.has(name)
+    }))
+    .sort((a, b) => b.hours - a.hours || a.name.localeCompare(b.name))
+}
+
+/**
+ * The hidden list after showing or hiding one project.
+ *
+ * The first change leaves the automatic view, and must not jump: everything
+ * that was not an arm of its own a moment ago - the projects pooled into
+ * Other, and every project outside the range - starts out hidden, so the
+ * only thing that changes on screen is the project just clicked. Without
+ * that, unticking one project would have turned thirty pooled ones into
+ * thirty new arms.
+ */
+export function withProjectShown(
+  hidden: readonly string[] | null,
+  inRange: readonly StarRow[],
+  all: readonly StarRow[],
+  name: string,
+  shown: boolean
+): string[] {
+  const base =
+    hidden === null
+      ? (() => {
+          const visible = new Set(
+            projectChoices(inRange, null)
+              .filter((c) => c.shown)
+              .map((c) => c.name)
+          )
+          return [...new Set(all.map(projectOf))].filter((p) => !visible.has(p))
+        })()
+      : [...hidden]
+  const next = new Set(base)
+  if (shown) next.delete(name)
+  else next.add(name)
+  return [...next].sort((a, b) => a.localeCompare(b))
+}
+
+/** Every project shown. */
+export function showAllProjects(): string[] {
+  return []
+}
+
+/** Every project hidden, including any outside the range. */
+export function hideAllProjects(all: readonly StarRow[]): string[] {
+  return [...new Set(all.map(projectOf))].sort((a, b) => a.localeCompare(b))
+}
+
+/**
  * Each project's colour rank: its position by hours over the whole history.
  *
  * Colour belongs to the project, not to the range. Ranked within the range,
@@ -678,28 +789,88 @@ export function colourRanks(all: readonly StarRow[]): Map<string, number> {
 /**
  * One colour per arm, anchored on the app's accent.
  *
- * The project with the most hours ever *is* the accent, so the panel belongs
- * to the same app as every other chart, and the rest step round the hue
- * circle by the golden angle from there - the spacing that keeps neighbours
+ * The project with the most hours ever takes the accent's hue, so the panel
+ * belongs to the same app as every other chart, and the rest step round the
+ * hue circle by the golden angle from there - the spacing that keeps neighbours
  * furthest apart however many there are. The step is by all-time rank (see
  * `colourRanks`), so a project keeps its colour whatever the range.
  * Lightness and saturation are fixed at values that glow on the near-black
  * stage without any arm being louder than the others. Other is a cool grey:
  * it is a pool, not a project, and should not compete.
  */
+/**
+ * Muted on purpose. *"they are a little too bright for my liking. I'm
+ * thinking more of a LiDAR point cloud and less constellation."* Desaturated
+ * colours let the density and shape of the cloud carry the picture; the
+ * project is still readable, it is just not shouting.
+ */
+export const MUTED_SATURATION = 0.42
+export const MUTED_LIGHTNESS = 0.63
+
 export function armColours(
   wedges: readonly Wedge[],
   accentHex: string,
   ranks: ReadonlyMap<string, number> = new Map()
 ): string[] {
-  const accent = hexToHsl(accentHex)
-  return wedges.map((w, i) => {
-    if (w.other) return '#808a9b'
-    const rank = ranks.get(w.projects[0]) ?? i
-    if (rank === 0) return accentHex
-    const hue = (accent.h + rank * 137.508) % 360
-    return hslToHex(hue, 0.78, 0.66)
-  })
+  const base = hexToHsl(accentHex).h
+  const out: string[] = wedges.map(() => OTHER_COLOUR)
+  const arms = wedges
+    .map((w, i) => ({ i, hue: (base + (ranks.get(w.projects[0]) ?? i) * 137.508) % 360 }))
+    .filter((x) => !wedges[x.i].other)
+  /*
+   * Each project's natural hue is the golden-angle step for its all-time
+   * rank, which keeps a project's colour the same across ranges. But
+   * thirty-seven projects on a golden angle are bound to land some on top of
+   * each other, and with the user's own choice of arms two did - PER and
+   * Entrepreneurship in one green, side by side.
+   *
+   * So when the arms on screen are cramped, they are spread evenly round the
+   * wheel instead, **in the same order** their natural hues had, turned by
+   * whatever angle moves them least. Every colour stays near its usual
+   * neighbourhood - pink stays pinkish - and no two arms on screen can be
+   * closer than the wheel allows.
+   */
+  const sorted = [...arms].sort((x, y) => x.hue - y.hue)
+  let cramped = false
+  for (let k = 0; k < sorted.length && sorted.length > 1; k += 1) {
+    const next = sorted[(k + 1) % sorted.length]
+    if (hueGap(sorted[k].hue, next.hue) < Math.min(MIN_HUE_GAP, 360 / sorted.length)) cramped = true
+  }
+  if (cramped) {
+    const step = 360 / sorted.length
+    // The turn that moves them least: the circular mean of how far each
+    // natural hue sits from its evenly spaced slot.
+    let sx = 0
+    let sy = 0
+    sorted.forEach((x, k) => {
+      const d = ((x.hue - k * step) * Math.PI) / 180
+      sx += Math.cos(d)
+      sy += Math.sin(d)
+    })
+    const turn = (Math.atan2(sy, sx) * 180) / Math.PI
+    sorted.forEach((x, k) => {
+      x.hue = (((turn + k * step) % 360) + 360) % 360
+    })
+  }
+  for (const arm of arms) out[arm.i] = hslToHex(arm.hue, MUTED_SATURATION, MUTED_LIGHTNESS)
+  return out
+}
+
+/** Degrees apart on the colour wheel. */
+export function hueGap(a: number, b: number): number {
+  const d = Math.abs((((a - b) % 360) + 360) % 360)
+  return Math.min(d, 360 - d)
+}
+
+/** Arms on screen at least this far apart in hue, while the wheel has room. */
+export const MIN_HUE_GAP = 28
+
+export const OTHER_COLOUR = '#737b88'
+
+/** One project's colour from its all-time rank: the same in the legend, the list and the cloud. */
+export function projectColour(rank: number, accentHex: string): string {
+  const hue = (hexToHsl(accentHex).h + rank * 137.508) % 360
+  return hslToHex(hue, MUTED_SATURATION, MUTED_LIGHTNESS)
 }
 
 export function hexToHsl(hex: string): { h: number; s: number; l: number } {

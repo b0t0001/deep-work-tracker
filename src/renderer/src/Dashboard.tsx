@@ -704,6 +704,14 @@ interface PanelContentProps {
   customText: string
   onRange: (target: RangeTargetId, next: WindowId) => void
   onCustom: (target: RangeTargetId, next: string) => void
+  /**
+   * The Constellation's hidden projects as JSON text, null for automatic.
+   * Text so the memo above still compares a scalar: the layout is re-parsed
+   * on every write, so the array itself is new each time even when nothing
+   * in it changed. Only the Constellation is handed it.
+   */
+  hiddenProjects?: string | null
+  onHiddenProjects?: (next: string[] | null) => void
 }
 
 /*
@@ -720,9 +728,14 @@ function PanelBody({
   range,
   customText,
   onRange,
-  onCustom
+  onCustom,
+  hiddenProjects = null,
+  onHiddenProjects
 }: PanelContentProps): React.JSX.Element {
-  return panelFor(id, data, accent, today, range, customText, onRange, onCustom)
+  return panelFor(id, data, accent, today, range, customText, onRange, onCustom, {
+    hidden: hiddenProjects,
+    onHidden: onHiddenProjects
+  })
 }
 
 const PanelContent = memo(PanelBody)
@@ -735,7 +748,10 @@ function panelFor(
   range: WindowId,
   customText: string,
   onRange: (target: RangeTargetId, next: WindowId) => void,
-  onCustom: (target: RangeTargetId, next: string) => void
+  onCustom: (target: RangeTargetId, next: string) => void,
+  projects: { hidden: string | null; onHidden?: (next: string[] | null) => void } = {
+    hidden: null
+  }
 ): React.JSX.Element {
   const customDays = parseSpan(customText).days
   const span = spanOf(range, today, data.firstDate, customDays)
@@ -840,6 +856,8 @@ function panelFor(
             to={span?.to ?? null}
             accent={accent}
             control={control}
+            hiddenProjects={projects.hidden}
+            onHiddenProjects={projects.onHidden}
           />
         </Suspense>
       )
@@ -1167,6 +1185,19 @@ function AnalyticsTab(): React.JSX.Element {
     [update]
   )
 
+  // Null goes back to the automatic view, by dropping the key altogether.
+  const setHiddenProjects = useCallback(
+    (next: string[] | null): void => {
+      update((prev) => {
+        const out = { ...prev }
+        if (next === null) delete out.constellationHidden
+        else out.constellationHidden = next
+        return out
+      })
+    },
+    [update]
+  )
+
   if (state === 'loading') {
     return (
       <section className="panel panel--wide">
@@ -1467,6 +1498,15 @@ function AnalyticsTab(): React.JSX.Element {
                       customText={customTextFor(layout, id as PanelId)}
                       onRange={setRange}
                       onCustom={setCustom}
+                      {...(id === 'constellation'
+                        ? {
+                            hiddenProjects:
+                              layout.constellationHidden === undefined
+                                ? null
+                                : JSON.stringify(layout.constellationHidden),
+                            onHiddenProjects: setHiddenProjects
+                          }
+                        : {})}
                     />
                   </Slot>
                 ))}
