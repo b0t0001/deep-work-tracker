@@ -48,11 +48,29 @@ body,
   font-display: block;
 }
 
+/*
+ * One family, and this is it.
+ *
+ * "update the font across the app so that it's actually the same. Use whatever
+ * font is currently on the like actual front of the timer." The clock face has
+ * never had a family of its own - it inherits this one - so the font the user
+ * pointed at is Archivo, and the job was to find what was not using it.
+ *
+ * Measured rather than read, across every window and tab: 977 text-bearing
+ * elements on Data, 705 on Analytics (Recharts' svg text inherits, so the axis
+ * ticks were already right), the timer's clock input and the pace window all
+ * computed to this stack. Exactly five elements did not, all on Settings - the
+ * three shortcut-key buttons and the two `code` chips - in Cascadia Mono.
+ *
+ * There is no `--font-mono` any more, deliberately. Keeping the token with
+ * nothing using it is an invitation to put the second font back one rule at a
+ * time, which is how there came to be five. What the mono was doing - marking
+ * a filename or a key binding as machine output rather than prose - is done by
+ * the chip background and border those elements already carry, and the digit
+ * alignment it gave a column of filenames is done by `tabular-nums`.
+ */
 :root {
   --font-sans: 'Archivo', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
-  /* Machine strings only - not numbers, which stay in the sans with tabular
-     figures. */
-  --font-mono: 'Cascadia Mono', Consolas, ui-monospace, monospace;
 }
 
 body {

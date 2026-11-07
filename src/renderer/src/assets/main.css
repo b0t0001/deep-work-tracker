@@ -1032,9 +1032,11 @@ input {
 }
 
 .dashboard__body {
+  /* Named, because `.grid th` has to stick by exactly this much. See there. */
+  --body-pad-top: 22px;
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 22px 24px 40px;
+  padding: var(--body-pad-top) 24px 40px;
 }
 
 /*
@@ -1102,9 +1104,12 @@ input {
   margin: 0 0 16px;
 }
 
+/* A column of backup filenames. `tabular-nums` rather than a monospace face:
+   what mono was buying here was the dates lining up, and figures of one width
+   buy that without a second font. */
 .mono {
-  font-family: var(--font-mono);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   word-break: break-all;
 }
 
@@ -1167,10 +1172,35 @@ input {
 /* Sticky alone is not enough. Table cells paint in document order, so without
    a stacking context the rows scrolling past are drawn over the header - which
    reads as the header failing to freeze at all. */
+/*
+ * The frozen header, and why `top` is negative.
+ *
+ * "do you see I can still see the text behind the frozen date project task
+ * ... header? I can still see whatever task is Behind those headers, I should
+ * not be able to do that."
+ *
+ * At `top: 0` Chromium sticks the row to the scroll container's *content* box,
+ * which is 22px below its padding box - so the header parked 22px down from
+ * the tabs bar and rows scrolled up through the gap above it, in full view.
+ * Measured at a scroll offset of 600px: the tabs bar ended at y=46, the header
+ * sat at y=68, and `elementFromPoint` through the band between them returned
+ * `td.nowrap "10/31/2026"` at every step. Nothing was wrong with the opacity
+ * or the z-index, which is where this looked like it should be.
+ *
+ * Pulling it up by the container's own top padding parks it flush under the
+ * tabs bar, so the band it used to leave is the header itself. The padding is
+ * a variable rather than a repeated 22 because the two have to move together -
+ * and `0px` is the fallback, so a `.grid` somewhere without that container
+ * behaves as it did before.
+ *
+ * Every cell is sticky, the empty actions cell at the end included: it is a
+ * `th` like the rest, so it carries the same background and covers the row
+ * buttons passing under it.
+ */
 .grid th {
   position: sticky;
-  top: 0;
-  z-index: 2;
+  top: calc(-1 * var(--body-pad-top, 0px));
+  z-index: 3;
   background: var(--surface);
   color: var(--text-dim);
   font-weight: 500;
@@ -1804,13 +1834,24 @@ input {
   margin-bottom: 0;
 }
 
-code {
+/* The chip says this is machine output; the typeface no longer has to.
+
+   `inherit`, not the absence of a rule: `code`, `kbd`, `samp` and `pre` carry
+   `monospace` in the user-agent stylesheet, so deleting the declaration here
+   did not hand them the app font - it handed them Chromium's default mono.
+   Measured: they came back as plain `monospace`. */
+code,
+kbd,
+samp,
+pre {
+  font-family: inherit;
   padding: 1px 5px;
   margin: 0 2px;
   border-radius: 5px;
   background: var(--surface-raised);
-  font-family: var(--font-mono);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
 }
 
 /* ---------- ring: more room for the clock ---------- */
@@ -1889,7 +1930,6 @@ code {
   border-radius: 8px;
   background: var(--surface-raised);
   color: var(--text);
-  font-family: var(--font-mono);
   font-size: 12px;
   cursor: pointer;
 }
@@ -3026,18 +3066,37 @@ code {
  * `:focus-visible` reported false, and a suppressor keyed on the pseudo-class
  * the engine disagrees with would have done nothing.
  *
- * Scoped to the dashboard. The timer window is filmed and would want this even
- * more, but nothing there is a focusable non-control, so there is nothing to
- * suppress and a rule reaching into it would be untested breadth.
+ * It was scoped to `.dashboard` on the argument that nothing in the timer
+ * window is a focusable non-control, so there was nothing there to suppress.
+ * That was true of the pointer case and said nothing about the keyboard one,
+ * which is the half that was still painting.
  */
-.dashboard :focus:not(:focus-visible) {
+:focus:not(:focus-visible) {
   outline: none;
 }
 
-/* Kept, so the charts are still navigable by keyboard - and in the app's own
-   colour rather than the machine's. Declared after the rule above because the
-   two have equal specificity and this one has to win when both match. */
-.dashboard .recharts-surface:focus-visible {
+/*
+ * Keyboard focus, in the app's colour - the half that was never styled.
+ *
+ * The pointer ring was removed and the keyboard ring was left to Chromium,
+ * which paints `-webkit-focus-ring-color`: on Windows that is the *system*
+ * accent, so it is a colour this app did not choose, does not match, and that
+ * is different on another machine. Measured by sending a real Tab key into a
+ * real window - a scripted focus() does not reproduce it:
+ *
+ *   button.tab "Analytics"   outline rgb(229, 151, 0) auto 0.8px
+ *   :focus true, :focus-visible true, caught by the suppressor: false
+ *
+ * That is the amber box in the user's screenshot, and it is why clicking a tab
+ * could seem to cause it: the click switches tabs, and the next Tab press
+ * lands on a tab button with the ring on.
+ *
+ * App-wide rather than inside `.dashboard`, because the timer window has the
+ * opposite fault - its inputs compute `outline: none` even on `:focus-visible`,
+ * so a keyboard user there had no indicator at all. One rule gives both
+ * windows the same visible, deliberate state.
+ */
+:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -3063,8 +3122,8 @@ code {
  * head, and literally what was asked for: no box. Still a clear, deliberate
  * state change, so a keyboard user can see where they are.
  */
-.dashboard select:focus,
-.dashboard select:focus-visible {
+select:focus,
+select:focus-visible {
   outline: none;
   border-color: color-mix(in srgb, var(--accent) 60%, transparent);
 }
