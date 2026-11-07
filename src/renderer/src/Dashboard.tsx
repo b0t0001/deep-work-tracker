@@ -784,8 +784,10 @@ function panelFor(
         // jump when the chunk arrives.
         <Suspense fallback={<div className="an-panel" style={{ minHeight: 520 }} />}>
           <Constellation
-            rows={within(data.stars, span)}
-            all={data.stars}
+            sessionRows={data.sessionRows}
+            clock={data.sessionClock}
+            from={span?.from ?? null}
+            to={span?.to ?? null}
             accent={accent}
             control={control}
           />

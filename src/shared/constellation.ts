@@ -31,7 +31,9 @@
  * carried by the radius and a second positional encoding would be redundant.
  */
 
-/** One counted session, cut down to what the cloud needs. Sent by the main process. */
+import type { SessionRow } from './analytics'
+
+/** One counted session, cut down to what the cloud needs. See `starRows`. */
 export interface StarRow {
   id: number
   /** Local `YYYY-MM-DD`. */
@@ -50,6 +52,34 @@ export interface StarRow {
    */
   startMs: number | null
   endMs: number | null
+}
+
+/**
+ * The panel's rows, from what the payload already carries: `sessionRows` for
+ * everything the tooltip shows, and the flat `sessionClock` numbers beside it
+ * for the id and clock. A row without its clock entry - a payload from before
+ * the field existed - gets a negative id and no clock, so it still draws and
+ * simply never joins a sitting by time.
+ */
+export function starRows(rows: readonly SessionRow[], clock: readonly number[]): StarRow[] {
+  return rows.map((row, i) => {
+    const id = clock[i * 3]
+    const start = clock[i * 3 + 1]
+    const end = clock[i * 3 + 2]
+    const timed = start !== undefined && end !== undefined && start >= 0 && end >= 0
+    return {
+      id: id ?? -(i + 1),
+      date: row.date,
+      project: row.project,
+      task: row.task,
+      runningS: row.runningS,
+      unit: row.unit,
+      quantity: row.quantity,
+      source: row.source,
+      startMs: timed ? start * 1000 : null,
+      endMs: timed ? end * 1000 : null
+    }
+  })
 }
 
 /** A group of projects drawn as one arm. Most hold exactly one. */
@@ -110,6 +140,58 @@ export interface Constellation {
   totalHours: number
   /** The grain the rings were drawn at, for the caption. */
   ringGrain: RingGrain
+  projection: Projection
+  /** The height the camera should orbit around. */
+  centreY: number
+}
+
+/**
+ * The coordinate system, as one swappable mapping.
+ *
+ * Every rule about *what* a position means - hours out from the core, the
+ * project's wedge, the session's length - produces three normalised numbers,
+ * and only `place` turns them into x, y and z. So trying another shape is a
+ * change to one function, not to the layout.
+ *
+ * - `cylinder` (the default): radius is time, the angle is the project, and
+ *   height is session length. A disc of arms with a skyline above it.
+ * - `sphere`: radius is still time, the project is longitude, and session
+ *   length is latitude - short sessions in the south, long ones in the north.
+ *   Shells instead of rings; the same data as a globe.
+ *
+ * The user's call, 11/06/2026: build the cylinder, "we can change the
+ * coordinate system if it doesn't look cool."
+ */
+export type Projection = 'cylinder' | 'sphere'
+
+export const PROJECTIONS: ReadonlyArray<{ id: Projection; label: string }> = [
+  { id: 'cylinder', label: 'Disc' },
+  { id: 'sphere', label: 'Sphere' }
+]
+
+/** How far from the equator the sphere's poles are kept, so nothing sits on a pole. */
+export const SPHERE_LATITUDE = (Math.PI / 2) * 0.82
+
+/**
+ * Normalised inputs to world coordinates. `radial` is 0-1 out from the core,
+ * `angle` in radians, `height` 0-1 up the length scale.
+ */
+export function place(
+  projection: Projection,
+  radial: number,
+  angle: number,
+  height: number
+): { x: number; y: number; z: number } {
+  const r = radial * RADIUS
+  if (projection === 'sphere') {
+    const lat = (height * 2 - 1) * SPHERE_LATITUDE
+    return {
+      x: Math.cos(angle) * Math.cos(lat) * r,
+      y: Math.sin(lat) * r,
+      z: Math.sin(angle) * Math.cos(lat) * r
+    }
+  }
+  return { x: Math.cos(angle) * r, y: height * HEIGHT, z: Math.sin(angle) * r }
 }
 
 /** World size of the cloud. Arbitrary units; the camera is fitted to them. */
@@ -496,7 +578,8 @@ export function ringLabel(date: string, grain: RingGrain): string {
  */
 export function buildConstellation(
   rows: readonly StarRow[],
-  all: readonly StarRow[] = rows
+  all: readonly StarRow[] = rows,
+  projection: Projection = 'cylinder'
 ): Constellation {
   const ordered = chronological(rows.filter((row) => row.runningS > 0))
   const wedges = buildWedges(ordered)
@@ -529,15 +612,13 @@ export function buildConstellation(
     const angle = wedge.start + wedge.width / 2 + spread * usable + TWIST * radial
     // A whisker of radial jitter as well: sessions on one day otherwise share a
     // radius to within a pixel and read as a dashed line.
-    const r = (radial + (hash01(row.id, 3) - 0.5) * 0.012) * RADIUS
+    const jittered = radial + (hash01(row.id, 3) - 0.5) * 0.012
     const height = heightOf(row.runningS)
     const output = percentiles.get(row.id) ?? null
     return {
       row,
       wedge: wedgeIndex,
-      x: Math.cos(angle) * r,
-      y: height * HEIGHT,
-      z: Math.sin(angle) * r,
+      ...place(projection, jittered, angle, height),
       radial,
       height,
       output,
@@ -570,7 +651,9 @@ export function buildConstellation(
       label: t.label
     })),
     totalHours,
-    ringGrain: grain
+    ringGrain: grain,
+    projection,
+    centreY: projection === 'sphere' ? 0 : HEIGHT * 0.32
   }
 }
 

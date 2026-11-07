@@ -54,15 +54,19 @@ import {
   TWIST,
   armColours,
   colourRanks,
+  starRows,
+  PROJECTIONS,
+  type Projection,
   buildConstellation,
-  type Constellation as Model,
-  type StarRow
+  type Constellation as Model
 } from '@shared/constellation'
+import type { SessionRow } from '@shared/analytics'
 import { formatDate } from '@shared/dates'
 import { formatCount, pluralUnit } from '@shared/facts'
 import { ChartTip } from './AnalyticsCharts'
 
 const STAGE_BG = '#05060a'
+const SHAPE_KEY = 'dwt.constellation.shape'
 /** Where the camera looks: a little above the floor, so tall stars are not cropped. */
 const TARGET_Y = HEIGHT * 0.32
 /** Seconds of stillness after an interaction before the slow turn resumes. */
@@ -272,6 +276,28 @@ const CSS = `
   height: 13px;
   display: block;
 }
+.cst__shape {
+  display: inline-flex;
+  gap: 2px;
+}
+.cst__shape button {
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: calc(11.5px * var(--an-fs, 1));
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.cst__shape button:hover {
+  color: var(--text);
+}
+.cst__shape button.is-on {
+  color: var(--text);
+  border-color: var(--border);
+}
 .cst__aside {
   display: inline-flex;
   align-items: center;
@@ -310,18 +336,24 @@ uniform float uFocus;
 uniform float uFogNear;
 uniform float uFogFar;
 uniform float uTime;
+uniform float uWave;
 varying vec3 vColor;
 varying float vAlpha;
+varying float vHot;
 void main() {
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   float depth = max(0.1, -mv.z);
   float on = (uIsolate < -0.5 || abs(arm - uIsolate) < 0.5) ? 1.0 : 0.0;
-  float dim = mix(1.0, mix(0.06, 1.0, on), uFocus);
-  float fog = 1.0 - 0.78 * smoothstep(uFogNear, uFogFar, depth);
-  float twinkle = 0.9 + 0.1 * sin(uTime * 1.7 + position.x * 7.3 + position.z * 5.1);
+  float dim = mix(1.0, mix(0.05, 1.0, on), uFocus);
+  float fog = 1.0 - 0.8 * smoothstep(uFogNear, uFogFar, depth);
+  float twinkle = 0.88 + 0.12 * sin(uTime * 1.7 + position.x * 7.3 + position.z * 5.1);
+  // A slow swell of light travelling outward through time, from the first
+  // session to the latest, while the cloud turns. uWave < -1 switches it off.
+  float wave = exp(-pow((bright - uWave) * 9.0, 2.0));
   vColor = color;
-  vAlpha = (0.22 + 0.78 * bright) * fog * dim * twinkle;
-  gl_PointSize = clamp(size * uScale / depth, 1.6, 64.0) * uPixelRatio;
+  vHot = wave;
+  vAlpha = (0.2 + 0.8 * bright + 0.9 * wave) * fog * dim * twinkle;
+  gl_PointSize = clamp(size * (1.0 + 0.45 * wave) * uScale / depth, 1.6, 72.0) * uPixelRatio;
   gl_Position = projectionMatrix * mv;
 }
 `
@@ -329,14 +361,19 @@ void main() {
 const STAR_FRAG = `
 varying vec3 vColor;
 varying float vAlpha;
+varying float vHot;
 void main() {
   vec2 p = gl_PointCoord * 2.0 - 1.0;
   float d = dot(p, p);
   if (d > 1.0) discard;
-  float core = exp(-d * 22.0);
-  float halo = exp(-d * 4.5) * 0.42;
-  float a = (core + halo) * vAlpha;
-  vec3 c = mix(vColor, vec3(1.0), core * 0.6);
+  // A white-hot pinpoint, a coloured body and a wide faint halo. The halo is
+  // what overlaps between neighbours and adds up, which is the bloom - done
+  // per point in the shader rather than as a full-screen pass.
+  float core = exp(-d * 28.0);
+  float body = exp(-d * 9.0) * 0.55;
+  float halo = exp(-d * 2.6) * 0.22 * (1.0 - d);
+  float a = (core + body + halo) * vAlpha;
+  vec3 c = mix(vColor * 1.15, vec3(1.0), clamp(core * 0.7 + vHot * 0.25, 0.0, 1.0));
   gl_FragColor = vec4(c, a);
 }
 `
@@ -368,6 +405,39 @@ varying vec3 vColor;
 varying float vAlpha;
 void main() {
   gl_FragColor = vec4(vColor, vAlpha);
+}
+`
+
+/** Faint, fixed dust far behind the cloud: parallax, so turning reads as depth. */
+const DUST_VERT = `
+attribute float bright;
+uniform float uPixelRatio;
+varying float vAlpha;
+void main() {
+  vAlpha = bright;
+  gl_PointSize = (1.0 + bright * 1.6) * uPixelRatio;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`
+const DUST_FRAG = `
+varying float vAlpha;
+void main() {
+  vec2 p = gl_PointCoord * 2.0 - 1.0;
+  float d = dot(p, p);
+  if (d > 1.0) discard;
+  gl_FragColor = vec4(vec3(0.75, 0.82, 1.0), (1.0 - d) * vAlpha * 0.5);
+}
+`
+
+/** The soft light at the core, where the first session sits. */
+const CORE_FRAG = `
+uniform vec3 uColor;
+void main() {
+  vec2 p = gl_PointCoord * 2.0 - 1.0;
+  float d = dot(p, p);
+  if (d > 1.0) discard;
+  float a = exp(-d * 5.0) * 0.32 + exp(-d * 40.0) * 0.35;
+  gl_FragColor = vec4(mix(uColor, vec3(1.0), exp(-d * 40.0)), a);
 }
 `
 
@@ -453,13 +523,21 @@ interface SceneState {
   lineMat: ShaderMaterial
   glowMat: ShaderMaterial
   markMat: ShaderMaterial
+  /** The core light; its colour follows the accent. */
+  coreMat: ShaderMaterial | null
   mark: Points
   glow: LineSegments | null
   positions: Float32Array
   sizes: Float32Array
   labels: Label[]
-  /** The height scale, moved each frame to the left edge of the view. */
+  /** The height scale, moved each frame to the side of the view. */
   ruler: Group | null
+  /** Where the camera orbits: the cylinder looks a little above its floor, the sphere at its centre. */
+  centreY: number
+  /** Ask for a frame. The loop draws only when something has changed. */
+  invalidate: () => void
+  /** Re-fit the camera to a new shape, unless the user has moved it. */
+  refit: () => void
   isolate: number
   focus: number
   /** Restart the idle turn after the usual pause. */
@@ -476,14 +554,14 @@ function disposeTree(group: Group): void {
   group.clear()
 }
 
-function homeDistance(aspect: number, fov: number): number {
+function homeDistance(aspect: number, fov: number, sphere: boolean): number {
   const v = (fov * Math.PI) / 360
   const h = Math.atan(Math.tan(v) * aspect)
   // Fit the disc's diameter across the narrower of the two half-angles, with
   // room for the ruler and the arm names beside it, seen from about 30
   // degrees above the floor.
   const fitH = (RADIUS * 1.3) / Math.tan(h)
-  const fitV = (RADIUS * 0.66 + HEIGHT * 0.5) / Math.tan(v)
+  const fitV = (sphere ? RADIUS * 1.22 : RADIUS * 0.66 + HEIGHT * 0.5) / Math.tan(v)
   return Math.max(fitH, fitV)
 }
 
@@ -595,9 +673,19 @@ function populate(
     g.setAttribute('arm', new Float32BufferAttribute(new Float32Array(seg), 1))
     return new LineLoop(g, guideMat)
   }
+  const sphere = model.projection === 'sphere'
   const guides = new Group()
   for (const ring of model.rings) guides.add(circle(ring.radius))
   guides.add(circle(RADIUS * 1.02, 1.6))
+  if (sphere) {
+    // Two meridians on the outer shell, so the sphere reads as a globe
+    // rather than as a disc seen from above.
+    for (const turn of [0, Math.PI / 2]) {
+      const meridian = circle(RADIUS * 1.02, 1.1)
+      meridian.rotation.set(Math.PI / 2, turn, 0, 'YXZ')
+      guides.add(meridian)
+    }
+  }
 
   /*
    * The height ruler stands just outside the rim on the right of the view and
@@ -616,9 +704,14 @@ function populate(
   spGeo.setAttribute('arm', new Float32BufferAttribute(new Float32Array(ticks.length / 3), 1))
   const ruler = new Group()
   ruler.add(new LineSegments(spGeo, guideMat))
-  state.ruler = ruler
+  // On the sphere, length is latitude: north is long, south is short, and a
+  // straight ruler would be measuring nothing.
+  ruler.visible = !sphere
+  state.ruler = sphere ? null : ruler
 
   state.content.add(guides, ruler, lines, points)
+  const coreColour = state.coreMat?.uniforms.uColor
+  if (coreColour !== undefined) coreColour.value = rawColour(colours[0] ?? '#ffffff')
 
   /* labels */
   // Built whole and never touched again: the positions are written per
@@ -659,7 +752,7 @@ function populate(
   for (const ring of model.rings) {
     add(ring.label, 'cst__label--ring', new Vector3(), 6, 2, { ring: ring.radius })
   }
-  for (const tick of model.heightTicks) {
+  for (const tick of sphere ? [] : model.heightTicks) {
     add(tick.label, 'cst__label--tick', new Vector3(), 8, -7, { ruler: tick.y })
   }
   // Each arm is named just past the outer edge of its own stars, on its
@@ -680,26 +773,68 @@ function populate(
     })
   })
 
+  state.refit()
+  // Compile the shaders now, while the panel is usually still below the fold,
+  // so the first frame after it scrolls into view is not also the frame that
+  // waits on the driver's compiler.
+  state.renderer.compile(state.scene, state.camera)
+  state.invalidate()
   // The guide material belongs to this build, so it goes with it.
   return () => guideMat.dispose()
 }
 
 export interface ConstellationProps {
-  /** The sessions in the panel's range. */
-  rows: StarRow[]
-  /** Every counted session, so output is ranked within its unit over the whole history. */
-  all: StarRow[]
+  /** Every counted session, and the clock numbers beside them - see `starRows`. */
+  sessionRows: SessionRow[]
+  clock: number[]
+  /**
+   * The range, as dates rather than a filtered array. A filtered array is a
+   * new object on every render of the tab, and the cloud is memoised on its
+   * inputs: handed one, it rebuilt and re-uploaded every buffer each time
+   * anything on the page changed.
+   */
+  from: string | null
+  to: string | null
   accent: string
   control: React.ReactNode
 }
 
 export default function Constellation({
-  rows,
-  all,
+  sessionRows,
+  clock,
+  from,
+  to,
   accent,
   control
 }: ConstellationProps): React.JSX.Element {
-  const model = useMemo(() => buildConstellation(rows, all), [rows, all])
+  const all = useMemo(() => starRows(sessionRows, clock), [sessionRows, clock])
+  const rows = useMemo(
+    () =>
+      all.filter((row) => (from === null || row.date >= from) && (to === null || row.date <= to)),
+    [all, from, to]
+  )
+  /*
+   * Disc or sphere: one switch, see `Projection`. Remembered per viewer in
+   * localStorage - it is a way of looking, not a setting the app acts on -
+   * and every read is guarded, because storage can throw or come back empty.
+   */
+  const [projection, setProjectionState] = useState<Projection>(() => {
+    try {
+      const stored = window.localStorage.getItem(SHAPE_KEY)
+      return stored === 'sphere' ? 'sphere' : 'cylinder'
+    } catch {
+      return 'cylinder'
+    }
+  })
+  const setProjection = (next: Projection): void => {
+    setProjectionState(next)
+    try {
+      window.localStorage.setItem(SHAPE_KEY, next)
+    } catch {
+      // A shape that is not remembered is still the shape on screen.
+    }
+  }
+  const model = useMemo(() => buildConstellation(rows, all, projection), [rows, all, projection])
   const ranks = useMemo(() => colourRanks(all), [all])
   const colours = useMemo(() => armColours(model.wedges, accent, ranks), [model, accent, ranks])
 
@@ -744,21 +879,25 @@ export default function Constellation({
 
     let renderer: WebGLRenderer
     try {
+      // No MSAA: every mark here is a soft sprite or a faint additive line,
+      // and neither shows stair-steps at these alphas - so the multisample
+      // buffer would be cost with nothing to show for it.
       renderer = new WebGLRenderer({
-        antialias: true,
+        antialias: false,
         alpha: false,
         powerPreference: 'high-performance'
       })
     } catch (error) {
       // Once, at mount, and only on failure: the panel has to say why it is
-      // blank, and the only place the reason exists is this catch. The rule
-      // guards against an effect that sets state every run, which this is not.
+      // blank, and the only place the reason exists is this catch.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFailure(error instanceof Error ? error.message : String(error))
       return
     }
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
+    // Capped at 1.5: on a 2x screen that is 44% fewer pixels to fill than
+    // native, and soft points do not get sharper past it.
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5)
     renderer.setPixelRatio(pixelRatio)
     renderer.setClearColor(rawColour(STAGE_BG), 1)
     stage.prepend(renderer.domElement)
@@ -792,7 +931,8 @@ export default function Constellation({
         ...common,
         uScale: { value: 600 },
         uPixelRatio: { value: pixelRatio },
-        uTime: { value: 0 }
+        uTime: { value: 0 },
+        uWave: { value: -5 }
       },
       transparent: true,
       depthWrite: false,
@@ -802,7 +942,7 @@ export default function Constellation({
     const lineMat = new ShaderMaterial({
       vertexShader: LINE_VERT,
       fragmentShader: LINE_FRAG,
-      uniforms: { ...common, uAlpha: { value: 0.16 } },
+      uniforms: { ...common, uAlpha: { value: 0.2 } },
       transparent: true,
       depthWrite: false,
       blending: AdditiveBlending
@@ -844,6 +984,60 @@ export default function Constellation({
     const content = new Group()
     scene.add(content)
 
+    /*
+     * Dust and the core light: one small draw call each, built once. The
+     * dust is on a far shell and never moves, so turning the camera makes
+     * it slide behind the cloud - which is what makes the cloud read as
+     * standing in space rather than painted on a black card.
+     */
+    const dustN = 900
+    const dustPos = new Float32Array(dustN * 3)
+    const dustBright = new Float32Array(dustN)
+    for (let i = 0; i < dustN; i += 1) {
+      const u = (Math.sin(i * 12.9898) * 43758.5453) % 1
+      const v = (Math.sin(i * 78.233) * 12345.6789) % 1
+      const w = (Math.sin(i * 39.425) * 24634.6345) % 1
+      const theta = Math.abs(u) * Math.PI * 2
+      const phi = Math.acos(Math.abs(v) * 2 - 1)
+      const r = RADIUS * (4 + Math.abs(w) * 4)
+      dustPos[i * 3] = Math.sin(phi) * Math.cos(theta) * r
+      dustPos[i * 3 + 1] = Math.cos(phi) * r
+      dustPos[i * 3 + 2] = Math.sin(phi) * Math.sin(theta) * r
+      dustBright[i] = 0.15 + Math.pow(Math.abs(w * u), 2) * 0.85
+    }
+    const dustGeo = new BufferGeometry()
+    dustGeo.setAttribute('position', new Float32BufferAttribute(dustPos, 3))
+    dustGeo.setAttribute('bright', new Float32BufferAttribute(dustBright, 1))
+    const dustMat = new ShaderMaterial({
+      vertexShader: DUST_VERT,
+      fragmentShader: DUST_FRAG,
+      uniforms: { uPixelRatio: { value: pixelRatio } },
+      transparent: true,
+      depthWrite: false,
+      blending: AdditiveBlending
+    })
+    const dust = new Points(dustGeo, dustMat)
+    dust.frustumCulled = false
+    scene.add(dust)
+
+    const coreGeo = new BufferGeometry()
+    coreGeo.setAttribute('position', new Float32BufferAttribute([0, 0, 0], 3))
+    const coreMat = new ShaderMaterial({
+      vertexShader: MARK_VERT,
+      fragmentShader: CORE_FRAG,
+      uniforms: {
+        uColor: { value: rawColour(STAGE_BG) },
+        uSize: { value: 160 },
+        uPixelRatio: { value: pixelRatio }
+      },
+      transparent: true,
+      depthWrite: false,
+      blending: AdditiveBlending
+    })
+    const core = new Points(coreGeo, coreMat)
+    core.frustumCulled = false
+    scene.add(core)
+
     const state: SceneState = {
       renderer,
       scene,
@@ -854,33 +1048,53 @@ export default function Constellation({
       lineMat,
       glowMat,
       markMat,
+      coreMat,
       mark,
       glow: null,
       positions: new Float32Array(0),
       sizes: new Float32Array(0),
       labels: [],
       ruler: null,
+      centreY: TARGET_Y,
+      invalidate: () => undefined,
+      refit: () => undefined,
       isolate: -1,
       focus: 0,
       resume: () => undefined,
       dispose: () => undefined
     }
     sceneRef.current = state
+    // Declared before anything that can ask for a frame: the first resize
+    // below already does.
+    let visible = false
+    let frame = 0
 
     /* size and framing */
     let interacted = false
     const home = (): void => {
-      const d = homeDistance(camera.aspect, camera.fov)
-      const elevation = (31 * Math.PI) / 180
+      const sphere = modelRef.current.projection === 'sphere'
+      const d = homeDistance(camera.aspect, camera.fov, sphere)
+      const elevation = ((sphere ? 22 : 31) * Math.PI) / 180
       const azimuth = (-58 * Math.PI) / 180
       camera.position.set(
         Math.cos(azimuth) * Math.cos(elevation) * d,
-        TARGET_Y + Math.sin(elevation) * d,
+        state.centreY + Math.sin(elevation) * d,
         Math.sin(azimuth) * Math.cos(elevation) * d
       )
-      controls.target.set(0, TARGET_Y, 0)
+      controls.target.set(0, state.centreY, 0)
+      controls.maxPolarAngle = sphere ? Math.PI : Math.PI * 0.62
       controls.update()
       controls.saveState()
+      core.position.set(0, sphere ? 0 : 0.05, 0)
+      invalidate()
+    }
+    state.refit = () => {
+      state.centreY = modelRef.current.centreY
+      if (!interacted) home()
+      else {
+        controls.target.set(0, state.centreY, 0)
+        invalidate()
+      }
     }
     const resize = (): void => {
       const w = Math.max(1, stage.clientWidth)
@@ -891,6 +1105,7 @@ export default function Constellation({
       // Sizes are in world units: this turns them into pixels at distance 1.
       starMat.uniforms.uScale.value = h / (2 * Math.tan((camera.fov * Math.PI) / 360))
       if (!interacted) home()
+      invalidate()
     }
     resize()
     const sizer = new ResizeObserver(resize)
@@ -907,7 +1122,10 @@ export default function Constellation({
       window.clearTimeout(resumeTimer)
       if (reduced) return
       resumeTimer = window.setTimeout(() => {
-        if (hoverRef.current === null) controls.autoRotate = true
+        if (hoverRef.current === null) {
+          controls.autoRotate = true
+          invalidate()
+        }
       }, IDLE_RESUME_MS)
     }
     controls.addEventListener('start', pauseTurn)
@@ -1019,6 +1237,7 @@ export default function Constellation({
       home()
       setIsolated(null)
       if (!reduced) controls.autoRotate = true
+      invalidate()
     }
     renderer.domElement.addEventListener('dblclick', onDouble)
 
@@ -1027,69 +1246,98 @@ export default function Constellation({
       const on = document.fullscreenElement === stage
       setFull(on)
       controls.enableZoom = on
+      invalidate()
     }
     document.addEventListener('fullscreenchange', onFullscreen)
 
-    /* the loop, only while it can be seen */
-    let visible = true
+    /*
+     * The loop: drawn on demand, and only while it can be seen.
+     *
+     * A frame is drawn when something asks for one (`invalidate`) and the
+     * loop keeps going only while there is motion to show - the idle turn,
+     * damping settling after a drag, or isolation easing. A still cloud
+     * draws nothing at all. Off screen (IntersectionObserver), with the
+     * window hidden or minimised (`document.hidden`), or with another tab
+     * open (the panel is unmounted) it draws nothing either.
+     */
     const seen = new IntersectionObserver((entries) => {
       visible = entries.some((entry) => entry.isIntersecting)
-      if (visible) start()
+      if (visible) invalidate()
     })
     seen.observe(stage)
     const onVisibility = (): void => {
-      if (!document.hidden) start()
+      if (!document.hidden) invalidate()
     }
     document.addEventListener('visibilitychange', onVisibility)
+    controls.addEventListener('change', () => invalidate())
 
-    let frame = 0
-    let last = performance.now()
+    let last = 0
     let clock = 0
-    const frameTimes: number[] = []
-    const start = (): void => {
-      if (frame === 0) {
-        last = performance.now()
+    let drawn = 0
+    let firstFrameAt: number | null = null
+    const mountedAt = performance.now()
+    // CPU cost and the interval between frames, the last 600 of each.
+    const costs: number[] = []
+    const gaps: number[] = []
+    function invalidate(): void {
+      if (frame === 0 && visible && !document.hidden) {
         frame = requestAnimationFrame(tick)
       }
     }
-    const tick = (now: number): void => {
-      frame = 0
-      if (!visible || document.hidden) return
-      const dt = Math.min(0.1, (now - last) / 1000)
+    state.invalidate = invalidate
+    function tick(now: number): void {
+      // -1 while drawing, so a request made during this frame - the controls
+      // fire 'change' from inside update() - is satisfied by this frame
+      // rather than queueing a second one. Without it every frame scheduled
+      // two, and the count doubled each frame.
+      frame = -1
+      if (!visible || document.hidden) {
+        frame = 0
+        return
+      }
+      const t0 = performance.now()
+      const dt = last === 0 ? 1 / 60 : Math.min(0.1, (now - last) / 1000)
+      if (last !== 0 && now - last < 200) {
+        gaps.push(now - last)
+        if (gaps.length > 600) gaps.shift()
+      }
       last = now
-      if (!reduced) clock += dt
+
+      const turning = controls.autoRotate && !reduced
+      if (turning) clock += dt
+      starMat.uniforms.uTime.value = clock
+      // The swell runs every eleven seconds while the cloud turns, and is
+      // simply absent from a still frame.
+      starMat.uniforms.uWave.value = turning ? ((clock / 11) % 1) * 1.5 - 0.25 : -5
 
       // Isolation eases in and out rather than snapping, unless motion is reduced.
       const target = state.isolate >= 0 ? 1 : 0
       state.focus = reduced ? target : state.focus + (target - state.focus) * Math.min(1, dt * 7)
+      if (Math.abs(target - state.focus) < 0.002) state.focus = target
       if (state.isolate >= 0) common.uIsolate.value = state.isolate
-      else if (state.focus < 0.01) common.uIsolate.value = -1
+      else if (state.focus === 0) common.uIsolate.value = -1
       common.uFocus.value = state.focus
-      starMat.uniforms.uTime.value = clock
 
-      controls.update(dt)
+      const moved = controls.update(dt)
       const dist = camera.position.distanceTo(controls.target)
       common.uFogNear.value = dist - RADIUS * 0.4
       common.uFogFar.value = dist + RADIUS * 1.3
 
       placeRuler()
-      const t0 = performance.now()
       renderer.render(scene, camera)
-      frameTimes.push(performance.now() - t0)
-      if (frameTimes.length > 120) frameTimes.shift()
       placeLabels()
-      frame = requestAnimationFrame(tick)
-    }
+      drawn += 1
+      if (firstFrameAt === null) firstFrameAt = performance.now()
+      costs.push(performance.now() - t0)
+      if (costs.length > 600) costs.shift()
 
-    /*
-     * The mean CPU cost of a frame, on the element, for the performance check.
-     * Read-only and cheap; nothing in the app reads it.
-     */
-    const report = window.setInterval(() => {
-      if (frameTimes.length === 0) return
-      const mean = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length
-      stage.dataset.frameMs = mean.toFixed(3)
-    }, 1000)
+      if (turning || moved || state.focus !== target) {
+        frame = requestAnimationFrame(tick)
+      } else {
+        frame = 0
+        last = 0
+      }
+    }
 
     /**
      * The ruler to the right of the disc as the viewer sees it. Right, not
@@ -1148,7 +1396,7 @@ export default function Constellation({
       }
     }
 
-    start()
+    invalidate()
 
     /*
      * Two hooks for `scripts/shoot.ts`, on the element rather than on window
@@ -1164,6 +1412,38 @@ export default function Constellation({
       value: () => {
         interacted = true
         controls.autoRotate = false
+        invalidate()
+      }
+    })
+    Object.defineProperty(stage, 'constellationStats', {
+      configurable: true,
+      value: (reset?: boolean) => {
+        const pct = (list: number[], q: number): number | null => {
+          if (list.length === 0) return null
+          const sorted = [...list].sort((x, y) => x - y)
+          return Number(
+            sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))].toFixed(2)
+          )
+        }
+        const out = {
+          drawn,
+          turning: controls.autoRotate,
+          cpuMedian: pct(costs, 0.5),
+          cpuP95: pct(costs, 0.95),
+          gapMedian: pct(gaps, 0.5),
+          gapP95: pct(gaps, 0.95),
+          firstFrameMs:
+            firstFrameAt === null ? null : Number((firstFrameAt - mountedAt).toFixed(1)),
+          firstFrameAt,
+          calls: renderer.info.render.calls,
+          geometries: renderer.info.memory.geometries,
+          pixelRatio
+        }
+        if (reset === true) {
+          costs.length = 0
+          gaps.length = 0
+        }
+        return out
       }
     })
     Object.defineProperty(stage, 'constellationBench', {
@@ -1190,9 +1470,8 @@ export default function Constellation({
     })
 
     state.dispose = () => {
-      cancelAnimationFrame(frame)
-      frame = 0
-      window.clearInterval(report)
+      if (frame > 0) cancelAnimationFrame(frame)
+      frame = -1
       window.clearTimeout(resumeTimer)
       window.clearTimeout(hintTimer)
       sizer.disconnect()
@@ -1209,7 +1488,9 @@ export default function Constellation({
       disposeTree(content)
       state.glow?.geometry.dispose()
       markGeo.dispose()
-      for (const mat of [starMat, lineMat, glowMat, markMat]) mat.dispose()
+      dustGeo.dispose()
+      coreGeo.dispose()
+      for (const mat of [starMat, lineMat, glowMat, markMat, dustMat, coreMat]) mat.dispose()
       renderer.dispose()
       // Release the context now rather than when the garbage collector gets
       // round to the canvas - the sixteen-context cap counts live ones.
@@ -1237,6 +1518,7 @@ export default function Constellation({
     const state = sceneRef.current
     if (state === null) return
     state.isolate = isolated ?? -1
+    state.invalidate()
   }, [isolated])
 
   /* The hovered star's ring and its sitting, drawn bright. */
@@ -1251,6 +1533,7 @@ export default function Constellation({
     stageRef.current?.classList.toggle('is-hovering', hover !== null)
     if (hover === null || hover >= model.stars.length) {
       state.mark.visible = false
+      state.invalidate()
       // The turn waits while a star is being read, and picks up again after
       // the same pause as any other interaction - not the instant the
       // pointer slips off.
@@ -1306,6 +1589,7 @@ export default function Constellation({
       state.glow.frustumCulled = false
       state.scene.add(state.glow)
     }
+    state.invalidate()
   }, [hover, model, colours])
 
   const toggleFull = (): void => {
@@ -1331,6 +1615,19 @@ export default function Constellation({
           <span className="an-panel__sub">{sub}</span>
         </h4>
         <span className="cst__aside">
+          <span className="cst__shape" role="group" aria-label="Shape">
+            {PROJECTIONS.map((option) => (
+              <button
+                type="button"
+                key={option.id}
+                className={projection === option.id ? 'is-on' : ''}
+                aria-pressed={projection === option.id}
+                onClick={() => setProjection(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </span>
           {control}
           <button
             type="button"

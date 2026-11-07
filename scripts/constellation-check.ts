@@ -27,6 +27,8 @@ import {
   hash01,
   heightOf,
   outputPercentiles,
+  place,
+  starRows,
   ringDates,
   ringGrain,
   ringLabel,
@@ -448,6 +450,77 @@ console.log('--- the whole cloud ---')
   eq('even a range of one session keeps its size', c1.stars[0].output, 0)
 }
 eq('empty in, empty out', buildConstellation([]).stars.length, 0)
+
+console.log('')
+console.log('--- rows from the payload ---')
+{
+  const base = {
+    project: 'HW',
+    task: 'Read',
+    plannedS: 1800,
+    laps: 1,
+    hour: null,
+    unit: 'page',
+    quantity: 12
+  }
+  const rows = [
+    { ...base, date: '2026-10-01', runningS: 1500, source: 'app' },
+    { ...base, date: '2023-05-01', runningS: 900, source: 'import' }
+  ]
+  const clock = [41, 1_790_000_000, 1_790_001_500, 7, -1, -1]
+  const out = starRows(rows, clock)
+  eq(
+    'ids come from the clock array, in step with the rows',
+    out.map((r) => r.id),
+    [41, 7]
+  )
+  eq(
+    'epoch seconds become milliseconds',
+    [out[0].startMs, out[0].endMs],
+    [1_790_000_000_000, 1_790_001_500_000]
+  )
+  eq('-1 means no clock', [out[1].startMs, out[1].endMs], [null, null])
+  eq(
+    'everything else is the session row',
+    [out[0].task, out[0].unit, out[0].quantity, out[0].runningS],
+    ['Read', 'page', 12, 1500]
+  )
+  eq(
+    'a missing clock entry still draws, with a negative id and no clock',
+    starRows(rows, []).map((r) => [r.id, r.startMs]),
+    [
+      [-1, null],
+      [-2, null]
+    ]
+  )
+}
+
+console.log('')
+console.log('--- projections ---')
+{
+  // The same three inputs, two shapes. Distance from the core is time in both.
+  const c = place('cylinder', 0.5, Math.PI / 2, 1)
+  near('cylinder: radius is time', Math.hypot(c.x, c.z), 0.5 * RADIUS)
+  near('cylinder: height is length', c.y, HEIGHT)
+  const s = place('sphere', 0.5, Math.PI / 2, 1)
+  near('sphere: distance from the core is time', Math.hypot(s.x, s.y, s.z), 0.5 * RADIUS)
+  eq('sphere: the longest sessions are in the north', s.y > 0, true)
+  near('sphere: a mid-length session is on the equator', place('sphere', 0.8, 1, 0.5).y, 0)
+  eq('sphere: the shortest are in the south', place('sphere', 0.5, 0, 0).y < 0, true)
+  nextId = 1
+  const rows = [row({ date: '2025-01-01' }), row({ date: '2026-01-01', runningS: 7200 })]
+  const cyl = buildConstellation(rows, rows, 'cylinder')
+  nextId = 1
+  const rows2 = [row({ date: '2025-01-01' }), row({ date: '2026-01-01', runningS: 7200 })]
+  const sph = buildConstellation(rows2, rows2, 'sphere')
+  eq(
+    'the projection changes positions only, not the layout',
+    sph.stars.map((x) => [x.radial, x.height, x.wedge]),
+    cyl.stars.map((x) => [x.radial, x.height, x.wedge])
+  )
+  eq('and is recorded on the model', [cyl.projection, sph.projection], ['cylinder', 'sphere'])
+  eq('the default is the cylinder', buildConstellation(rows).projection, 'cylinder')
+}
 
 console.log('')
 console.log('--- colours ---')
