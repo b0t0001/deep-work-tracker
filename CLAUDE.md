@@ -996,20 +996,19 @@ numbers it rests on, so it can be checked rather than trusted.
   before). The sentences themselves carry no window, so the detail line is
   the one place it is said.
 
-- **What it says:** the busiest two hours of the day; a typical working day
-  (median sessions and hours over days with work, median session length);
-  the strongest weekday, or weekends against weekdays when that is the story;
-  which course is taking the most time; the share of time one project took;
-  the project whose share moved most against the previous period of equal
-  length (all time: the past 12 months against the 12 before); pace within
-  one unit and one course, latest half of the sessions against the first
-  half; how often timers are stopped before they run out and how much of the
-  set time a typical run uses; how many laps a looped session runs; the
-  longest streak and the current one; the share of calendar days worked and
-  the longest break; the biggest day against a typical one; the longest
-  session; output per unit with its pace (words as novels, at 90,000 a
-  novel); hours as forty-hour work weeks; hours spent editing; and whether
-  sessions are getting longer.
+- **What it says** is whatever the user kept from a list of candidates.
+  *"make like a hundred of these fun facts. Make it so that I could never run
+  out"* - so 152 were drafted, each computed on the real history, and written
+  to `Documents/Deep Work Tracker/insight-candidates.md` for the user to mark
+  by number. Everything not cut was built: about 125 builders, 111 of which
+  fire on the history as of 11/06/2026 and the rest waiting on data only this
+  app records. They live in four files by subject: `insights.ts` (the first
+  seventeen, the plan and the choosing), `insightsDays.ts` (calendar, streaks,
+  the shape of a day), `insightsWork.ts` (timers, output, projects,
+  milestones, the quirky ones) and `insightsClock.ts` (time of day, pauses,
+  stop reasons). `insightKit.ts` holds what they share, including the rules
+  below as code. **A new candidate goes on the list for the user to pick,
+  not into the card** - round 2 is on the list, unbuilt.
 - **Every insight has a minimum sample and is skipped below it**, and every
   comparison has a floor below which it is not worth saying - a weekday 3%
   above average is not a strongest day. The numbers are `INSIGHT_MIN`, and
@@ -1017,17 +1016,81 @@ numbers it rests on, so it can be checked rather than trusted.
   worked out by hand and again one step under its threshold, where it must
   not appear. An insight that speaks from too little data looks exactly like
   one that works.
-- **Time of day is app-timed rows only**, at least 20 sessions over 5 days,
-  and the busiest two hours must hold a quarter of the timed hours. On the
-  history as of 11/06/2026 there are two, so it is built and silent - which
-  is right, and it will turn itself on.
+- **Time of day is app-timed rows only**, at least 20 sessions over 5 days.
+  On the history as of 11/06/2026 there are two, so the fifteen clock
+  insights are built and silent - which is right, and they turn themselves
+  on.
 - **Pace is never compared across units or courses**, only within one of
   each, and pooled (total quantity over total minutes), with manual rows and
   runs under five minutes left out - the rate panel's rules. The sentence
   says "pace", never "better": a course getting harder is the usual reason a
-  rate falls, and the card cannot tell the difference. The CIS 1200 question
-  pace reads +679% on the real history; the arithmetic is right and the
-  detail line shows both rates, so the user can judge what changed.
+  rate falls, and the card cannot tell the difference.
+
+**The rules the user taught by cutting candidates.** These are the spec for
+every insight written from here on. Each came from a cut, and each is
+enforced in code rather than remembered - `insightKit.ts` holds them and
+`insights-check.ts` asserts that what was cut cannot come back.
+
+- **No comparison under 20%, and never a zero.** *"not really that
+  interesting, number is too low/too small for any causality"* (+3% fall
+  against spring); *"don't have a +0% bro that's sad"* (911.3 h against
+  911.0 h this year to date). `moved()` is the 20% floor every comparison
+  passes through, and `buildInsights` drops any insight whose headline is a
+  zero - in one place, so an insight written later cannot forget.
+- **Patterns of *when* read flexible work only.** *"no shit that's when i
+  scheduled JPL to happen. Now, if it was like 60% of your CIS 1200 HW gets
+  done on wednesdays, THEN that's a little more interesting."* Weekday,
+  month, month-end and time-of-day insights read `flexibleRows`: everything
+  except scheduled projects and meetings. Scheduled is a named list
+  (`SCHEDULED_PROJECTS`: JPL, PER, Scioly, Job, Internship, Boeing,
+  Sprocket) plus a shape test for the rest - one weekday holding 40% of a
+  project's sessions, a third of its tasks meetings, or a typical session of
+  2.5 h or more - which on the real history also catches Brahma Tech. Any
+  task containing "meeting" is scheduled whatever its project. Records and
+  streaks still read everything: a record set at a competition is a record.
+- **Nothing the user obviously knows.** *"Bro i work everyday that's not
+  very interesting lol"*; *"i know how many courses im taking"*. Cut: the
+  same date in every year, days a week, the course count.
+- **Stops, laps and runs to zero come from app-recorded sessions only.**
+  Imported rows were laps of untracked Hourglass loops as often as single
+  runs, so "stopped early" and "ran to zero" read from them were wrong.
+  `isTimerRun` is app-only, and those insights wait for 30 app-recorded runs
+  (`APP_RUNS`, and `INSIGHT_MIN.timerRuns`), loops for 5. Planned length
+  alone - the favourite timer, round five minutes - still reads imports,
+  because what a timer was set to is not affected.
+- **Question counts drifted, so question rates stay recent.** *"inaccurate
+  bc i think i changed how i count question completion"* about a +679% CIS
+  1200 trend. `DRIFT_UNITS` (question, problem) are compared only within the
+  past 90 days and never trended latest-against-first. **This is a known
+  risk for any unit:** a unit's meaning can change without its name
+  changing, and a long-range rate trend would report the change of
+  definition as a change of pace.
+- **An ended project is a finished chapter, not a lapse.** *"sprocket has
+  gone quiet, because im not in high school anymore!"* There is no "gone
+  quiet" insight, and the project-share shift never reports an ended project
+  falling (`ENDED_PROJECTS`, plus anything idle 90 days).
+- **No "came back to <task>".** *"that makes it seem like i don't script
+  videos. false. i just coincidentally had the same session name"*. Task
+  names repeat by coincidence, so a gap between two sessions with the same
+  name says nothing about the work.
+- **Nothing that restates another panel.** *"don't duplicate the baseline
+  tile"*.
+- **Typos in course codes are aliased, not counted.** `CIS 1299` was a
+  sixth course that does not exist; `COURSE_ALIASES` in `courses.ts` maps it
+  to CIS 1200.
+
+**What the user liked, and what that means for the next ones.** Favourites
+open three times as often (`FAVOURITE`) and "where it all started" a
+quarter as often (`NOW_AND_THEN` - *"put it in rotation every so often"*).
+The favourites were calendar moments (8 of 13 holidays had work), on this
+day (*"love the 'this is what you did 2 years ago'"*), what opens and closes
+the day, honest real-world equivalences stated with their basis (*"i did
+NOT know that about 82 wtf"* - 132 decks of slides), hour marks crossed by
+projects, milestones with forward projections (*"because then i want to
+RACE to get there"*), records set recently, and fair before-and-after
+improvements (*"latest 100 h took 24 days against 114 for the first... put
+more stats like these"*). Round 2 of the candidate list is ideas in those
+shapes.
 - **Stopping early is reported as a habit, not a failure rate**, for the
   reasons under "There is deliberately no `completed` boolean".
 - **Every insight is built from dated sessions.** The payload carries

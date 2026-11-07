@@ -31,15 +31,15 @@ function eq(label: string, actual: unknown, expected: unknown): void {
 
 console.log('--- the real codes, as the user types them ---')
 eq('a space', courseFrom('CIS 1200 p-set'), 'CIS 1200')
-eq('no space', courseFrom('Grade CIS1299 Fall 2026 Midterm'), 'CIS 1299')
+eq('no space', courseFrom('Grade CIS1210 Fall 2026 Midterm'), 'CIS 1210')
 eq('mid-sentence', courseFrom('Study for MATH 1410'), 'MATH 1410')
 eq('a leading zero is not dropped', courseFrom('WRIT 0580 Reflection'), 'WRIT 0580')
 eq('four letters', courseFrom('MEAM 1010 Quiz'), 'MEAM 1010')
 eq('three letters', courseFrom('Study for ESE 1110 Midterm'), 'ESE 1110')
 eq(
   'and a code found after a year is still found',
-  courseFrom('Grade CIS1299 Fall 2026 Midterm'),
-  'CIS 1299'
+  courseFrom('Grade CIS1210 Fall 2026 Midterm'),
+  'CIS 1210'
 )
 
 console.log('')
@@ -91,6 +91,13 @@ console.log('--- the picker list ---')
   ])
   eq('a task with no code contributes nothing', coursesIn([null, 'Bio HW']), [])
 }
+
+// The user: "it should be CIS 1200". A typo is not a sixth course.
+eq('CIS 1299 is a typo for CIS 1200', courseFrom('Grade CIS 1299 Midterm'), 'CIS 1200')
+eq('and without the space', courseFrom('Grade CIS1299 Fall 2026 Midterm'), 'CIS 1200')
+eq('the typo joins its course in the list', coursesIn(['CIS 1200 HW', 'CIS1299 grading']), [
+  { course: 'CIS 1200', sessions: 2 }
+])
 
 console.log('')
 console.log(pass + ' passed, ' + fail + ' failed')

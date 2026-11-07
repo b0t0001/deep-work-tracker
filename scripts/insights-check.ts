@@ -15,6 +15,7 @@
 import type { SessionRow } from '../src/shared/analytics'
 import {
   INSIGHT_MIN,
+  kitFor,
   biggestDay,
   buildInsights,
   consistency,
@@ -40,6 +41,7 @@ import {
   weekdayPattern,
   type InsightContext
 } from '../src/shared/insights'
+import { FAVOURITE, flexibleRows, NOW_AND_THEN, type Insight } from '../src/shared/insightKit'
 import { resolveLayout } from '../src/shared/layout'
 import type { Range } from '../src/shared/windows'
 
@@ -234,21 +236,28 @@ console.log('--- project shift: against the period before ---')
 console.log('--- pace: one unit, one course, five sessions a side ---')
 {
   const q = (n: number, minutes: number, extra: Partial<SessionRow> = {}): SessionRow =>
-    row(day(n), minutes, { unit: 'question', quantity: 10, task: 'MATH 1410 pset', ...extra })
+    row(day(n), minutes, { unit: 'word', quantity: 10, task: 'MATH 1410 essay', ...extra })
   const rows = [
     ...[0, 1, 2, 3, 4].map((n) => q(n, 60)),
     ...[5, 6, 7, 8, 9].map((n) => q(n, 30)),
     // None of these may move the MATH 1410 figure.
     q(5, 1, { task: 'CIS 1200 pset', quantity: 500 }),
-    q(6, 30, { unit: 'word', quantity: 5000 }),
+    q(6, 30, { unit: 'page', quantity: 5000 }),
     q(7, 4, { quantity: 100 }),
     q(8, 30, { source: 'manual', quantity: 100 })
   ]
   const p = paceChanges(ctx(rows))
   eq('one comparison, for the one pair with enough', p.length, 1)
   eq('pooled rate doubled', p[0]?.figure, '+100%')
-  has('names unit and course', p[0]?.text, 'pace on MATH 1410 questions')
+  has('names unit and course', p[0]?.text, 'pace on MATH 1410 words')
   has('both rates', p[0]?.detail, 'one every 3 min lately, one every 6 min at first')
+  // "i changed how i count question completion": a trend across that change
+  // measures the definition, so a question rate has no long-range trend.
+  eq(
+    'the same history in questions says nothing',
+    paceChanges(ctx(rows.map((r) => (r.unit === 'word' ? { ...r, unit: 'question' } : r)))).length,
+    0
+  )
   eq('four sessions a side say nothing', paceChanges(ctx(rows.slice(1))).length, 0)
   const steady = [...[0, 1, 2, 3, 4].map((n) => q(n, 60)), ...[5, 6, 7, 8, 9].map((n) => q(n, 55))]
   eq('a 9% change says nothing', paceChanges(ctx(steady)).length, 0)
@@ -256,25 +265,32 @@ console.log('--- pace: one unit, one course, five sessions a side ---')
 
 console.log('--- timers stopped early, and loops ---')
 {
+  const app = { source: 'app', plannedS: 3600 } as const
   const runs = [
-    ...Array.from({ length: 15 }, (_, i) => row(day(i), 30, { plannedS: 3600 })),
-    ...Array.from({ length: 5 }, (_, i) => row(day(i), 60, { plannedS: 3600 })),
+    ...Array.from({ length: 24 }, (_, i) => row(day(i), 30, app)),
+    ...Array.from({ length: 6 }, (_, i) => row(day(i), 60, app)),
     row(day(0), 60, { source: 'manual', plannedS: 7200 }),
-    row(day(0), 300)
+    // Imported runs say nothing about stops: Hourglass looped untracked.
+    ...Array.from({ length: 40 }, (_, i) => row(day(i), 60, { plannedS: 3600 }))
   ]
   const s = stoppedEarly(ctx(runs))
-  eq('share stopped before the end', s?.figure, '75%')
+  eq('share stopped before the end', s?.figure, '80%')
   has('median share of the time set', s?.detail, 'a typical run used 50% of the time set')
-  has('manual rows and events left out', s?.detail, '15 of 20 single-lap runs')
-  eq('19 runs say nothing', stoppedEarly(ctx(runs.slice(1, 20))), null)
+  has('app-recorded runs only', s?.detail, '24 of 30 single-lap runs timed by the app')
+  eq('29 app runs say nothing', stoppedEarly(ctx(runs.slice(1))), null)
+  eq(
+    'imported runs alone say nothing, however many',
+    stoppedEarly(ctx(runs.filter((r) => r.source === 'import'))),
+    null
+  )
 
-  const loops = [1.5, 2, 2.5].map((x, i) =>
-    row(day(i), 45 * x, { plannedS: 45 * 60, laps: Math.ceil(x), task: `Loop ${i}` })
+  const loops = [1.5, 2, 2, 2, 2.5].map((x, i) =>
+    row(day(i), 45 * x, { source: 'app', plannedS: 45 * 60, laps: Math.ceil(x), task: `Loop ${i}` })
   )
   const l = loopLength(ctx(loops))
   eq('median laps run', l?.figure, '2 laps')
-  has('and the longest', l?.detail, 'longest 2.5 laps on "Loop 2"')
-  eq('two loops say nothing', loopLength(ctx(loops.slice(1))), null)
+  has('and the longest', l?.detail, 'longest 2.5 laps on "Loop 4"')
+  eq('four loops say nothing', loopLength(ctx(loops.slice(1))), null)
 }
 
 console.log('--- streaks and consistency ---')
@@ -417,7 +433,7 @@ console.log('--- each insight reads its own window, and says which ---')
   has('and over those 30 days it is the recent project', top?.text, 'went to HW')
   has('a record is all time', byId.get('biggest-day')?.detail, 'all time · ')
   has('a streak is all time', byId.get('streak')?.detail, 'all time · ')
-  has('a habit is the past 12 months', byId.get('stopped-early')?.detail, 'past 12 months · ')
+  has('a habit is the past 12 months', byId.get('consistency')?.detail, 'past 12 months · ')
   has('consistency is the past 12 months', byId.get('consistency')?.detail, '365 of 365 days')
   has('a typical day is the past 90 days', byId.get('typical-day')?.detail, 'past 90 days · ')
   has('the total says since, once', byId.get('total')?.detail, 'since ')
@@ -430,7 +446,12 @@ console.log('--- each insight reads its own window, and says which ---')
   eq(
     'every detail line names its window',
     list
-      .filter((x) => !/^(all time|past \d+ (days|months)) · |since |the past /.test(x.detail))
+      .filter(
+        (x) =>
+          !/^(all time|past [0-9]+ (days|months))[ ,·'']|^since |^the past |^[0-9]{2}[/][0-9]{2}[/][0-9]{4} · |^[A-Z][a-z]+ [0-9]{4} against /.test(
+            x.detail
+          )
+      )
       .map((x) => x.id),
     []
   )
@@ -441,6 +462,200 @@ console.log('--- an old stored range for the card is ignored ---')
   const resolved = resolveLayout({ ranges: { fact: '1w', baseline: '1m' } })
   eq('the card has no stored range', 'fact' in resolved.ranges, false)
   eq('the baseline keeps its own', resolved.ranges.baseline, '1m')
+}
+
+console.log("--- the user's rules: what was cut cannot come back ---")
+{
+  // A rich history: two years, flexible HW every day, a scheduled club on
+  // Saturdays, words and questions, and a month of app-timed sessions.
+  const rows: SessionRow[] = []
+  for (let d = 0; d < 760; d += 1) {
+    rows.push(
+      row(day(d), d % 7 === 3 ? 90 : 45, { task: 'MATH 1410 essay', unit: 'word', quantity: 300 })
+    )
+    if (d % 7 === 6) rows.push(row(day(d), 300, { project: 'Robotics', task: 'Build' }))
+    if (d % 7 === 6) rows.push(row(day(d), 240, { project: 'JPL', task: 'Shift' }))
+    if (d % 3 === 0)
+      rows.push(
+        row(day(d), 40, {
+          project: 'Startup',
+          task: 'CIS 1200 pset',
+          unit: 'question',
+          quantity: 8
+        })
+      )
+  }
+  for (let d = 730; d < 760; d += 1)
+    rows.push(
+      row(day(d), 50, {
+        source: 'app',
+        project: 'Essay',
+        task: 'Draft',
+        // Half stopped ten minutes early, half run to zero.
+        plannedS: d % 2 ? 3600 : 3000,
+        startMin: 540 + (d % 5) * 60,
+        endMin: 590 + (d % 5) * 60,
+        stop: d % 2 ? 'tired' : 'finished_early',
+        pauses: 1,
+        pausedS: 300,
+        longestPauseS: 300,
+        hour: 9 + (d % 5)
+      })
+    )
+  const today = day(761)
+  const list = buildInsights({ rows, today })
+  const kit = kitFor({ rows, today })
+
+  eq('a project on one weekday is scheduled', kit?.scheduled.includes('Robotics'), true)
+  eq('a named one is scheduled whatever its shape', kit?.scheduled.includes('JPL'), true)
+  eq('flexible work is not', kit?.scheduled.includes('HW'), false)
+  eq(
+    'a meeting is scheduled whatever its project',
+    flexibleRows([row(day(0), 60, { project: 'HW', task: 'Team meeting' })], []).length,
+    0
+  )
+  // "no shit that's when i scheduled JPL to happen"
+  const when = list.filter((i) =>
+    ['weekday', 'project-weekday', 'weekday-shift', 'reliable-weekday', 'month-of-year'].includes(
+      i.id
+    )
+  )
+  eq(
+    'no pattern of when is read from a scheduled project',
+    when
+      .filter((i) => /JPL|Robotics/.test(`${i.figure} ${i.text}`) || i.figure === 'Saturdays')
+      .map((i) => i.id),
+    []
+  )
+  // "don't have a +0% bro that's sad"; "number is too low/too small"
+  const small = list.filter((i) => {
+    const m = /^[+−]([0-9]+)%$/.exec(i.figure)
+    return m !== null && Number(m[1]) < 20
+  })
+  eq(
+    'no comparison under 20% is shown',
+    small.map((i) => `${i.id} ${i.figure}`),
+    []
+  )
+  eq(
+    'no zero is ever the headline',
+    list.filter((i) => /^[+−]?0%$/.test(i.figure)).map((i) => i.id),
+    []
+  )
+  // "that makes it seem like i don't script videos"
+  eq(
+    'nothing says you came back to a task',
+    list.filter((i) => /came back to "/.test(i.text)).length,
+    0
+  )
+  // "sprocket has gone quiet, because im not in high school anymore!"
+  eq('nothing calls a project quiet', list.filter((i) => /gone quiet/.test(i.text)).length, 0)
+  // "i know how many courses im taking"; "don't duplicate the baseline tile"
+  eq(
+    'the cut kinds have no builder',
+    list
+      .map((i) => i.id)
+      .filter((id) =>
+        [
+          'courses-count',
+          'courses-term',
+          'unlabelled',
+          'baseline',
+          'weekend-project',
+          'year-to-date',
+          'fall-spring',
+          'gone-quiet',
+          'task-return',
+          'every-year-today',
+          'days-a-week'
+        ].includes(id)
+      ),
+    []
+  )
+  // "inaccurate bc i think i changed how i count question completion"
+  eq(
+    'no question trend reaches back past 90 days',
+    list
+      .filter((i) => /questions/.test(i.text) && /^all time/.test(i.detail) && /pace/.test(i.text))
+      .map((i) => i.id),
+    []
+  )
+  eq(
+    'no pace trend in questions at all',
+    list.filter((i) => i.id.startsWith('pace:question')).length,
+    0
+  )
+  // Imported runs say nothing about stops; the app has 30 here, all single-lap.
+  eq(
+    'stops are spoken about once the app has 30 runs',
+    list.some((i) => i.id === 'stopped-early'),
+    true
+  )
+  eq(
+    'and only from those',
+    list
+      .find((i) => i.id === 'stopped-early')
+      ?.detail.includes('of 30 single-lap runs timed by the app'),
+    true
+  )
+  // The clock insights run, on flexible app-timed rows only.
+  eq(
+    'the clock insights turn on with 30 timed sessions',
+    list.some((i) => i.id === 'earliest-start'),
+    true
+  )
+  has(
+    'and say what they read',
+    list.find((i) => i.id === 'day-start')?.detail,
+    'timed by the app, flexible work only'
+  )
+
+  // An ended project's fall is a closed chapter, not a lapse.
+  const shift = [
+    ...Array.from({ length: 60 }, (_, d) => row(day(d), 120, { project: 'Old' })),
+    ...Array.from({ length: 60 }, (_, d) => row(day(d), 60, { project: 'HW' })),
+    ...Array.from({ length: 60 }, (_, d) => row(day(d + 400), 60, { project: 'HW' })),
+    ...Array.from({ length: 60 }, (_, d) => row(day(d + 400), 60, { project: 'Job' }))
+  ]
+  const r = range(day(366), day(730))
+  const open = projectShift({ rows: shift, range: r, label: 'past 12 months', today: day(731) })
+  const closed = projectShift({
+    rows: shift,
+    range: r,
+    label: 'past 12 months',
+    today: day(731),
+    ended: new Set(['Old'])
+  })
+  eq('without the rule the fall is the story', open?.text.includes('Old'), true)
+  eq('with it, an ended project is not named', closed?.text.includes('Old') ?? false, false)
+}
+
+console.log('--- favourites come up more often ---')
+{
+  const make = (id: string, weight?: number): Insight => ({
+    id,
+    figure: '',
+    text: '',
+    detail: '',
+    strength: 0.5,
+    weight
+  })
+  const list = [make('fav', FAVOURITE), make('plain'), make('rare', NOW_AND_THEN)]
+  const seen = new Map<string, number>()
+  for (let i = 0; i < 4250; i += 1) {
+    const id = pickInsight(list, i / 4250)?.id as string
+    seen.set(id, (seen.get(id) ?? 0) + 1)
+  }
+  eq(
+    'a favourite opens three times as often',
+    Math.round((seen.get('fav') ?? 0) / (seen.get('plain') ?? 1)),
+    3
+  )
+  eq(
+    'where it started opens a quarter as often',
+    Math.round(((seen.get('rare') ?? 0) / (seen.get('plain') ?? 1)) * 4),
+    1
+  )
 }
 
 console.log('--- the list and the choosing ---')

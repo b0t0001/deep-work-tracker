@@ -490,8 +490,25 @@ export function analytics(): Analytics {
                 NULLIF(s.work_unit, '') AS unit,
                 CASE WHEN s.unquantifiable = 0 THEN s.work_quantity END AS quantity,
                 CASE WHEN s.source = 'app' THEN unixepoch(s.started_at) END AS startS,
-                CASE WHEN s.source = 'app' THEN unixepoch(s.ended_at) END AS endS
+                CASE WHEN s.source = 'app' THEN unixepoch(s.ended_at) END AS endS,
+                CASE WHEN s.source = 'app' AND s.started_at IS NOT NULL
+                     THEN CAST(strftime('%H', s.started_at, 'localtime') AS INTEGER) * 60
+                        + CAST(strftime('%M', s.started_at, 'localtime') AS INTEGER) END AS startMin,
+                CASE WHEN s.source = 'app' AND s.ended_at IS NOT NULL
+                     THEN CAST(strftime('%H', s.ended_at, 'localtime') AS INTEGER) * 60
+                        + CAST(strftime('%M', s.ended_at, 'localtime') AS INTEGER) END AS endMin,
+                s.unquantifiable AS unq,
+                CASE WHEN TRIM(COALESCE(s.notes, '')) <> '' THEN 1 ELSE 0 END AS note,
+                s.stop_reason AS stop,
+                s.pace_target_qty AS paceQty, s.pace_target_interval_s AS paceIntervalS,
+                pz.n AS pauses, pz.total AS pausedS, pz.longest AS longestPauseS
            FROM ${COUNTED} s LEFT JOIN projects p ON p.id = s.project_id
+           LEFT JOIN (
+             SELECT session_id, COUNT(*) AS n,
+                    SUM(unixepoch(resumed_at) - unixepoch(paused_at)) AS total,
+                    MAX(unixepoch(resumed_at) - unixepoch(paused_at)) AS longest
+               FROM pauses WHERE resumed_at IS NOT NULL GROUP BY session_id
+           ) pz ON pz.session_id = s.id
           WHERE s.session_date IS NOT NULL
           ORDER BY s.session_date, s.started_at, s.id`
       )
@@ -509,6 +526,16 @@ export function analytics(): Analytics {
       hour: number | null
       unit: string | null
       quantity: number | null
+      startMin: number | null
+      endMin: number | null
+      unq: number
+      note: number
+      stop: string | null
+      paceQty: number | null
+      paceIntervalS: number | null
+      pauses: number | null
+      pausedS: number | null
+      longestPauseS: number | null
     }>
   ).map((row) => {
     sessionClock.push(
@@ -526,7 +553,20 @@ export function analytics(): Analytics {
       source: row.source,
       hour: row.hour === null ? null : Number(row.hour),
       unit: row.unit,
-      quantity: row.quantity === null ? null : Number(row.quantity)
+      quantity: row.quantity === null ? null : Number(row.quantity),
+      // Only what is there - see the comment on these fields in `SessionRow`.
+      ...(row.startMin !== null && { startMin: Number(row.startMin) }),
+      ...(row.endMin !== null && { endMin: Number(row.endMin) }),
+      ...(Number(row.unq) === 1 && { unquantifiable: true }),
+      ...(Number(row.note) === 1 && { note: true }),
+      ...(row.stop !== null && { stop: row.stop }),
+      ...(row.paceQty !== null && { paceQty: Number(row.paceQty) }),
+      ...(row.paceIntervalS !== null && { paceIntervalS: Number(row.paceIntervalS) }),
+      ...(row.pauses !== null && {
+        pauses: Number(row.pauses),
+        pausedS: Number(row.pausedS ?? 0),
+        longestPauseS: Number(row.longestPauseS ?? 0)
+      })
     }
   })
 

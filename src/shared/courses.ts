@@ -59,10 +59,23 @@
  * Letters in capitals, an optional space, then three or four digits.
  *
  * Global, because the useful code is not always the first thing in the task -
- * `Grade CIS1299 Fall 2026 Midterm` has a year in it too, and the loop below
+ * `Grade CIS1200 Fall 2026 Midterm` has a year in it too, and the loop below
  * has to be able to skip one candidate and take another.
  */
 const CODE = /(^|[^A-Za-z0-9])([A-Z]{2,5}) ?([0-9]{3,4})(?![0-9])/g
+
+/**
+ * Codes that were typed wrong, mapped to the course they meant.
+ *
+ * The user, on `CIS 1299` turning up as a sixth course: *"im actually taking
+ * 5 courses, idk how it says CIS 1299. it should be CIS 1200."* A typo in the
+ * task text is a real course to this parser, so it splits one course's history
+ * in two and invents another. Applied after normalising, so `CIS1299` and
+ * `CIS 1299` both land on `CIS 1200`.
+ */
+export const COURSE_ALIASES: Readonly<Record<string, string>> = {
+  'CIS 1299': 'CIS 1200'
+}
 
 /** 1900-2099 is a date, not a course number. */
 function isYear(digits: string): boolean {
@@ -86,7 +99,8 @@ export function courseFrom(task: string | null | undefined): string | null {
   while ((match = CODE.exec(task)) !== null) {
     const [, , letters, digits] = match
     if (isYear(digits)) continue
-    return `${letters.toUpperCase()} ${digits}`
+    const code = `${letters.toUpperCase()} ${digits}`
+    return COURSE_ALIASES[code] ?? code
   }
   return null
 }
