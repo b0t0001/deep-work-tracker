@@ -2141,7 +2141,9 @@ got through until you are done.
   starting is a reason not to label.
 - **A new window defaults to the last session's project.** Work comes in
   runs - several HW sessions, then several on the essay - so the previous
-  answer is nearly always this one.
+  answer is nearly always this one. Kept deliberately when finishing began
+  clearing the fields: asked whether a new window should open empty too, the
+  user said keep the defaults (11/07/2026).
 - **Finishing a session clears the task, duration and project.** The user's
   rule, 11/07/2026: *"when i finish a session you should clear whatever i put
   in the 'what are you working on', time, and project name fields"*. Every
