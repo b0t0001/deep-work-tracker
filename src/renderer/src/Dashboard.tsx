@@ -563,7 +563,9 @@ function Backups(): React.JSX.Element {
             {status.backups.map((file) => (
               <tr key={file.name}>
                 <td className="mono">{file.name}</td>
-                <td>{when(file.modified)}</td>
+                {/* `11/06/2026 18:23` broke after the date and doubled the row
+                    height - the same fault the Data tab's date column had. */}
+                <td className="nowrap">{when(file.modified)}</td>
                 <td className="num">{size(file.bytes)}</td>
               </tr>
             ))}

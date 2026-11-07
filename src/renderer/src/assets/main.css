@@ -1032,9 +1032,11 @@ input {
 }
 
 .dashboard__body {
+  /* Named, because `.grid th` has to stick by exactly this much. See there. */
+  --body-pad-top: 22px;
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 22px 24px 40px;
+  padding: var(--body-pad-top) 24px 40px;
 }
 
 /*
@@ -1065,24 +1067,25 @@ input {
 }
 
 /*
- * The measure, applied where the words are.
+ * There is no measure, and that is the user's call.
  *
- * 78 characters rather than a pixel width, so it tracks the font: the text
- * scale control in Analytics moves every caption, and a 700px cap would mean
- * a different number of words per line at each step. Direct children and the
- * explanatory `em` under a field, which is where the long sentences on the
- * Settings tab actually are - not a bare `p`, which would also catch a
- * paragraph inside a panel that is laying something out in columns.
+ * A cap of 78 characters was here on the usual argument - a line too long to
+ * follow is hard to read, so cap the words and let the panels take the window.
+ * The user has rejected it in their own terms: "any text, for example in the
+ * backup section, all the text just doesn't flow across the page. I need the
+ * text to resize so that whenever the window resizes, the text will follow it.
+ * It should not just be fixed to like a maximum length. also this is because
+ * the opening the file folder stretches across the entire window so naturally
+ * the text should as well."
+ *
+ * That last clause is the argument, not a preference: the path field beside
+ * the prose already spans the window, so a paragraph that stops at 78
+ * characters does not read as a considered measure, it reads as text that
+ * failed to fill its box. Consistency across a section beats line length here.
+ *
+ * So nothing caps text. If a line length ever becomes the complaint, the fix
+ * is a narrower section, not a narrower paragraph inside a wide one.
  */
-.panel > p,
-.panel > .muted,
-.panel > .notice,
-.set-group > p,
-.set-group > .muted,
-.toggle em,
-.field em {
-  max-width: 78ch;
-}
 
 .panel h2 {
   margin: 0 0 6px;
@@ -1102,9 +1105,12 @@ input {
   margin: 0 0 16px;
 }
 
+/* A column of backup filenames. `tabular-nums` rather than a monospace face:
+   what mono was buying here was the dates lining up, and figures of one width
+   buy that without a second font. */
 .mono {
-  font-family: var(--font-mono);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   word-break: break-all;
 }
 
@@ -1167,10 +1173,35 @@ input {
 /* Sticky alone is not enough. Table cells paint in document order, so without
    a stacking context the rows scrolling past are drawn over the header - which
    reads as the header failing to freeze at all. */
+/*
+ * The frozen header, and why `top` is negative.
+ *
+ * "do you see I can still see the text behind the frozen date project task
+ * ... header? I can still see whatever task is Behind those headers, I should
+ * not be able to do that."
+ *
+ * At `top: 0` Chromium sticks the row to the scroll container's *content* box,
+ * which is 22px below its padding box - so the header parked 22px down from
+ * the tabs bar and rows scrolled up through the gap above it, in full view.
+ * Measured at a scroll offset of 600px: the tabs bar ended at y=46, the header
+ * sat at y=68, and `elementFromPoint` through the band between them returned
+ * `td.nowrap "10/31/2026"` at every step. Nothing was wrong with the opacity
+ * or the z-index, which is where this looked like it should be.
+ *
+ * Pulling it up by the container's own top padding parks it flush under the
+ * tabs bar, so the band it used to leave is the header itself. The padding is
+ * a variable rather than a repeated 22 because the two have to move together -
+ * and `0px` is the fallback, so a `.grid` somewhere without that container
+ * behaves as it did before.
+ *
+ * Every cell is sticky, the empty actions cell at the end included: it is a
+ * `th` like the rest, so it carries the same background and covers the row
+ * buttons passing under it.
+ */
 .grid th {
   position: sticky;
-  top: 0;
-  z-index: 2;
+  top: calc(-1 * var(--body-pad-top, 0px));
+  z-index: 3;
   background: var(--surface);
   color: var(--text-dim);
   font-weight: 500;
@@ -1185,6 +1216,16 @@ input {
   white-space: nowrap;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
+}
+
+/* A class the markup has been writing for a while without one existing here.
+   The Data tab's date cell carries `className="nowrap"` and stayed on one
+   line anyway, because the rule above covers the first cell whatever it is
+   called - so the class looked like it worked. The Backups table's Taken
+   column is the *second* cell, and `11/06/2026 18:23` broke after the date
+   until this existed. */
+.nowrap {
+  white-space: nowrap;
 }
 
 .grid th,
@@ -1217,6 +1258,17 @@ input {
 
 .badge--app {
   color: var(--accent);
+}
+
+/*
+ * Manual rows take the opposite of the accent - the user's request, and the
+ * one badge that changes. A manual session is the one row in the table that
+ * the app did not time: it is remembered rather than measured, analytics weigh
+ * it differently, and the colour furthest from the app's own is a fair way to
+ * say so. `app` stays the accent, `import` and `test` are unchanged.
+ */
+.badge--manual {
+  color: var(--accent-complement, var(--text));
 }
 
 .badge--test {
@@ -1804,13 +1856,24 @@ input {
   margin-bottom: 0;
 }
 
-code {
+/* The chip says this is machine output; the typeface no longer has to.
+
+   `inherit`, not the absence of a rule: `code`, `kbd`, `samp` and `pre` carry
+   `monospace` in the user-agent stylesheet, so deleting the declaration here
+   did not hand them the app font - it handed them Chromium's default mono.
+   Measured: they came back as plain `monospace`. */
+code,
+kbd,
+samp,
+pre {
+  font-family: inherit;
   padding: 1px 5px;
   margin: 0 2px;
   border-radius: 5px;
   background: var(--surface-raised);
-  font-family: var(--font-mono);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
 }
 
 /* ---------- ring: more room for the clock ---------- */
@@ -1869,8 +1932,16 @@ code {
   border-bottom: 1px solid var(--border);
 }
 
+/* `flex: 1 1 auto` with `min-width: 0`, so the description uses the width the
+   row actually has instead of wrapping into a narrow column beside the button.
+   The default `0 1 auto` sizes it to its content and then lets it shrink,
+   which in a `space-between` row is how a sentence ends up three words wide
+   with empty space to its right. `min-width: 0` is the half people leave out:
+   without it a flex item will not shrink below its longest word. */
 .shortcut__text {
   display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
   flex-direction: column;
   gap: 2px;
 }
@@ -1889,7 +1960,6 @@ code {
   border-radius: 8px;
   background: var(--surface-raised);
   color: var(--text);
-  font-family: var(--font-mono);
   font-size: 12px;
   cursor: pointer;
 }
@@ -2671,7 +2741,6 @@ code {
    brightest thing in the panel after the title. */
 .an-panel__lead {
   margin: 0 0 10px;
-  max-width: 62ch;
   font-size: calc(12.5px * var(--an-fs, 1));
   line-height: 1.5;
   color: var(--text-dim);
@@ -3070,18 +3139,37 @@ code {
  * `:focus-visible` reported false, and a suppressor keyed on the pseudo-class
  * the engine disagrees with would have done nothing.
  *
- * Scoped to the dashboard. The timer window is filmed and would want this even
- * more, but nothing there is a focusable non-control, so there is nothing to
- * suppress and a rule reaching into it would be untested breadth.
+ * It was scoped to `.dashboard` on the argument that nothing in the timer
+ * window is a focusable non-control, so there was nothing there to suppress.
+ * That was true of the pointer case and said nothing about the keyboard one,
+ * which is the half that was still painting.
  */
-.dashboard :focus:not(:focus-visible) {
+:focus:not(:focus-visible) {
   outline: none;
 }
 
-/* Kept, so the charts are still navigable by keyboard - and in the app's own
-   colour rather than the machine's. Declared after the rule above because the
-   two have equal specificity and this one has to win when both match. */
-.dashboard .recharts-surface:focus-visible {
+/*
+ * Keyboard focus, in the app's colour - the half that was never styled.
+ *
+ * The pointer ring was removed and the keyboard ring was left to Chromium,
+ * which paints `-webkit-focus-ring-color`: on Windows that is the *system*
+ * accent, so it is a colour this app did not choose, does not match, and that
+ * is different on another machine. Measured by sending a real Tab key into a
+ * real window - a scripted focus() does not reproduce it:
+ *
+ *   button.tab "Analytics"   outline rgb(229, 151, 0) auto 0.8px
+ *   :focus true, :focus-visible true, caught by the suppressor: false
+ *
+ * That is the amber box in the user's screenshot, and it is why clicking a tab
+ * could seem to cause it: the click switches tabs, and the next Tab press
+ * lands on a tab button with the ring on.
+ *
+ * App-wide rather than inside `.dashboard`, because the timer window has the
+ * opposite fault - its inputs compute `outline: none` even on `:focus-visible`,
+ * so a keyboard user there had no indicator at all. One rule gives both
+ * windows the same visible, deliberate state.
+ */
+:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -3107,49 +3195,51 @@ code {
  * head, and literally what was asked for: no box. Still a clear, deliberate
  * state change, so a keyboard user can see where they are.
  */
-.dashboard select:focus,
-.dashboard select:focus-visible {
+select:focus,
+select:focus-visible {
   outline: none;
   border-color: color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
-/* ---------- Settings: columns, not one tall strip ---------- */
+/* ---------- Settings: one section per section ---------- */
 
 /*
- * One column at the width the dashboard opens at, more as the window grows.
+ * One group per row, full width, scroll to reach the rest.
  *
- * `auto-fit` with a minimum rather than a breakpoint ladder: the number of
- * columns then comes from the space actually available, so it is right at a
- * size nobody tested as well as at the two that were. 340px is the width the
- * widest control here needs - a key binding field and its label - so a column
- * is never narrower than its contents.
+ * This was an `auto-fit` grid that became three columns on a wide screen, on
+ * the argument that a toggle and three key bindings stretched across 1900px
+ * are short controls with a metre of empty row each. The user does not want
+ * the trade: "I don't want three sections across the page. I want one section
+ * per section. Okay, and I just have to scroll down in order to access all the
+ * settings."
  *
- * `align-items: start` because the groups are different heights and a stretched
- * one would put its border or background in the wrong place; `start` lets each
- * end where its content does.
+ * A column is the thing that made the prose stop early, so it goes with the
+ * measure above rather than being tuned - two columns would have the same
+ * fault at half the width. A section now spans the window and its contents lay
+ * themselves out inside it: the shortcut rows keep their binding button at the
+ * right edge, and the swatches stay 132px because `auto-fill` keeps the empty
+ * tracks rather than stretching seven colours across a metre.
+ *
+ * The gap does the separating, so the first heading in a group keeps no top
+ * margin - and the two groups that sit outside this container get the same gap
+ * as a margin, since a flex gap cannot reach them.
  */
 .set-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: 4px 36px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
 }
 
-/* The first heading in a group needs no top margin - the grid gap is the
-   separation, and `.panel h2` carries 26px for the single-column layout this
-   replaces. */
 .set-group > h2:first-child {
   margin-top: 0;
 }
 
 .set-group--wide {
-  grid-column: 1 / -1;
+  margin-top: 34px;
 }
 
-/* Breathing room above the one that spans the row, since it has no column
-   beside it to line up with. */
 .set-group--wide > h2:first-child {
-  margin-top: 22px;
+  margin-top: 0;
 }
 
 /* ---------- arranging: motion ---------- */
