@@ -200,6 +200,13 @@ export interface Layout {
    * argument for sections is that it is not - see `SECTIONS`.
    */
   sections: SectionId[]
+  /**
+   * The projects the Constellation panel hides, by name. Absent until the
+   * user first changes it, which means the automatic view - see
+   * `projectChoices` in `shared/constellation.ts`. Optional, so every layout
+   * stored before it existed resolves to exactly what it showed before.
+   */
+  constellationHidden?: string[]
 }
 
 /** What the comparison box is set to: statistic, grain, and over how long. */
@@ -425,7 +432,7 @@ export function resolveLayout(stored: unknown): Layout {
     if (isRangeTarget(target) && typeof text === 'string') customRanges[target] = text
   }
 
-  return {
+  const out: Layout = {
     order,
     hidden,
     fontScale: clampScale(raw.fontScale),
@@ -434,6 +441,14 @@ export function resolveLayout(stored: unknown): Layout {
     compare,
     sections: resolveSections(raw.sections)
   }
+  // Names, not ids: a project renamed in the Data tab is a different name,
+  // and showing it again is the safe direction. Only strings survive.
+  if (Array.isArray(raw.constellationHidden)) {
+    out.constellationHidden = [
+      ...new Set(raw.constellationHidden.filter((n): n is string => typeof n === 'string'))
+    ]
+  }
+  return out
 }
 
 /** The JSON that goes into `app_settings`. Resolved first, so what is stored is always valid. */

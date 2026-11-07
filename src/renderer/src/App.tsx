@@ -852,7 +852,18 @@ export default function App(): React.JSX.Element {
       )}
 
       <header className="card__head">
+        {/* Settings first, in the top-left corner, then ring / bar, then a
+            new timer - the order the user asked for. All three are siblings in
+            this one container, so reordering them cannot change which sits on
+            top of a drag region (see CLAUDE.md, drag regions). */}
         <div className="tools">
+          <button
+            className="icon"
+            onClick={() => void window.api.window.openDashboard()}
+            title="Settings and data"
+          >
+            <Icon name="settings" />
+          </button>
           <button
             className="icon"
             onClick={() => setVariant(variant === 'ring' ? 'bar' : 'ring')}
@@ -866,13 +877,6 @@ export default function App(): React.JSX.Element {
             title="New timer window"
           >
             <Icon name="plus" />
-          </button>
-          <button
-            className="icon"
-            onClick={() => void window.api.window.openDashboard()}
-            title="Settings and data"
-          >
-            <Icon name="settings" />
           </button>
         </div>
 

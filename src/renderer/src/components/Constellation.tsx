@@ -32,6 +32,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   AdditiveBlending,
+  AddEquation,
+  CustomBlending,
+  OneFactor,
+  OneMinusDstColorFactor,
   BufferGeometry,
   Color,
   Float32BufferAttribute,
@@ -55,6 +59,11 @@ import {
   armColours,
   colourRanks,
   starRows,
+  projectChoices,
+  projectColour,
+  withProjectShown,
+  hideAllProjects,
+  showAllProjects,
   PROJECTIONS,
   type Projection,
   buildConstellation,
@@ -67,10 +76,24 @@ import { ChartTip } from './AnalyticsCharts'
 
 const STAGE_BG = '#05060a'
 const SHAPE_KEY = 'dwt.constellation.shape'
+/**
+ * How bright the glow is, 1 being the first look. *"I just want you to tone
+ * down the brightness, the intensity just a little."* A third off: the same
+ * glow, halo, swell and twinkle, quieter.
+ */
+const GLOW_INTENSITY = 0.66
 /** Where the camera looks: a little above the floor, so tall stars are not cropped. */
 const TARGET_Y = HEIGHT * 0.32
-/** Seconds of stillness after an interaction before the slow turn resumes. */
+/**
+ * The slow turn starts after this long with no pointer, wheel or keyboard
+ * input on the panel - and after this long on first view. *"enable the slow
+ * rotation after like a 5 second idle timer."*
+ */
 const IDLE_RESUME_MS = 5000
+/** How long the turn takes to reach full speed, so it eases in rather than jumping. */
+const SPIN_UP_MS = 1000
+/** OrbitControls units: 0.32 is one turn in a little over three minutes. */
+const TURN_SPEED = 0.32
 
 const CSS = `
 .cst__stage {
@@ -276,6 +299,105 @@ const CSS = `
   height: 13px;
   display: block;
 }
+.cst__picker {
+  position: relative;
+}
+.cst__pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: calc(11.5px * var(--an-fs, 1));
+  cursor: pointer;
+}
+.cst__pick:hover,
+.cst__pick.is-on {
+  color: var(--text);
+  border-color: var(--border);
+}
+.cst__pick-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+.cst__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  width: 280px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: 0 10px 28px #00000077;
+}
+.cst__search {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.cst__menu-actions {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0 6px;
+}
+.cst__menu-actions button {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.cst__menu-actions button:hover:not(:disabled) {
+  color: var(--text);
+}
+.cst__menu-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.cst__menu-list {
+  max-height: 300px;
+  overflow: auto;
+}
+.cst__choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.cst__choice:hover {
+  background: #ffffff0a;
+}
+.cst__choice input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+.cst__choice .cst__arm-hours {
+  margin-left: auto;
+}
+.cst__menu-note {
+  margin: 6px 2px 0;
+  color: var(--text-dim);
+  font-size: 11px;
+}
 .cst__shape {
   display: inline-flex;
   gap: 2px;
@@ -337,6 +459,7 @@ uniform float uFogNear;
 uniform float uFogFar;
 uniform float uTime;
 uniform float uWave;
+uniform float uIntensity;
 varying vec3 vColor;
 varying float vAlpha;
 varying float vHot;
@@ -352,7 +475,9 @@ void main() {
   float wave = exp(-pow((bright - uWave) * 9.0, 2.0));
   vColor = color;
   vHot = wave;
-  vAlpha = (0.2 + 0.8 * bright + 0.9 * wave) * fog * dim * twinkle;
+  // uIntensity scales the whole glow. 0.66 is the user's "tone down the
+  // brightness, the intensity just a little" - the same look, a third dimmer.
+  vAlpha = (0.2 + 0.8 * bright + 0.75 * wave) * fog * dim * twinkle * uIntensity;
   gl_PointSize = clamp(size * (1.0 + 0.45 * wave) * uScale / depth, 1.6, 72.0) * uPixelRatio;
   gl_Position = projectionMatrix * mv;
 }
@@ -371,10 +496,13 @@ void main() {
   // per point in the shader rather than as a full-screen pass.
   float core = exp(-d * 28.0);
   float body = exp(-d * 9.0) * 0.55;
-  float halo = exp(-d * 2.6) * 0.22 * (1.0 - d);
+  float halo = exp(-d * 2.6) * 0.16 * (1.0 - d);
   float a = (core + body + halo) * vAlpha;
-  vec3 c = mix(vColor * 1.15, vec3(1.0), clamp(core * 0.7 + vHot * 0.25, 0.0, 1.0));
-  gl_FragColor = vec4(c, a);
+  // Less white in the pinpoint than before, so a dense arm sums towards its
+  // own colour rather than towards white.
+  vec3 c = mix(vColor * 1.1, vec3(1.0), clamp(core * 0.45 + vHot * 0.2, 0.0, 1.0));
+  // Premultiplied, for the screen blend below.
+  gl_FragColor = vec4(c * a, a);
 }
 `
 
@@ -425,7 +553,7 @@ void main() {
   vec2 p = gl_PointCoord * 2.0 - 1.0;
   float d = dot(p, p);
   if (d > 1.0) discard;
-  gl_FragColor = vec4(vec3(0.75, 0.82, 1.0), (1.0 - d) * vAlpha * 0.5);
+  gl_FragColor = vec4(vec3(0.75, 0.82, 1.0), (1.0 - d) * vAlpha * 0.4);
 }
 `
 
@@ -523,7 +651,7 @@ interface SceneState {
   lineMat: ShaderMaterial
   glowMat: ShaderMaterial
   markMat: ShaderMaterial
-  /** The core light; its colour follows the accent. */
+  /** The core light; its colour follows the largest arm. */
   coreMat: ShaderMaterial | null
   mark: Points
   glow: LineSegments | null
@@ -797,6 +925,9 @@ export interface ConstellationProps {
   to: string | null
   accent: string
   control: React.ReactNode
+  /** Hidden projects as JSON text; null is the automatic view. See `projectChoices`. */
+  hiddenProjects?: string | null
+  onHiddenProjects?: (next: string[] | null) => void
 }
 
 export default function Constellation({
@@ -805,8 +936,19 @@ export default function Constellation({
   from,
   to,
   accent,
-  control
+  control,
+  hiddenProjects = null,
+  onHiddenProjects
 }: ConstellationProps): React.JSX.Element {
+  const hidden = useMemo<string[] | null>(() => {
+    if (hiddenProjects === null) return null
+    try {
+      const parsed: unknown = JSON.parse(hiddenProjects)
+      return Array.isArray(parsed) ? parsed.filter((n): n is string => typeof n === 'string') : null
+    } catch {
+      return null
+    }
+  }, [hiddenProjects])
   const all = useMemo(() => starRows(sessionRows, clock), [sessionRows, clock])
   const rows = useMemo(
     () =>
@@ -834,9 +976,48 @@ export default function Constellation({
       // A shape that is not remembered is still the shape on screen.
     }
   }
-  const model = useMemo(() => buildConstellation(rows, all, projection), [rows, all, projection])
+  const model = useMemo(
+    () => buildConstellation(rows, all, projection, hidden),
+    [rows, all, projection, hidden]
+  )
+
+  /*
+   * The Projects list: every project with sessions in range, most hours
+   * first, ticked if it is an arm of its own. In-app, never a Windows
+   * dialog - see "The app speaks for itself".
+   */
+  const [picking, setPicking] = useState(false)
+  const [query, setQuery] = useState('')
+  const pickerRef = useRef<HTMLDivElement>(null)
+  const choices = useMemo(() => projectChoices(rows, hidden), [rows, hidden])
+  const shownChoices = choices.filter((c) =>
+    c.name.toLowerCase().includes(query.trim().toLowerCase())
+  )
+  const setShown = (name: string, shown: boolean): void =>
+    onHiddenProjects?.(withProjectShown(hidden, rows, all, name, shown))
+  useEffect(() => {
+    if (!picking) return
+    const away = (event: PointerEvent): void => {
+      if (pickerRef.current?.contains(event.target as Node) !== true) setPicking(false)
+    }
+    const key = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setPicking(false)
+    }
+    document.addEventListener('pointerdown', away)
+    document.addEventListener('keydown', key)
+    return () => {
+      document.removeEventListener('pointerdown', away)
+      document.removeEventListener('keydown', key)
+    }
+  }, [picking])
   const ranks = useMemo(() => colourRanks(all), [all])
   const colours = useMemo(() => armColours(model.wedges, accent, ranks), [model, accent, ranks])
+  // The arm's own colour where the project is an arm, so the list and the
+  // legend agree; its natural colour where it is pooled or hidden.
+  const colourOf = (name: string): string => {
+    const at = model.wedges.findIndex((w) => !w.other && w.projects.includes(name))
+    return at === -1 ? projectColour(ranks.get(name) ?? 0, accent) : colours[at]
+  }
 
   const stageRef = useRef<HTMLDivElement>(null)
   const labelsRef = useRef<HTMLDivElement>(null)
@@ -915,8 +1096,9 @@ export default function Constellation({
     controls.minDistance = RADIUS * 0.35
     controls.maxDistance = RADIUS * 6
     controls.maxPolarAngle = Math.PI * 0.62
-    controls.autoRotate = !reduced
-    controls.autoRotateSpeed = 0.32
+    // Off until the panel has been seen and left alone for IDLE_RESUME_MS.
+    controls.autoRotate = false
+    controls.autoRotateSpeed = 0
 
     const common = {
       uIsolate: { value: -1 },
@@ -932,11 +1114,22 @@ export default function Constellation({
         uScale: { value: 600 },
         uPixelRatio: { value: pixelRatio },
         uTime: { value: 0 },
-        uWave: { value: -5 }
+        uWave: { value: -5 },
+        uIntensity: { value: GLOW_INTENSITY }
       },
+      /*
+       * Screen blending: light that adds up like the additive glow it
+       * replaced, but towards white asymptotically instead of linearly.
+       * A sparse arm glows exactly as before; the dense cores (HW, College
+       * Apps), which used to sum past white into flat blobs, keep their
+       * colour and their texture. Needs premultiplied output - see STAR_FRAG.
+       */
       transparent: true,
       depthWrite: false,
-      blending: AdditiveBlending
+      blending: CustomBlending,
+      blendEquation: AddEquation,
+      blendSrc: OneMinusDstColorFactor,
+      blendDst: OneFactor
     })
     // Shared uniform objects, so one write moves stars and lines together.
     const lineMat = new ShaderMaterial({
@@ -1083,9 +1276,9 @@ export default function Constellation({
       )
       controls.target.set(0, state.centreY, 0)
       controls.maxPolarAngle = sphere ? Math.PI : Math.PI * 0.62
+      core.position.set(0, sphere ? 0 : 0.05, 0)
       controls.update()
       controls.saveState()
-      core.position.set(0, sphere ? 0 : 0.05, 0)
       invalidate()
     }
     state.refit = () => {
@@ -1111,26 +1304,41 @@ export default function Constellation({
     const sizer = new ResizeObserver(resize)
     sizer.observe(stage)
 
-    /* idle turning */
+    /*
+     * Idle turning. Any pointer, wheel or keyboard input on the panel - a
+     * drag, a zoom, a hover, the legend, the Projects list, the range
+     * dropdown - stops the turn and restarts the clock; IDLE_RESUME_MS of
+     * nothing starts it again, from rest, easing up to speed over
+     * SPIN_UP_MS. The clock does not start until the panel has first been
+     * on screen, so it never starts turning somewhere nobody is looking.
+     */
     let resumeTimer = 0
-    const pauseTurn = (): void => {
-      interacted = true
-      controls.autoRotate = false
+    let seenOnce = false
+    let frozen = false
+    let spin = 0
+    const rest = (): void => {
+      if (controls.autoRotate) {
+        controls.autoRotate = false
+        invalidate()
+      }
+      spin = 0
       window.clearTimeout(resumeTimer)
-    }
-    const scheduleResume = (): void => {
-      window.clearTimeout(resumeTimer)
-      if (reduced) return
+      if (reduced || frozen || !seenOnce) return
       resumeTimer = window.setTimeout(() => {
-        if (hoverRef.current === null) {
-          controls.autoRotate = true
-          invalidate()
-        }
+        if (hoverRef.current !== null) return
+        controls.autoRotate = true
+        invalidate()
       }, IDLE_RESUME_MS)
     }
-    controls.addEventListener('start', pauseTurn)
-    controls.addEventListener('end', scheduleResume)
-    state.resume = scheduleResume
+    controls.addEventListener('start', () => {
+      interacted = true
+      rest()
+    })
+    controls.addEventListener('end', rest)
+    state.resume = rest
+    const panel = stage.parentElement
+    const inputs = ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const
+    for (const type of inputs) panel?.addEventListener(type, rest, { passive: true })
 
     /* wheel engagement */
     let hintTimer = 0
@@ -1236,7 +1444,7 @@ export default function Constellation({
       controls.reset()
       home()
       setIsolated(null)
-      if (!reduced) controls.autoRotate = true
+      rest()
       invalidate()
     }
     renderer.domElement.addEventListener('dblclick', onDouble)
@@ -1262,6 +1470,10 @@ export default function Constellation({
      */
     const seen = new IntersectionObserver((entries) => {
       visible = entries.some((entry) => entry.isIntersecting)
+      if (visible && !seenOnce) {
+        seenOnce = true
+        rest()
+      }
       if (visible) invalidate()
     })
     seen.observe(stage)
@@ -1304,7 +1516,12 @@ export default function Constellation({
       last = now
 
       const turning = controls.autoRotate && !reduced
-      if (turning) clock += dt
+      if (turning) {
+        // Ease in: smoothstep from rest to full speed.
+        spin = Math.min(1, spin + (dt * 1000) / SPIN_UP_MS)
+        controls.autoRotateSpeed = TURN_SPEED * spin * spin * (3 - 2 * spin)
+        clock += dt
+      }
       starMat.uniforms.uTime.value = clock
       // The swell runs every eleven seconds while the cloud turns, and is
       // simply absent from a still frame.
@@ -1411,7 +1628,8 @@ export default function Constellation({
       configurable: true,
       value: () => {
         interacted = true
-        controls.autoRotate = false
+        frozen = true
+        rest()
         invalidate()
       }
     })
@@ -1472,6 +1690,7 @@ export default function Constellation({
     state.dispose = () => {
       if (frame > 0) cancelAnimationFrame(frame)
       frame = -1
+      for (const type of inputs) panel?.removeEventListener(type, rest)
       window.clearTimeout(resumeTimer)
       window.clearTimeout(hintTimer)
       sizer.disconnect()
@@ -1615,6 +1834,71 @@ export default function Constellation({
           <span className="an-panel__sub">{sub}</span>
         </h4>
         <span className="cst__aside">
+          <span className="cst__picker" ref={pickerRef}>
+            <button
+              type="button"
+              className={`cst__pick${picking ? ' is-on' : ''}`}
+              aria-expanded={picking}
+              onClick={() => setPicking(!picking)}
+            >
+              Projects
+              {hidden !== null ? (
+                <span className="cst__pick-count">
+                  {choices.filter((c) => c.shown).length}/{choices.length}
+                </span>
+              ) : null}
+            </button>
+            {picking ? (
+              <div className="cst__menu" role="dialog" aria-label="Projects shown">
+                <input
+                  className="cst__search"
+                  type="search"
+                  placeholder="Search projects"
+                  value={query}
+                  autoFocus
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                <div className="cst__menu-actions">
+                  <button type="button" onClick={() => onHiddenProjects?.(showAllProjects())}>
+                    All
+                  </button>
+                  <button type="button" onClick={() => onHiddenProjects?.(hideAllProjects(all))}>
+                    None
+                  </button>
+                  <button
+                    type="button"
+                    disabled={hidden === null}
+                    title="The largest projects, with the rest grouped as Other"
+                    onClick={() => onHiddenProjects?.(null)}
+                  >
+                    Automatic
+                  </button>
+                </div>
+                <div className="cst__menu-list">
+                  {shownChoices.map((choice) => (
+                    <label key={choice.name} className="cst__choice">
+                      <input
+                        type="checkbox"
+                        checked={choice.shown}
+                        onChange={(event) => setShown(choice.name, event.target.checked)}
+                      />
+                      <i className="cst__dot" style={{ background: colourOf(choice.name) }} />
+                      <span className="cst__arm-name">{choice.name}</span>
+                      <span className="cst__arm-hours">{hoursShort(choice.hours)}</span>
+                    </label>
+                  ))}
+                  {shownChoices.length === 0 ? (
+                    <p className="cst__menu-note">No project matches.</p>
+                  ) : null}
+                </div>
+                <p className="cst__menu-note">
+                  {hidden === null
+                    ? 'Automatic: unticked projects are grouped as Other.'
+                    : 'Unticked projects are hidden.'}
+                </p>
+              </div>
+            ) : null}
+          </span>
           <span className="cst__shape" role="group" aria-label="Shape">
             {PROJECTIONS.map((option) => (
               <button
@@ -1652,7 +1936,11 @@ export default function Constellation({
             {failure}
           </div>
         ) : sessions === 0 ? (
-          <div className="cst__empty">No sessions in this range.</div>
+          <div className="cst__empty">
+            {hidden !== null && choices.length > 0
+              ? 'Every project in this range is hidden. Open Projects to show some.'
+              : 'No sessions in this range.'}
+          </div>
         ) : null}
         <div className="cst__legend">
           {model.wedges.map((wedge, i) => (
@@ -1724,9 +2012,10 @@ export default function Constellation({
       </div>
 
       <p className="an-panel__note">
-        Every star is a session. <b>Distance from the centre</b> is hours worked up to it, so each
-        ring marks where a {ringWord} began and a wide band is a productive one. <b>Angle</b> is the
-        project, each arm as wide as its share of the hours;{' '}
+        Every star is a session. <b>Distance from the centre</b> is time: the first session at the
+        core, the end of the range at the rim, counted in hours of work rather than in days - so
+        each ring marks where a {ringWord} began, and a wide band is a busy one. <b>Angle</b> is the
+        project, each arm as wide as its share of the hours in this range;{' '}
         {projection === 'sphere' ? (
           <>
             <b>latitude</b> is session length - short in the south, long in the north.

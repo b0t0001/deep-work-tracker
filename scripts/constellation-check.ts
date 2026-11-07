@@ -19,6 +19,9 @@ import {
   MIN_WIDTH,
   RADIUS,
   armColours,
+  hexToHsl,
+  hueGap,
+  MUTED_SATURATION,
   colourRanks,
   buildConstellation,
   buildLinks,
@@ -28,6 +31,10 @@ import {
   heightOf,
   outputPercentiles,
   place,
+  projectChoices,
+  withProjectShown,
+  hideAllProjects,
+  showAllProjects,
   starRows,
   ringDates,
   ringGrain,
@@ -452,6 +459,103 @@ console.log('--- the whole cloud ---')
 eq('empty in, empty out', buildConstellation([]).stars.length, 0)
 
 console.log('')
+console.log('--- which projects are shown ---')
+{
+  nextId = 1
+  // Twelve projects, so the automatic view pools the tail into Other.
+  const rows: StarRow[] = [
+    row({ project: 'HW', runningS: 3600 * 40 }),
+    row({ project: 'College Apps', runningS: 3600 * 30 }),
+    row({ project: 'Sprocket', runningS: 3600 * 20 }),
+    row({ project: 'Scioly', runningS: 3600 * 18 }),
+    row({ project: 'JPL', runningS: 3600 * 16 }),
+    row({ project: 'SAT', runningS: 3600 * 14 }),
+    row({ project: 'Startup', runningS: 3600 * 12 }),
+    row({ project: 'Job', runningS: 3600 * 10 }),
+    row({ project: 'Essay', runningS: 3600 * 2 }),
+    row({ project: 'PER', runningS: 3600 * 1 }),
+    row({ project: 'Club', runningS: 3600 * 0.5 }),
+    row({ project: 'Read', runningS: 3600 * 0.4 })
+  ]
+  const auto = buildConstellation(rows, rows, 'cylinder', null)
+  eq(
+    'automatic: the tail is pooled into Other, as before',
+    auto.wedges[auto.wedges.length - 1].other,
+    true
+  )
+  eq('automatic: PER is in Other', auto.wedges.find((w) => w.projects.includes('PER'))?.other, true)
+
+  // The user's own request, applied from the automatic view one click at a time.
+  let hidden: string[] | null = null
+  for (const name of ['College Apps', 'Sprocket', 'Scioly', 'JPL', 'SAT']) {
+    hidden = withProjectShown(hidden, rows, rows, name, false)
+  }
+  hidden = withProjectShown(hidden, rows, rows, 'PER', true)
+  const chosen = buildConstellation(rows, rows, 'cylinder', hidden)
+  eq(
+    'chosen: exactly the projects left visible, each its own arm, largest first',
+    chosen.wedges.map((w) => w.label),
+    ['HW', 'Startup', 'Job', 'PER']
+  )
+  eq(
+    'chosen: there is no Other',
+    chosen.wedges.some((w) => w.other),
+    false
+  )
+  eq(
+    'chosen: hidden projects are gone, not dimmed',
+    chosen.stars.some((st) => ['College Apps', 'SAT'].includes(st.row.project ?? '')),
+    false
+  )
+  near(
+    'chosen: the arms re-divide to fill the circle',
+    chosen.wedges.reduce((sum, w) => sum + w.width, 0),
+    Math.PI * 2
+  )
+  eq(
+    'the first change does not turn the pooled tail into new arms',
+    withProjectShown(null, rows, rows, 'College Apps', false).includes('Club'),
+    true
+  )
+  const listed = projectChoices(rows, hidden)
+  eq('the list is most hours first', listed[0].name, 'HW')
+  eq(
+    'and ticks what is shown',
+    listed.filter((c) => c.shown).map((c) => c.name),
+    ['HW', 'Startup', 'Job', 'PER']
+  )
+  eq(
+    'automatic view ticks the arms, not the pooled tail',
+    projectChoices(rows, null).find((c) => c.name === 'PER')?.shown,
+    false
+  )
+  eq(
+    'All shows everything as arms',
+    buildConstellation(rows, rows, 'cylinder', showAllProjects()).wedges.length,
+    12
+  )
+  eq(
+    'None leaves an empty cloud',
+    buildConstellation(rows, rows, 'cylinder', hideAllProjects(rows)).stars.length,
+    0
+  )
+  // A project outside the range, hidden on the first change, stays hidden.
+  const older = [...rows, row({ project: 'Old club', runningS: 3600, date: '2020-01-01' })]
+  eq(
+    'a project outside the range is hidden by the first change too',
+    withProjectShown(null, rows, older, 'HW', true).includes('Old club'),
+    true
+  )
+  // A project that did not exist when the choice was made appears.
+  const later = [...rows, row({ project: 'New lab', runningS: 3600 })]
+  eq(
+    'a new project appears on its own',
+    buildConstellation(later, later, 'cylinder', hidden).wedges.some((w) => w.label === 'New lab'),
+    true
+  )
+}
+
+console.log('')
 console.log('--- rows from the payload ---')
 {
   const base = {
@@ -531,7 +635,8 @@ console.log('--- colours ---')
     row({ project: 'B', runningS: 100 })
   ])
   const c = armColours(w, '#5eead4')
-  eq('the largest arm is the accent', c[0], '#5eead4')
+  near('the largest arm takes the hue of the accent', hexToHsl(c[0]).h, hexToHsl('#5eead4').h, 2)
+  near('muted, not the accent at full saturation', hexToHsl(c[0]).s, MUTED_SATURATION, 0.02)
   eq('the others are distinct from it', c[1] !== c[0], true)
   eq(
     'every colour is a hex',
@@ -552,9 +657,44 @@ console.log('--- colours ---')
   const ranged = buildWedges(all.slice(1))
   eq('in range A is the larger arm', ranged[0].label, 'A')
   const c = armColours(ranged, '#5eead4', ranks)
-  eq('but B, largest ever, keeps the accent', c[1], '#5eead4')
+  near('but B, largest ever, keeps the accent hue', hexToHsl(c[1]).h, hexToHsl('#5eead4').h, 2)
   const whole = armColours(buildWedges(all), '#5eead4', ranks)
   eq('and A is the same colour at both ranges', c[0], whole[1])
+}
+
+{
+  // The clash the user hit: ranks that land within a few degrees on the
+  // golden angle, both on screen. They must come out readably apart.
+  const ranks = new Map<string, number>()
+  const names = Array.from({ length: 37 }, (_, i) => `P${i}`)
+  names.forEach((n, i) => ranks.set(n, i))
+  const wedges = names.slice(0, 10).map((n) => ({
+    key: n,
+    label: n,
+    projects: [n],
+    hours: 1,
+    sessions: 1,
+    start: 0,
+    width: 0,
+    other: false
+  }))
+  // Pick ten whose golden-angle hues collide: every rank whose hue is near rank 2's.
+  const near2 = names.filter((_, i) => hueGap(i * 137.508, 2 * 137.508) < 12).slice(0, 4)
+  const clash = near2.map((n) => ({ ...wedges[0], key: n, label: n, projects: [n] }))
+  const c = armColours(clash, '#5eead4', ranks)
+  const hues = c.map((x) => hexToHsl(x).h)
+  let closest = 360
+  for (let i = 0; i < hues.length; i += 1)
+    for (let j = i + 1; j < hues.length; j += 1)
+      closest = Math.min(closest, hueGap(hues[i], hues[j]))
+  eq('arms that would collide on the golden angle are pushed apart', closest >= 25, true)
+  eq('the clash fixture really did collide', near2.length >= 2, true)
+  const ten = armColours(wedges, '#5eead4', ranks).map((x) => hexToHsl(x).h)
+  let tenClosest = 360
+  for (let i = 0; i < ten.length; i += 1)
+    for (let j = i + 1; j < ten.length; j += 1)
+      tenClosest = Math.min(tenClosest, hueGap(ten[i], ten[j]))
+  eq('ten arms on screen stay at least 25 degrees apart', tenClosest >= 25, true)
 }
 
 console.log('')
