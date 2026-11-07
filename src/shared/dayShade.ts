@@ -11,9 +11,11 @@
  * - **0 to 4 hours** ramps smoothly from just above an empty day to the full
  *   accent. Four hours is the target; reaching it is the brightest ordinary
  *   colour.
- * - **Past 4 hours** only lightens the accent a little, reaching its cap at 8
- *   hours. A long day still stands out, but it cannot redefine every other
- *   day the way a maximum-based scale did.
+ * - **4 hours and past it** is the full accent, and stays there. A long day is
+ *   marked by the superstar ring (over `SUPERSTAR_HOURS`), not by a lighter
+ *   colour - there was an 8 h+ shade for a while, and the user dropped it:
+ *   "if 6 plus hours is a superstar day, then we don't need a separate color
+ *   for 8 plus because I already know that will be a superstar."
  *
  * Absolute rather than relative also means a day keeps its colour forever:
  * adding a record day never repaints the rest of the grid.
@@ -21,41 +23,24 @@
 
 /** Hours that earn the full accent. */
 export const DAILY_TARGET_HOURS = 4
-/** Hours at which the extra brightness above the target stops growing. */
-export const DAILY_BONUS_CAP_HOURS = 8
 /** The faintest worked day, as a share of accent mixed into the empty colour. */
 const FLOOR_PERCENT = 18
-/** The most white mixed into the accent, reached at the bonus cap. */
-const BONUS_WHITE_PERCENT = 32
 
 export interface DayShade {
   /** Accent mixed into the empty-cell colour, 0-100. 0 means an empty day. */
   accentPercent: number
-  /** White mixed into the full accent above the target, 0-100. */
-  whitePercent: number
 }
 
 export function dayShade(hours: number): DayShade {
-  if (!(hours > 0)) return { accentPercent: 0, whitePercent: 0 }
-  if (hours < DAILY_TARGET_HOURS) {
-    const share = hours / DAILY_TARGET_HOURS
-    return {
-      accentPercent: Math.round(FLOOR_PERCENT + (100 - FLOOR_PERCENT) * share),
-      whitePercent: 0
-    }
-  }
-  const over = Math.min(
-    1,
-    (hours - DAILY_TARGET_HOURS) / (DAILY_BONUS_CAP_HOURS - DAILY_TARGET_HOURS)
-  )
-  return { accentPercent: 100, whitePercent: Math.round(BONUS_WHITE_PERCENT * over) }
+  if (!(hours > 0)) return { accentPercent: 0 }
+  const share = Math.min(1, hours / DAILY_TARGET_HOURS)
+  return { accentPercent: Math.round(FLOOR_PERCENT + (100 - FLOOR_PERCENT) * share) }
 }
 
 /** The CSS colour for a day, given the accent. */
 export function dayFill(hours: number, accent: string): string {
-  const { accentPercent, whitePercent } = dayShade(hours)
+  const { accentPercent } = dayShade(hours)
   if (accentPercent === 0) return 'var(--surface-raised)'
-  if (whitePercent > 0) return `color-mix(in srgb, #ffffff ${whitePercent}%, ${accent})`
   return `color-mix(in srgb, ${accent} ${accentPercent}%, var(--surface-raised))`
 }
 

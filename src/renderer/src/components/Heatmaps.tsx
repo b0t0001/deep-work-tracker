@@ -14,13 +14,7 @@
  * option and is worse: React would re-emit it once per mounted instance.
  */
 
-import {
-  DAILY_BONUS_CAP_HOURS,
-  DAILY_TARGET_HOURS,
-  dayFill,
-  isSuperstar,
-  SUPERSTAR_HOURS
-} from '@shared/dayShade'
+import { DAILY_TARGET_HOURS, dayFill, isSuperstar, SUPERSTAR_HOURS } from '@shared/dayShade'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type { DayTotal, HourTotal } from '@shared/analytics'
 import { EmptyState, TipBox, type TipRow } from './AnalyticsCharts'
@@ -300,9 +294,6 @@ function CalendarLegend({ accent }: { accent: string }): React.JSX.Element {
       {swatch(DAILY_TARGET_HOURS)}
       <span>{DAILY_TARGET_HOURS} h</span>
       <span style={{ width: 6 }} />
-      {swatch(DAILY_BONUS_CAP_HOURS)}
-      <span>{DAILY_BONUS_CAP_HOURS} h+</span>
-      <span style={{ width: 6 }} />
       <svg width={11} height={11} aria-hidden="true">
         <rect
           className="hm-star"
@@ -311,10 +302,10 @@ function CalendarLegend({ accent }: { accent: string }): React.JSX.Element {
           width={9.5}
           height={9.5}
           rx={2}
-          style={{ fill: dayFill(DAILY_BONUS_CAP_HOURS, accent) }}
+          style={{ fill: dayFill(DAILY_TARGET_HOURS, accent) }}
         />
       </svg>
-      <span>superstar</span>
+      <span>superstar, over {SUPERSTAR_HOURS} h</span>
     </div>
   )
 }

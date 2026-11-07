@@ -1286,8 +1286,10 @@ exactly the ambiguity the panel exists to remove.
 history.** *"I shouldn't be grading myself based off the maximum... if you do
 three or four hours of work every single day, that's great... what we want to
 reward is consistency."* `shared/dayShade.ts`: 0-4 h ramps from just above an
-empty day to the full accent; above 4 h the accent only lightens, capped at 8
-h. It replaced four levels off the 90th percentile, under which a run of long
+empty day to the full accent, and 4 h and past it stay full. There is no
+lighter shade for long days - an 8 h+ tier was dropped because the superstar
+ring already says it: *"if 6 plus hours is a superstar day, then we don't need
+a separate color for 8 plus."* It replaced four levels off the 90th percentile, under which a run of long
 days pushed an ordinary three-hour day to a middling shade. Absolute also
 means a day never changes colour when a record day is added.
 
