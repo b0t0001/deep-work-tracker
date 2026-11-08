@@ -408,6 +408,9 @@ function Backups(): React.JSX.Element {
   const [status, setStatus] = useState<BackupStatus | null>(null)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<string | null>(null)
+  /* Which colour the line takes. Every outcome used to be green, including
+     "Backup failed", which is the one case the colour is for. */
+  const [failed, setFailed] = useState(false)
 
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -478,6 +481,7 @@ function Backups(): React.JSX.Element {
       )
       load()
     } catch (error) {
+      setFailed(true)
       setResult(`Restore failed, nothing was changed. ${String(error)}`)
     } finally {
       setBusy(false)
@@ -493,6 +497,7 @@ function Backups(): React.JSX.Element {
         rows?: number
         reason?: string
       }
+      setFailed(!outcome.written)
       setResult(
         outcome.written
           ? `Backed up ${outcome.rows?.toLocaleString()} sessions.`
@@ -500,7 +505,41 @@ function Backups(): React.JSX.Element {
       )
       load()
     } catch (error) {
+      setFailed(true)
       setResult(`Backup failed. ${String(error)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * The sheet, to wherever the user picks.
+   *
+   * A cancelled dialog says nothing: the user closed it, so they know what
+   * happened, and a line reporting it would be the app narrating their own
+   * click back at them. Everything else - written, or a reason it was not -
+   * is said here rather than in a Windows dialog.
+   */
+  async function exportExcel(): Promise<void> {
+    setBusy(true)
+    setResult(null)
+    try {
+      const outcome = (await window.api.backups.exportExcel()) as {
+        ok: boolean
+        path?: string
+        rows?: number
+        reason?: string
+      }
+      if (outcome.ok) {
+        setFailed(false)
+        setResult(`Wrote ${outcome.rows?.toLocaleString()} sessions to ${outcome.path}.`)
+      } else if (outcome.reason) {
+        setFailed(true)
+        setResult(`The spreadsheet could not be written. ${outcome.reason}`)
+      }
+    } catch (error) {
+      setFailed(true)
+      setResult(`The spreadsheet could not be written. ${String(error)}`)
     } finally {
       setBusy(false)
     }
@@ -538,9 +577,20 @@ function Backups(): React.JSX.Element {
         deleted outright, so a mistake in the retention rule is recoverable for 30 days.
       </p>
 
+      <p className="muted">
+        <strong>Export to Excel</strong> writes the same history as an .xlsx laid out like the
+        spreadsheet this app replaced — one row a session, Date, Block, Tasks, Start, End, Total
+        Time, Work Done and Efficiency, with Start and End as countdown readings so Start minus End
+        is the time worked. Dates, durations and hours are real numbers there, so Excel can chart
+        them. It is a copy to read and keep, not one of the backups above: restoring reads the CSV.
+      </p>
+
       <div className="row">
         <button className="action action--primary" disabled={busy} onClick={() => void backupNow()}>
           {busy ? 'Working…' : 'Back up now'}
+        </button>
+        <button className="action" disabled={busy} onClick={() => void exportExcel()}>
+          Export to Excel…
         </button>
         <button className="action" disabled={busy} onClick={() => void restore()}>
           Restore from a backup…
@@ -555,7 +605,7 @@ function Backups(): React.JSX.Element {
         </span>
       </div>
 
-      {result && <p className="notice notice--good">{result}</p>}
+      {result && <p className={`notice notice--${failed ? 'bad' : 'good'}`}>{result}</p>}
 
       {status.backups.length > 0 && (
         <table className="grid">
