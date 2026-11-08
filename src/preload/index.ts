@@ -166,6 +166,7 @@ const api = {
     status: (): Promise<unknown> => ipcRenderer.invoke('backup:status'),
     now: (): Promise<unknown> => ipcRenderer.invoke('backup:now'),
     reveal: (): Promise<void> => ipcRenderer.invoke('backup:reveal'),
+    exportExcel: (): Promise<unknown> => ipcRenderer.invoke('backup:exportExcel'),
     pickRestore: (): Promise<string | null> => ipcRenderer.invoke('backup:pickRestore'),
     previewRestore: (filePath: string): Promise<unknown> =>
       ipcRenderer.invoke('backup:previewRestore', filePath),

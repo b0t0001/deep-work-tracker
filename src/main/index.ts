@@ -42,6 +42,7 @@ import {
   runBackup,
   startBackupSchedule
 } from './backup'
+import { suggestedName, writeExcel } from './excel'
 import { previewRestore, restoreFromCsv } from './restore'
 import { readLayout, writeLayout } from './db/layout'
 import { defaultLayout, type Layout } from '../shared/layout'
@@ -849,6 +850,32 @@ function registerIpc(): void {
       properties: ['openFile']
     })
     return result.canceled ? null : result.filePaths[0]
+  })
+
+  /**
+   * The sheet, written wherever the user says.
+   *
+   * A save dialog rather than the backup folder: this is a copy to keep or
+   * send, not one of the eight the schedule prunes, and putting it among
+   * those would make it look like one. Failures come back as a reason for the
+   * tab to print beside the button - never a message box, see "The app speaks
+   * for itself" - so the one case the user cannot see from here, a file open
+   * in Excel, says so instead of doing nothing.
+   */
+  ipcMain.handle('backup:exportExcel', async () => {
+    const result = await dialog.showSaveDialog({
+      title: 'Export to Excel',
+      defaultPath: join(app.getPath('documents'), suggestedName()),
+      filters: [{ name: 'Excel workbook', extensions: ['xlsx'] }]
+    })
+    if (result.canceled || !result.filePath) return { ok: false }
+    try {
+      const rows = await writeExcel(result.filePath)
+      return { ok: true, path: result.filePath, rows }
+    } catch (error) {
+      console.error('[excel] export failed', error)
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+    }
   })
 
   ipcMain.handle('backup:previewRestore', (_event, filePath: string) =>

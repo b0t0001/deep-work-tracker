@@ -27,6 +27,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "exceljs": "^4.4.0",
     "recharts": "^3.10.1",
     "three": "0.187.0"
   },

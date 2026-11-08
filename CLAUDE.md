@@ -1833,6 +1833,99 @@ the folder, the schedule and what is currently kept.
 - **An empty database is not backed up.** Eight slots at 3.5 days is a month of
   history; filling one with a snapshot of nothing pushes a real one out.
 
+### Export to Excel: the sheet, not the backup
+
+*"give me a option to back up my data to an Excel spreadsheet. And it should
+be formatted in the same way that my Google Sheet is."* A button in Settings
+> Backups writes `main/excel.ts`'s workbook wherever a save dialog is pointed
+(a file picker is a picker, not the app failing to speak for itself; the
+outcome and any failure are printed beside the button).
+
+**It is not a backup and cannot be restored from.** The CSV above carries
+ids, timestamps, pauses, stop reasons and pace targets, which is what
+`restore.ts` needs; this carries the ten columns the user has been reading
+for three and a half years. Two files with two jobs, and the Settings copy
+says which is which.
+
+**The countdown convention has to match the importer**, or a round trip
+through the sheet would move every duration. `Start` is what the timer was
+set to and `End` is what was left, so `Start - End` is the time worked.
+
+- **A loop writes `planned x laps`.** `planned_duration_s` is deliberately
+  one lap, so a two-lap 45-minute loop writes `1:30:00` and the subtraction
+  still gives the real time.
+- **Start is floored at the time worked.** A hand-entered row's planned and
+  actual are independent - two hours recorded against a one-hour goal - and
+  the subtraction would otherwise put a negative number in End. Taking
+  `max(planned x laps, actual)` keeps the invariant and spends the goal
+  rather than the fact. No timed row is ever in this case.
+- **A run that went to term writes `0:00:00`, not a blank.** The sheet left
+  those nineteen cells empty in 2023 and has written the zero ever since; the
+  importer reads both the same way.
+
+**Block is the project name with no ordinal.** The sheet says `HW 1`,
+`College Apps 3`; the ordinal is recorded here as carrying no meaning, the
+importer strips it and nothing stores it, so writing one back would mean
+inventing a sequence. Unlabelled sessions leave Block empty.
+
+**Cells are typed, so Excel can compute with them.** Dates are dates,
+durations are a fraction of a day under `[h]:mm:ss` - elapsed time, because
+plain `h:mm:ss` would show a loop past 24 hours as the remainder after
+midnight - and hours are numbers under `0.00`. Work Done and Efficiency stay
+text, because the sheet bakes the unit into both and splitting them would be
+a different sheet from the one that was asked for.
+
+**Two things the sheet does that are not obvious:**
+
+- **It rounds a half up.** 0.215 displays as `0.22`, 0.0375 as `0.038`.
+  `toFixed` rounds the binary double, and neither half is exactly
+  representable, so it gives `0.21` and `0.037`. Measured against the real
+  sheet that disagreed on 36 Total Time cells and 5 Efficiency cells.
+  `roundHalfUp` is used by the exporter and by the check, so they cannot
+  drift.
+- **The unit's plural is not "add an s".** `normalizeUnit` stores
+  `question`, `cad model`, `questions reviewed`. A unit that already contains
+  a plural is left alone (`questions revieweds` otherwise), one ending in a
+  past participle pluralises its first word (`applications submitted`), and
+  anything else pluralises its last (`cad models`). Singular only at exactly
+  1 - the sheet writes `0 questions` and `0.25 slides`.
+
+**No row per calendar day.** The sheet has one for every day since March
+2023 with `N/A` where the user rested; the app has no rest days, and those
+marks existed only to satisfy conditional formatting. Writing them would mean
+inventing a distinction the data does not carry, for every day before the
+first session included. `test` rows are left out, as everywhere else.
+
+`scripts/excel-check.ts` runs two ways. With no arguments it builds a
+fixture - a run stopped early, one that went to term, a three-lap loop, an
+unquantifiable session, an unlabelled one, a hand-entered row that overran
+its goal, a fractional quantity, two multi-word units and a `test` row - and
+reads the workbook back, checking each cell's *type* as well as its text.
+With `--db <copy> --csv <the sheet's export>` it exports the real history and
+matches every imported row against the line it came from: 2,474 of 2,474, with
+Block, Tasks, End and Work Done exact. Two allowances are counted and printed
+rather than skipped, both places where the sheet disagrees with itself - seven
+Total Time cells written to three decimals on two days in August 2024, and
+three Efficiency cells naming a shorter unit than their own Work Done
+(`1 videos + 1 question` became `0.167 videos/minute`, the formula stopping at
+the separator).
+
+Two things that cost a run each: **ExcelJS reads any `h:mm:ss`-shaped cell
+back as a `Date`**, near the 1900 epoch, so a duration written correctly as a
+number reads as nonsense unless the guess is undone - the file is right and
+the reader is guessing. And **a database copy taken weeks ago is behind on
+migrations**; opened read-only it stays that way, and this one predated
+`laps`, so the export's own query failed with `no such column`. The check now
+copies it into the profile and lets the runner migrate it, which is what
+happens to a real database anyway.
+
+**`exceljs` 4.4.0 is the dependency this adds**, chosen because it both
+writes and reads - the check needs to read the workbook back, and a
+write-only library would have meant a second one for that. Its only advisory
+is a transitive `uuid` bounds check on v3/v5/v6 with a caller-supplied
+buffer, which nothing here reaches. `package.json`'s `allowScripts` is
+unaffected: it is pure JavaScript with no install scripts.
+
 ### Committed is not the same as safe: checkpoint after writing
 
 In WAL mode a committed row lives in `deepwork.db-wal` until a checkpoint
