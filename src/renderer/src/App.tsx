@@ -85,6 +85,19 @@ export default function App(): React.JSX.Element {
   const [label, setLabel] = useState('')
   const [labelFocused, setLabelFocused] = useState(false)
   const [project, setProject] = useState('')
+  /**
+   * The field's value as of the last thing that set it, ahead of the render.
+   *
+   * Picking a suggestion sets the name and then the field loses focus in the
+   * same event - the card's mousedown blurs it, and Enter blurs it on purpose.
+   * The blur commits the field, and read from state it committed the text from
+   * the render *before* the pick, which then won: type "Ent", click
+   * Entrepreneurship, keep "Ent". The blur reads this instead.
+   */
+  const projectNow = useRef('')
+  useEffect(() => {
+    projectNow.current = project
+  }, [project])
   const [projectFocused, setProjectFocused] = useState(false)
   const [projectNames, setProjectNames] = useState<string[]>([])
   const projectRef = useRef<HTMLInputElement>(null)
@@ -193,12 +206,14 @@ export default function App(): React.JSX.Element {
   /** Committing snaps to an existing name when one plainly means the same. */
   function commitProject(value: string): void {
     const canonical = canonicalProjectName(value, projectNames) ?? value
+    projectNow.current = canonical
     setProject(canonical)
     void window.api.timer.setProject(canonical)
     setProjectOpen(false)
   }
 
   function chooseProject(name: string): void {
+    projectNow.current = name
     setProject(name)
     void window.api.timer.setProject(name)
     setProjectOpen(false)
@@ -361,6 +376,7 @@ export default function App(): React.JSX.Element {
         autoComplete="off"
         title="Which category this session counts towards"
         onChange={(event) => {
+          projectNow.current = event.target.value
           setProject(event.target.value)
           setProjectOpen(true)
           setHighlight(0)
@@ -383,7 +399,8 @@ export default function App(): React.JSX.Element {
           // A click on a suggestion fires blur first, so closing is deferred
           // by a tick or the mousedown never lands.
           window.setTimeout(() => setProjectOpen(false), 120)
-          commitProject(project)
+          // Not `project`: a pick made in this same event is not in it yet.
+          commitProject(projectNow.current)
         }}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown') {
