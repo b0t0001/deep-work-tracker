@@ -72,6 +72,11 @@ app.whenReady().then(async () => {
   const field = (): Promise<unknown> => ask(`document.querySelector('.dial__project').value`)
 
   async function typeProject(text: string): Promise<void> {
+    // The window must hold OS focus: in an unfocused window Chromium defers
+    // focus and blur events, so the blur that commits the field never fires
+    // and a pass or fail depends on what else on the desktop has focus.
+    window!.focus()
+    window!.webContents.focus()
     await ask(
       `(() => { const el = document.querySelector('.dial__project'); el.focus(); el.select(); })()`
     )
@@ -115,7 +120,10 @@ app.whenReady().then(async () => {
 
   console.log('\n2. Enter on the highlighted suggestion')
   await typeProject('pen')
-  check('the menu offers PennApps first', ((await ask(menu)) as string[])[0], 'PennApps')
+  const offered = (await ask(menu)) as string[]
+  check('the menu offers PennApps first', offered[0], 'PennApps')
+  if (offered[0] !== 'PennApps')
+    console.log('       field', JSON.stringify(await field()), 'menu', JSON.stringify(offered))
   window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
   window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
   await wait(250)

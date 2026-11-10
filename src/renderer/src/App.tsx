@@ -95,6 +95,12 @@ export default function App(): React.JSX.Element {
    * Entrepreneurship, keep "Ent". The blur reads this instead.
    */
   const projectNow = useRef('')
+  /**
+   * The list's deferred close after a blur. Cancelled when the field is
+   * focused again, or a blur followed quickly by a refocus and typing would
+   * close the list under the new text 120 ms later.
+   */
+  const projectClose = useRef<number | undefined>(undefined)
   useEffect(() => {
     projectNow.current = project
   }, [project])
@@ -400,6 +406,7 @@ export default function App(): React.JSX.Element {
           // different one there; a caret dropped mid-word made the new name
           // land inside the old one (`H|W` + `Job` = `HJobW`).
           event.currentTarget.select()
+          window.clearTimeout(projectClose.current)
           setProjectFocused(true)
           setProjectOpen(true)
           setHighlight(0)
@@ -408,7 +415,7 @@ export default function App(): React.JSX.Element {
           setProjectFocused(false)
           // A click on a suggestion fires blur first, so closing is deferred
           // by a tick or the mousedown never lands.
-          window.setTimeout(() => setProjectOpen(false), 120)
+          projectClose.current = window.setTimeout(() => setProjectOpen(false), 120)
           // Not `project`: a pick made in this same event is not in it yet.
           commitProject(projectNow.current)
         }}
