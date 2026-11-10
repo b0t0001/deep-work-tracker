@@ -42,6 +42,14 @@ import {
   runBackup,
   startBackupSchedule
 } from './backup'
+import {
+  deleteProject,
+  listProjectsForAdmin,
+  mergeProjects,
+  planMerge,
+  renameProject,
+  setProjectArchived
+} from './db/projectAdmin'
 import { suggestedName, writeExcel } from './excel'
 import { previewRestore, restoreFromCsv } from './restore'
 import { readLayout, writeLayout } from './db/layout'
@@ -692,6 +700,47 @@ function registerIpc(): void {
 
   ipcMain.handle('sessions:query', (_event, query: SessionQuery) => querySessions(query))
   ipcMain.handle('sessions:projects', () => listProjects())
+
+  /*
+   * Curating the project list. See `main/db/projectAdmin.ts` for why these
+   * four and not a general editor.
+   *
+   * Every one of them ends with `projectsChanged()`, because the timer reads
+   * its suggestions once when the window opens. A name renamed, merged away
+   * or hidden would otherwise keep being offered by every timer already on
+   * screen until it was closed and reopened - and the whole point of the
+   * screen is to make a name stop appearing.
+   */
+  const projectsChanged = (): void => {
+    for (const open of BrowserWindow.getAllWindows()) {
+      if (!open.isDestroyed()) open.webContents.send('projects:changed')
+    }
+  }
+
+  ipcMain.handle('projects:list', () => safely(() => listProjectsForAdmin(), []))
+  ipcMain.handle('projects:rename', (_event, id: number, name: string) => {
+    const result = renameProject(id, name)
+    if (result.ok) projectsChanged()
+    return result
+  })
+  ipcMain.handle('projects:planMerge', (_event, from: number, into: number) =>
+    planMerge(from, into)
+  )
+  ipcMain.handle('projects:merge', (_event, from: number, into: number) => {
+    const result = mergeProjects(from, into)
+    if (result.ok) projectsChanged()
+    return result
+  })
+  ipcMain.handle('projects:setArchived', (_event, id: number, archived: boolean) => {
+    const result = setProjectArchived(id, archived)
+    if (result.ok) projectsChanged()
+    return result
+  })
+  ipcMain.handle('projects:delete', (_event, id: number) => {
+    const result = deleteProject(id)
+    if (result.ok) projectsChanged()
+    return result
+  })
 
   // Edits from the Data tab go through the history module rather than the
   // repository, so every one of them is undoable by construction.

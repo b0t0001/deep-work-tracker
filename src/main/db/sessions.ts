@@ -130,14 +130,30 @@ export function findOrCreateProject(name: string): number | null {
   // let `hw` become a second project beside `HW` and turned fifteen real
   // categories into sixty-six. The typed text resolves against what already
   // exists first, and only a genuinely new name creates a row.
-  const names = (db.prepare('SELECT name FROM projects').all() as Array<{ name: string }>).map(
-    (row) => row.name
-  )
+  //
+  // **Snapping ignores hidden projects, the lookup does not.** A hidden
+  // project is one the user has said to stop offering, so `Scioly` must not
+  // pull `Sci` back into it. But the row still exists and its name is still
+  // `UNIQUE`, so typing the name itself has to find it - inserting would
+  // throw, and a second row with the same name is the drift this function
+  // exists to prevent.
+  const names = (
+    db.prepare('SELECT name FROM projects WHERE archived = 0').all() as Array<{ name: string }>
+  ).map((row) => row.name)
   const target = canonicalProjectName(trimmed, names) ?? trimmed
 
-  const existing = db.prepare('SELECT id FROM projects WHERE name = ?').get(target) as
-    { id: number } | undefined
-  if (existing) return Number(existing.id)
+  const existing = db.prepare('SELECT id, archived FROM projects WHERE name = ?').get(target) as
+    { id: number; archived: number } | undefined
+  if (existing) {
+    // Typing a hidden project's name exactly brings it back. The user is
+    // working on it again, which is the only thing hiding was ever about -
+    // and the alternative, recording sessions against a project the
+    // suggestions deny exists, is a state nothing on screen would explain.
+    if (existing.archived !== 0) {
+      db.prepare('UPDATE projects SET archived = 0 WHERE id = ?').run(existing.id)
+    }
+    return Number(existing.id)
+  }
   return Number(db.prepare('INSERT INTO projects (name) VALUES (?)').run(target).lastInsertRowid)
 }
 
@@ -146,6 +162,12 @@ export function findOrCreateProject(name: string): number | null {
  *
  * Ordered by use rather than alphabetically so an empty field offers the
  * handful that carry the recent history instead of whatever starts with A.
+ *
+ * **Hidden projects are left out**, which is what hiding one means. Their
+ * sessions are untouched and every analytic still counts them; the name has
+ * only stopped being offered. The Data tab's filter uses `listProjects`
+ * instead and still lists them, because their sessions are there to be
+ * found.
  */
 export function allProjectNames(): string[] {
   return (
@@ -153,6 +175,7 @@ export function allProjectNames(): string[] {
       .prepare(
         `SELECT p.name AS name, COUNT(s.id) AS uses
            FROM projects p LEFT JOIN sessions s ON s.project_id = p.id
+          WHERE p.archived = 0
           GROUP BY p.id, p.name
           ORDER BY uses DESC, p.name ASC`
       )

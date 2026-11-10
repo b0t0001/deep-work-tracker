@@ -162,6 +162,30 @@ const api = {
     location: (): Promise<string> => ipcRenderer.invoke('log:location'),
     reveal: (): Promise<void> => ipcRenderer.invoke('log:reveal')
   },
+  /**
+   * Curating the project list, from Settings.
+   *
+   * `changed` is how a timer window already on screen learns that a name has
+   * gone: it reads its suggestions once at load, so without this a renamed or
+   * hidden project would keep being offered until the window was reopened.
+   */
+  projects: {
+    list: (): Promise<unknown> => ipcRenderer.invoke('projects:list'),
+    rename: (id: number, name: string): Promise<unknown> =>
+      ipcRenderer.invoke('projects:rename', id, name),
+    planMerge: (from: number, into: number): Promise<unknown> =>
+      ipcRenderer.invoke('projects:planMerge', from, into),
+    merge: (from: number, into: number): Promise<unknown> =>
+      ipcRenderer.invoke('projects:merge', from, into),
+    setArchived: (id: number, archived: boolean): Promise<unknown> =>
+      ipcRenderer.invoke('projects:setArchived', id, archived),
+    remove: (id: number): Promise<unknown> => ipcRenderer.invoke('projects:delete', id),
+    changed: (handler: () => void): Unsubscribe => {
+      const listener = (): void => handler()
+      ipcRenderer.on('projects:changed', listener)
+      return () => ipcRenderer.removeListener('projects:changed', listener)
+    }
+  },
   backups: {
     status: (): Promise<unknown> => ipcRenderer.invoke('backup:status'),
     now: (): Promise<unknown> => ipcRenderer.invoke('backup:now'),

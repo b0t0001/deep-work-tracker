@@ -2229,9 +2229,11 @@ got through until you are done.
   literal prefixes, cannot be ranked, and cannot show which entry Enter will
   take. The menu floats over the dial rather than pushing it, because at 136px
   there is nowhere to grow, and it shows at most four.
-- **Typing a new name is still how projects come into existence** - there is no
-  "manage projects" screen, because a step between deciding to work and
-  starting is a reason not to label.
+- **Typing a new name is still how projects come into existence**, because a
+  step between deciding to work and starting is a reason not to label. There
+  is now a **Projects section in Settings** to tidy the list afterwards (see
+  below) - creating stays free, and that is the other half of the bargain.
+  Nothing about the timer changed.
 - **A new window defaults to the last session's project.** Work comes in
   runs - several HW sessions, then several on the essay - so the previous
   answer is nearly always this one. Kept deliberately when finishing began
@@ -2275,6 +2277,89 @@ got through until you are done.
 - **`projectId: -1` is the Unlabelled sentinel** in `querySessions`. A real id
   cannot be negative, and it keeps the filter one control - unlabelled is a
   choice of project, not a separate axis.
+
+### Curating the project list
+
+*"i should be able to manually adjust what projects the app recognizes"*
+(11/09/2026). A **Projects** section in Settings lists every project the app
+knows about, most-used first, with its session count, hours and last use, and
+a search box. `main/db/projectAdmin.ts` holds the four operations; the timer
+is untouched.
+
+What prompted it was a project called `Entre` with no sessions sitting in the
+timer's suggestions, left by the bug fixed in de53a3e where picking a
+suggestion kept the typed text. A row could be created by a typo and there
+was nowhere to remove it.
+
+Why these four and not a general editor - each is one of the ways the drift
+this app exists to prevent gets repaired:
+
+- **Rename fixes history**, because sessions point at the row rather than
+  carrying the string. **Renaming onto a name that already exists is not an
+  error, it is a merge to offer**: that *is* the drift being repaired, and
+  failing on `UNIQUE` would leave the user to work out what happened. The
+  clash is found case-insensitively although `UNIQUE` is not, because `hw`
+  beside `HW` is exactly the mess being undone - SQLite would accept the pair
+  and the user would have made the drift by hand. Changing only the
+  capitalisation of a project's own name is a rename, not a conflict with
+  itself.
+- **Merge moves every session and tag to the target and deletes the source**,
+  in one transaction - a half-merged project is a state nobody could describe.
+  This is how `College Apps` / `College Applications` gets fixed by hand. A
+  tag whose name is already on the target is dropped rather than moved, since
+  `tags` is `UNIQUE (name, project_id)` and two tags of one name on one
+  project would be the same tag.
+- **Hiding keeps the sessions.** `archived` has been in the schema since
+  migration 1 and unused until now. A finished project - Sprocket, after
+  leaving high school - stops being suggested while every analytic still
+  counts its history.
+- **Delete is refused while anything points at it.** `sessions.project_id` is
+  `ON DELETE SET NULL`, so deleting a project in use would not fail: it would
+  quietly unlabel every session that belonged to it, which is the one outcome
+  this screen must not make easy. The refusal names the counts and points at
+  merge and hide, because "cannot delete" without them is a dead end.
+
+**What a hidden project does to matching, which is two different answers.**
+`allProjectNames` and the snapping list both skip hidden projects, so `Scio`
+will not be pulled into a `Scioly` the suggestions deny exists. But
+`findOrCreateProject` looks the exact name up across **all** rows including
+hidden ones, and unarchives what it finds. Inserting instead would throw on
+`UNIQUE`, and a second row with the same name is precisely the drift the
+function exists to prevent. So **typing a hidden project's name exactly
+brings it back** - the user is working on it again, which is the only thing
+hiding was ever about.
+
+**Confirmations happen in the row**, not in a Windows dialog - see "The app
+speaks for itself". A merge and a delete each open a strip under the project
+they are about to change, stating what moves or goes with its counts. That
+also keeps the thing being confirmed on screen while the question is asked,
+which a modal cannot.
+
+**Every write checkpoints.** A merge takes `checkpoint()` - one decisive write
+rewriting hundreds of session rows, which is the shape the immediate form
+exists for; rename, hide and delete take `checkpointSoon()`.
+
+**Open timer windows are told.** A timer reads its suggestions once when the
+window opens, so a name renamed, merged away or hidden would go on being
+offered by every timer already on screen until it was closed and reopened -
+and making a name stop appearing is the whole point of the screen. Main sends
+`projects:changed` after every successful write; the timer, the Data tab's
+add/edit form and the Data table all re-read on it. The Data tab's project
+filter still lists hidden projects, because their sessions are there to be
+found.
+
+`scripts/projects-check.ts` drives all four on a fixture shaped like the real
+history - two spellings of one project, one with no sessions, one with tags
+that collide on merge: 40 checks covering rename, the rename-onto-existing
+conflict, what a merge moves and drops, hiding leaving the suggestions while
+snapping forgets it, the exact name bringing it back, and delete refused
+while sessions or tags point at it. With `--db <copy> --shot <path>` it
+photographs the section against the real-size history instead, which is the
+only way to see that a list that reads well at five projects still does at
+thirty-six. Two things that run needed: `capturePage` fails with
+`UnknownVizError` unless the occlusion switches are set, and Settings scrolls
+inside `.dashboard__body`, so `scrollIntoView` on a heading moves nothing -
+the pane's `scrollTop` is what to set.
 
 ### Labeling must be fast
 

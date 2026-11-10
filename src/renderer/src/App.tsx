@@ -170,10 +170,19 @@ export default function App(): React.JSX.Element {
     // Suggestions are a convenience. If they cannot be read the field still
     // works as free text, so a failure here must not become an unhandled
     // rejection that looks like the timer breaking.
-    void window.api.timer
-      .projectNames()
-      .then(setProjectNames)
-      .catch(() => setProjectNames([]))
+    const names = (): void => {
+      void window.api.timer
+        .projectNames()
+        .then(setProjectNames)
+        .catch(() => setProjectNames([]))
+    }
+    names()
+    // Read once at load, so a project renamed, merged away or hidden in
+    // Settings would go on being suggested by every timer already on screen
+    // until it was closed and reopened - and making a name stop appearing is
+    // the whole point of that screen. Main sends `projects:changed` after
+    // every write there.
+    const stop = window.api.projects.changed(names)
     // A window can open onto a session already under way - a saved timer
     // reopened from the tray or the right-click menu. Its project and task are
     // the session's, and pushing the last-used project into it would quietly
@@ -192,6 +201,7 @@ export default function App(): React.JSX.Element {
         void window.api.timer.setProject(name)
       })
       .catch(() => undefined)
+    return stop
   }, [])
 
   /**

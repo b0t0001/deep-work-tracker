@@ -322,6 +322,10 @@ function SettingsTab(): React.JSX.Element {
           grid at all, and then the two spare tracks collapse and the three
           groups take a third each. */}
       <div className="set-group set-group--wide">
+        <h2>Projects</h2>
+        <Projects />
+      </div>
+      <div className="set-group set-group--wide">
         <h2>Backups</h2>
         <Backups />
       </div>
@@ -402,6 +406,336 @@ function size(bytes: number): string {
   return bytes < 1024 * 1024
     ? `${Math.round(bytes / 1024)} KB`
     : `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+interface ProjectAdminRow {
+  id: number
+  name: string
+  archived: boolean
+  sessions: number
+  hours: number
+  tags: number
+  lastUsed: string | null
+}
+
+type ProjectResult =
+  | { ok: true }
+  | { ok: false; conflict: { id: number; name: string; sessions: number } }
+  | { ok: false; reason: string }
+
+/** Which row, if any, has opened one of its actions. Only ever one at a time. */
+type Open =
+  | { kind: 'rename'; id: number; text: string }
+  | { kind: 'merge'; id: number; into: number | null }
+  | { kind: 'mergeConfirm'; id: number; into: number; sessions: number; tags: number }
+  | { kind: 'delete'; id: number }
+  | null
+
+/**
+ * Curating the projects the app recognises.
+ *
+ * *"i should be able to manually adjust what projects the app recognizes"*
+ * (11/09/2026). Typing a new name in the timer is still how a project comes
+ * into existence - CLAUDE.md gives the reason, and it has not changed - but a
+ * name created by a typo had nowhere to be removed from. This is that place,
+ * in Settings rather than anywhere near the timer.
+ *
+ * **Every confirmation happens in the row**, not in a Windows dialog: see
+ * "The app speaks for itself". A merge and a delete each open a strip under
+ * the project they are about to change, stating what will move or go, with
+ * the action and Cancel beside it. That also keeps the thing being confirmed
+ * on screen while the question is asked, which a modal cannot.
+ */
+function Projects(): React.JSX.Element {
+  const [rows, setRows] = useState<ProjectAdminRow[] | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState<Open>(null)
+  const [notice, setNotice] = useState<{ text: string; bad: boolean } | null>(null)
+
+  const load = useCallback(() => {
+    void (window.api.projects.list() as Promise<ProjectAdminRow[]>)
+      .then((list) => {
+        setRows(list)
+        setFailed(null)
+      })
+      .catch((error: unknown) => setFailed(String(error)))
+  }, [])
+
+  useEffect(() => load(), [load])
+
+  /** Whatever it was, say what happened and show the list as it now is. */
+  const after = (result: ProjectResult, done: string): void => {
+    if (result.ok) {
+      setOpen(null)
+      setNotice({ text: done, bad: false })
+      load()
+      return
+    }
+    if ('reason' in result) setNotice({ text: result.reason, bad: true })
+  }
+
+  const rename = (row: ProjectAdminRow, text: string): void => {
+    void (window.api.projects.rename(row.id, text) as Promise<ProjectResult>)
+      .then((result) => {
+        // A name that already belongs to another project is not an error to
+        // report - it is the drift this screen exists to repair, so the
+        // answer is the merge it implies, offered with its counts.
+        if (!result.ok && 'conflict' in result) {
+          setNotice(null)
+          setOpen({
+            kind: 'mergeConfirm',
+            id: row.id,
+            into: result.conflict.id,
+            sessions: row.sessions,
+            tags: row.tags
+          })
+          return
+        }
+        after(result, `Renamed to ${text.trim()}.`)
+      })
+      .catch((error: unknown) => setNotice({ text: String(error), bad: true }))
+  }
+
+  const merge = (fromId: number, intoId: number, intoName: string): void => {
+    void (window.api.projects.merge(fromId, intoId) as Promise<ProjectResult>)
+      .then((result) => after(result, `Merged into ${intoName}.`))
+      .catch((error: unknown) => setNotice({ text: String(error), bad: true }))
+  }
+
+  const hide = (row: ProjectAdminRow): void => {
+    void (window.api.projects.setArchived(row.id, !row.archived) as Promise<ProjectResult>)
+      .then((result) =>
+        after(
+          result,
+          row.archived
+            ? `${row.name} is suggested again.`
+            : `${row.name} is hidden from suggestions. Its ${row.sessions.toLocaleString()} sessions are untouched.`
+        )
+      )
+      .catch((error: unknown) => setNotice({ text: String(error), bad: true }))
+  }
+
+  const remove = (row: ProjectAdminRow): void => {
+    void (window.api.projects.remove(row.id) as Promise<ProjectResult>)
+      .then((result) => after(result, `Deleted ${row.name}.`))
+      .catch((error: unknown) => setNotice({ text: String(error), bad: true }))
+  }
+
+  if (rows === null && failed !== null) {
+    return (
+      <p className="muted">
+        The projects could not be read: {failed}. The details are in the error log below.{' '}
+        <button className="action" onClick={load}>
+          Try again
+        </button>
+      </p>
+    )
+  }
+  if (rows === null) return <p className="muted">Loading…</p>
+
+  const needle = query.trim().toLowerCase()
+  const shown = needle === '' ? rows : rows.filter((row) => row.name.toLowerCase().includes(needle))
+  const hidden = rows.filter((row) => row.archived).length
+
+  return (
+    <>
+      <p className="muted">
+        Every project the app knows about. Typing a new name in the timer still creates one — this
+        is where the list gets tidied afterwards. <strong>Renaming</strong> fixes history, because
+        sessions point at the project rather than carrying its name. <strong>Merging</strong> moves
+        every session and tag to another project and removes this one, which is how two spellings of
+        the same thing become one. <strong>Hiding</strong> stops a name being suggested in the timer
+        without touching its sessions — a finished project keeps all of its history in the
+        analytics. <strong>Deleting</strong> is only offered for a project nothing points at.
+      </p>
+
+      <div className="row">
+        <input
+          className="proj-search"
+          type="text"
+          value={query}
+          placeholder="Search projects"
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <span className="muted">
+          {rows.length.toLocaleString()} projects
+          {hidden > 0 && `, ${hidden} hidden`}
+          {needle !== '' && ` · ${shown.length.toLocaleString()} matching`}
+        </span>
+      </div>
+
+      {notice && <p className={`notice notice--${notice.bad ? 'bad' : 'good'}`}>{notice.text}</p>}
+
+      <ul className="proj-list">
+        {shown.map((row) => {
+          const mine = open !== null && open.id === row.id
+          return (
+            <li key={row.id} className={`proj${row.archived ? ' is-hidden' : ''}`}>
+              <div className="proj__head">
+                <span className="proj__name">
+                  {mine && open.kind === 'rename' ? (
+                    <input
+                      className="proj-rename"
+                      type="text"
+                      autoFocus
+                      value={open.text}
+                      onChange={(event) => setOpen({ ...open, text: event.target.value })}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') rename(row, open.text)
+                        if (event.key === 'Escape') setOpen(null)
+                      }}
+                    />
+                  ) : (
+                    row.name
+                  )}
+                  {row.archived && <span className="proj__badge">hidden</span>}
+                </span>
+                <span className="proj__count">
+                  {row.sessions.toLocaleString()} session{row.sessions === 1 ? '' : 's'} ·{' '}
+                  {row.hours.toFixed(1)} h{row.lastUsed !== null && ` · last ${row.lastUsed}`}
+                </span>
+                <span className="proj__tools">
+                  {mine && open.kind === 'rename' ? (
+                    <>
+                      <button
+                        className="action action--primary"
+                        onClick={() => rename(row, open.text)}
+                      >
+                        Save
+                      </button>
+                      <button className="action" onClick={() => setOpen(null)}>
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="action"
+                        onClick={() => {
+                          setNotice(null)
+                          setOpen({ kind: 'rename', id: row.id, text: row.name })
+                        }}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        className="action"
+                        onClick={() => {
+                          setNotice(null)
+                          setOpen({ kind: 'merge', id: row.id, into: null })
+                        }}
+                      >
+                        Merge…
+                      </button>
+                      <button className="action" onClick={() => hide(row)}>
+                        {row.archived ? 'Suggest again' : 'Hide'}
+                      </button>
+                      <button
+                        className="action"
+                        onClick={() => {
+                          setNotice(null)
+                          if (row.sessions > 0 || row.tags > 0) remove(row)
+                          else setOpen({ kind: 'delete', id: row.id })
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </span>
+              </div>
+
+              {mine && open.kind === 'merge' && (
+                <div className="proj__strip">
+                  <span>Move {row.sessions.toLocaleString()} sessions into</span>
+                  <select
+                    value={open.into === null ? '' : String(open.into)}
+                    onChange={(event) =>
+                      setOpen({
+                        ...open,
+                        into: event.target.value === '' ? null : Number(event.target.value)
+                      })
+                    }
+                  >
+                    <option value="">choose a project</option>
+                    {rows
+                      .filter((other) => other.id !== row.id)
+                      .map((other) => (
+                        <option key={other.id} value={String(other.id)}>
+                          {other.name}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    className="action action--primary"
+                    disabled={open.into === null}
+                    onClick={() => {
+                      if (open.into === null) return
+                      setOpen({
+                        kind: 'mergeConfirm',
+                        id: row.id,
+                        into: open.into,
+                        sessions: row.sessions,
+                        tags: row.tags
+                      })
+                    }}
+                  >
+                    Continue
+                  </button>
+                  <button className="action" onClick={() => setOpen(null)}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+
+              {mine && open.kind === 'mergeConfirm' && (
+                <div className="proj__strip proj__strip--warn">
+                  <span>
+                    {open.sessions.toLocaleString()} session{open.sessions === 1 ? '' : 's'}
+                    {open.tags > 0 && ` and ${open.tags} tag${open.tags === 1 ? '' : 's'}`} move to{' '}
+                    <strong>{rows.find((other) => other.id === open.into)?.name}</strong>, and{' '}
+                    <strong>{row.name}</strong> is removed. The sessions are kept.
+                  </span>
+                  <button
+                    className="action action--primary"
+                    onClick={() =>
+                      merge(
+                        row.id,
+                        open.into,
+                        rows.find((other) => other.id === open.into)?.name ?? ''
+                      )
+                    }
+                  >
+                    Merge
+                  </button>
+                  <button className="action" onClick={() => setOpen(null)}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+
+              {mine && open.kind === 'delete' && (
+                <div className="proj__strip proj__strip--warn">
+                  <span>
+                    Delete <strong>{row.name}</strong>? Nothing points at it, so nothing else
+                    changes.
+                  </span>
+                  <button className="action action--primary" onClick={() => remove(row)}>
+                    Delete
+                  </button>
+                  <button className="action" onClick={() => setOpen(null)}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+      {shown.length === 0 && <p className="muted">No project matches “{query.trim()}”.</p>}
+    </>
+  )
 }
 
 function Backups(): React.JSX.Element {
@@ -1704,10 +2038,17 @@ function SessionForm({
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    window.api.timer
-      .projectNames()
-      .then(setProjectNames)
-      .catch(() => setProjectNames([]))
+    const names = (): void => {
+      window.api.timer
+        .projectNames()
+        .then(setProjectNames)
+        .catch(() => setProjectNames([]))
+    }
+    names()
+    // The same list the timer suggests from, so the same rule applies: a
+    // project curated away in Settings must stop being offered here too,
+    // without the tab being reopened.
+    return window.api.projects.changed(names)
   }, [])
 
   const plannedMs = parseDurationMs(form.planned)
@@ -2154,6 +2495,16 @@ function DataTab(): React.JSX.Element {
       live = false
     }
   }, [from, to, search, source, projectId, limit, offset])
+
+  /*
+   * And again whenever the Projects section changes one.
+   *
+   * A rename shows in the Project column and in the filter; a merge changes
+   * which rows carry which name. Both happen on another tab of this same
+   * window, which stays mounted, so without this the table would keep showing
+   * a project that no longer exists until something else forced a query.
+   */
+  useEffect(() => window.api.projects.changed(() => void refresh()))
 
   // Any change to what is being shown returns to the first page. Staying on
   // page 14 of a filter that now has three pages shows nothing at all.
