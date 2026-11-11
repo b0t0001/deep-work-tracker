@@ -384,8 +384,6 @@ export default function App(): React.JSX.Element {
       if (awaitingReason.current) return
       clearFields()
     })
-    // clearFields only calls state setters and the preload API, both stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function clearFields(): void {
