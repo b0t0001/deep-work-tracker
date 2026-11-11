@@ -352,9 +352,6 @@ const CHART_CSS = `
   fill: var(--text-dim);
   font-size: 11px;
 }
-/* The value drawn on a point or a bar. It is the series speaking rather than a
-   caption about it, so it takes the accent - and it needs its own selector
-   because the rule above wins over a fill attribute on the element. */
 /* The point a value label belongs to.
    This is what answers the objection that put bars here: a label above a
    smooth stretch of curve says nothing about which day it is for, and a dot
@@ -368,6 +365,9 @@ const CHART_CSS = `
   stroke: var(--surface-panel);
   stroke-width: 1.5;
 }
+/* The value drawn on a point or a bar. It is the series speaking rather than a
+   caption about it, so it takes the accent - and it needs its own selector
+   because the general text rule wins over a fill attribute on the element. */
 .ac .recharts-text.ac__value {
   fill: var(--accent);
   font-size: 10.5px;

@@ -273,9 +273,12 @@ function Legend({ accent }: { accent: string }): React.JSX.Element {
  */
 function CalendarLegend({ accent }: { accent: string }): React.JSX.Element {
   const swatch = (hours: number): React.JSX.Element => (
+    // No native `title`: it is the OS's tooltip, in another font, late, and
+    // the one place left on the heatmaps where it survived - tooltip-check
+    // counts it. The key's own text already names both ends of the ramp.
     <span
       key={hours}
-      title={hours === 0 ? 'No work' : `${hours} h`}
+      aria-hidden="true"
       style={{ width: 11, height: 11, borderRadius: 2, background: dayFill(hours, accent) }}
     />
   )

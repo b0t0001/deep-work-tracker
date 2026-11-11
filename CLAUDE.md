@@ -1432,14 +1432,39 @@ it is the one panel with no list.
   dialog: see "The app speaks for itself". An empty field is not an error -
   it is a box nobody has finished typing in.
 
-**Every bar carries its number, which is what decides the grain.** *"numbers
+**Every point carries its number, which is what decides the grain.** *"numbers
 still don't display on this chart"* - at past 8 weeks the hours chart drew 56
 daily points and labelled exactly one, the peak, because 56 labels would have
 collided. The user had already said a chart whose data points they cannot read
 tells them nothing, so the answer is not to thin labels harder: it is to draw
-fewer, bigger buckets. It is bars rather than an area for the same reason an
-area could not be fixed - an area has points, not slots, and there is nowhere
-for a label to sit that is unambiguously one day's.
+fewer, bigger buckets.
+
+**It is an area again, with every point labelled** (11/11/2026: *"this chart
+should be an area chart, not a bar chart. i want the numbers to remained
+labeled"*). It was bars for a while, on the argument that an area has points,
+not slots, so a label has nowhere to sit that is unambiguously one day's. That
+turned out to be answerable: what made a bar's label unambiguous was a visible
+object under it belonging to one bucket, and **a dot is that object**.
+`grainFor` / `MAX_BARS` were not changed and still guarantee there are never
+more dots than can be told apart.
+
+- **The dot needs a ring in the panel colour** to be visible at all - an
+  accent dot on a 2px accent line is the line, which the screenshot showed and
+  an element count did not. It is styled in `CHART_CSS`, not through the dot
+  props, because an SVG presentation attribute does not reliably resolve
+  `var()`.
+- **`monotone`, not a plain cubic**: shape-preserving, so it never overshoots a
+  dip into a curve implying hours nobody worked.
+- **A flat fill**, no vertical fade - the "subtle gradient" the user had
+  already had removed, and a second encoding of a value the height and label
+  give.
+- **An area's end points sit on the plot edges**, where a bar's sat half a
+  band inside, so an end label would hang over the y axis or off the svg.
+  `margin.left` cannot fix that (it is outside the axis). The x axis is padded
+  by half the widest of the value labels and date ticks, measured at the live
+  text scale, which moves the points inward instead. Measured at 1150 and
+  1900: a dot for every label at every range, `0` still labelled, tightest
+  gap 18.5px against the 4px floor, both end labels inside the svg.
 
 `grainFor` walks day → week → month → quarter and takes the first whose bucket
 count fits `MAX_BARS` (32, which is 34px a bar at 1,150px against a label of
