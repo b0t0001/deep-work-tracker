@@ -1836,37 +1836,65 @@ input {
 /* ---------- stop prompt ---------- */
 
 /* Offered after a stop, never blocking: it overlays rather than displacing the
-   layout, and clears itself after 30 seconds. Roughly three quarters of
-   sessions end early, so a prompt that demanded an answer would fire almost
-   every time and the logging would simply stop happening. */
-/* Sits directly above the reason row, sharing its treatment. Both overlay the
-   card and both are declared after the dial, which is what keeps the card
-   draggable - see CLAUDE.md on drag regions. */
-.stop-output {
+   layout, and starting again is always possible. It stays until a reason is
+   picked - only done, tired and cut off end a session (the user, 11/11/2026),
+   so it no longer dismisses itself.
+
+   Its type is the dial's, not a caption's. "i swear the font isn't the same":
+   it was the same face, Archivo, at 11px and the default weight beside a
+   clock and project drawn light and tightly tracked at two and three times
+   the size - which reads as a different font. And it takes the accent
+   ("instead of being just plain white on black"): the strips are tinted with
+   it and the reasons are drawn in it, so the strip belongs to the window it
+   sits in rather than floating over it as a black slab.
+
+   Both strips overlay the card and are declared after the dial, which is what
+   keeps the card draggable - see CLAUDE.md on drag regions. */
+.stop-output,
+.stop-prompt {
   position: absolute;
   right: var(--pad);
-  bottom: calc(var(--pad) + 36px);
   left: var(--pad);
   z-index: 3;
   display: flex;
-  gap: 4px;
   align-items: center;
-  padding: 4px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
   backdrop-filter: blur(8px);
+  font-weight: 300;
+  letter-spacing: -0.01em;
   -webkit-app-region: no-drag;
+}
+
+.stop-output {
+  bottom: calc(var(--pad) + clamp(26px, 14.5vmin, 58px));
+  gap: 4px;
+}
+
+.stop-prompt {
+  bottom: var(--pad);
+  gap: 4px;
+  justify-content: space-between;
 }
 
 .stop-output input {
   min-width: 0;
-  padding: 3px 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-raised);
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
   color: var(--text);
   font-family: inherit;
-  font-size: clamp(9px, 5vmin, 15px);
+  font-size: clamp(10px, 5.4vmin, 20px);
+  font-weight: 300;
+  letter-spacing: -0.01em;
+  transition: border-color 120ms ease;
+}
+
+.stop-output input::placeholder {
+  color: color-mix(in srgb, var(--text-dim) 70%, transparent);
 }
 
 .stop-output input:focus {
@@ -1884,72 +1912,59 @@ input {
   flex: 1 1 auto;
 }
 
-.stop-prompt {
-  position: absolute;
-  right: var(--pad);
-  bottom: var(--pad);
-  left: var(--pad);
-  z-index: 3;
-  display: flex;
-  gap: 3px;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-app-region: no-drag;
+/* The three reasons are what end a session, so they carry the accent - the
+   same treatment as the start button, a tone lighter, since three of them
+   side by side at full strength would shout. Hover and keyboard focus fill
+   them, which is also where Enter from the unit field lands. */
+.stop-prompt button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: clamp(2px, 1.2vmin, 9px) 2px;
+  border: none;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: clamp(10px, 5.4vmin, 20px);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
 
-.stop-prompt button {
-  padding: 4px 7px;
-  border: none;
-  border-radius: 6px;
+.stop-prompt button:hover,
+.stop-prompt button:focus-visible {
+  background: var(--accent);
+  color: var(--surface);
+  outline: none;
+}
+
+/* Undo is the way back, not an answer, so it is the quiet one: plain text,
+   no fill, sized to its word rather than sharing the row equally. */
+.stop-prompt .stop-prompt__undo {
+  flex: 0 0 auto;
+  padding-inline: clamp(4px, 2vmin, 10px);
   background: transparent;
   color: var(--text-dim);
-  font-size: clamp(9px, 5vmin, 15px);
-  cursor: pointer;
-  transition: color 120ms ease;
+  font-weight: 400;
 }
 
-.stop-prompt button:hover {
+.stop-prompt .stop-prompt__undo:hover,
+.stop-prompt .stop-prompt__undo:focus-visible {
+  background: transparent;
   color: var(--text);
 }
 
-.stop-prompt__undo {
-  color: var(--accent) !important;
-  font-weight: 600;
-}
-
-/* Secondary, deliberately.
-
-   This control has now been wrong in both directions. It began at
-   `opacity: 0.6`, inherited from when it was a dismiss nobody should notice,
-   which made the thing confirming the save the faintest pixel in the window.
-   I then overcorrected to the accent at a size up, which made it outrank the
-   reason buttons.
-
-   The reasons ARE the confirm - the user finishes on "done", "tired" or "cut
-   off", and this is the path for when none of them fits. So it takes the
-   reasons' own colour and close to their size; being a glyph among words it
-   reads a little quieter than they do without being told to. Hover brings it
-   up, the way everything else in this window announces itself.
-
-   No opacity. Dimming is what made it invisible, and "quieter than the
-   reasons" is a different instruction from "faded". */
-.stop-prompt__confirm {
-  margin-left: 2px;
-  font-size: clamp(10px, 5.4vmin, 16px);
-  line-height: 1;
-}
-
-.stop-prompt__confirm:hover:not(:disabled) {
+/* The "Saved · 340 words" note that replaces the reasons for a beat. */
+.stop-prompt--saved {
+  justify-content: center;
+  padding: clamp(2px, 1.2vmin, 9px) 8px;
   color: var(--accent);
-}
-
-.stop-prompt__confirm:disabled {
-  opacity: 0.45;
-  cursor: default;
+  font-size: clamp(10px, 5.4vmin, 20px);
+  font-weight: 500;
 }
 
 .field {
