@@ -275,20 +275,38 @@ This distinction is load-bearing and was missed in the first draft.
   time the clock was actually running, never the wall-clock span from
   `started_at` to `ended_at`. Pause intervals are recorded so this is auditable.
 - **Stop** — the session is over, and the only point that asks for anything.
-  The strip that appears offers Undo, a quantity and unit, and the one-click
-  reasons. The unit arrives pre-filled from the last one this task was measured
-  in, falling back to the most recent unit used at all, so the common case is
-  typing one number. Both fields write as they are typed rather than behind a
-  confirm button, and **touching either cancels the 30-second auto-dismiss** —
-  a prompt that vanishes mid-word is one you stop bothering with.
+  The strip that appears offers Undo, a quantity and unit, and three
+  reasons: done, tired, cut off. The unit arrives pre-filled from the last one
+  this task was measured in, falling back to the most recent unit used at all,
+  so the common case is typing one number. Both fields write as they are typed
+  rather than behind a confirm button.
+- **Only a reason ends the session.** The user, 11/11/2026: *"i only want the
+  3 buttons (done, tired, cut off) to end the session"*, and the fields reset
+  *"when I click one of the 3 buttons ... not the moment I hit 'stop'"*. The
+  row is still written at stop - timing is never held hostage to an answer -
+  but the task, duration and project stay on screen until a reason is
+  picked, and the strip no longer dismisses itself (it used to after thirty
+  seconds, which would now strand the fields). There is no checkmark: it
+  closed the strip without a reason and was removed. Enter walks quantity ->
+  unit -> the done button, focused rather than pressed. Starting a new run
+  over an unanswered strip closes it, keeping the fields, and that session
+  simply has no reason - still allowed, since `stop_reason` may be null.
+- **The strip wears the dial's type and the accent.** *"the popup doesn't
+  align with the rest of the app's UI design, and i swear the font isn't the
+  same... i would also want the popup to use the accent color"*. It was the
+  same face, Archivo - measured - at 11px and default weight beside a clock
+  and project drawn light, tightly tracked and two or three times the size,
+  which reads as another font. The strips are now tinted with the accent,
+  the reasons are accent pills that fill on hover and focus, and Undo is the
+  quiet one, plain text.
 - **A session paused longer than the auto-end threshold ends automatically**,
   recording time up to the pause. Default 3 hours, configurable. This exists
   because the user's habit is to pause and close the window rather than stop.
   The threshold is deliberately long: it is a backstop for a pause that was
   forgotten, not a judgement about how long a break may be.
 
-**Stopping must be undoable.** A 30-second "undo — resume session" banner after
-stopping, and the session stays editable in history afterwards. Accidentally
+**Stopping must be undoable.** Undo stays on the strip until a reason is
+picked, and the session stays editable in history afterwards. Accidentally
 hitting stop instead of pause must never lose timing data.
 
 ### The app speaks for itself
@@ -2241,14 +2259,18 @@ got through until you are done.
   user said keep the defaults (11/07/2026).
 - **Finishing a session clears the task, duration and project.** The user's
   rule, 11/07/2026: *"when i finish a session you should clear whatever i put
-  in the 'what are you working on', time, and project name fields"*. Every
-  finish path sends `completed` after the row is written, and the window
-  clears on it (main's copy too, since main records the next stop); a lap of
-  a loop does not. The empty clock shows a dim `0:00` placeholder rather
-  than a blank dial. **Undo puts them back** from the snapshot main kept.
-  **A run that could not be written keeps them**: `recordFailed` arrives
-  first, and the fields are then the only record of what the session was.
-  `scripts/clear-fields-check.ts` (14) drives all three with a real engine.
+  in the 'what are you working on', time, and project name fields"*, refined
+  11/11/2026 to *"when I click one of the 3 buttons ... not the moment I hit
+  'stop'"*. A stop from the window's own button sets `awaitingReason`, and
+  the fields (main's copy too, since main records the next stop) clear when
+  a reason is stored. Every other finish - expiry without loop, auto-end, the
+  global stop shortcut - has no strip to answer, so it clears on `completed`
+  as before; a lap of a loop does not. The empty clock shows a dim `0:00`
+  placeholder rather than a blank dial. **Undo puts them back** from the
+  snapshot main kept. **A run that could not be written keeps them**:
+  `recordFailed` arrives first, and the fields are then the only record of
+  what the session was. `scripts/clear-fields-check.ts` (29) drives all of
+  it, plus the Tab loop, with a real engine and real key events.
 - **It lives under the clock, inside the dial, where the status word was.**
   `ready` / `running` restated what the digits already showed; what belongs
   there - and on camera - is what the session is for. It borrows the clock's
@@ -2266,9 +2288,17 @@ got through until you are done.
   rewrites itself into canonical form on Enter and on leaving the field, so
   `30 min` visibly becomes `30:00` in the field itself, and a grey second copy
   underneath sat where the useful answer belongs.
-- **Tab runs task to duration to project.** Tab out of the clock focuses the
-  project rather than the window buttons, because labelling a session and
-  setting its length is one sequence and that is the order it happens in.
+- **Tab runs task to duration to project to start, and Shift+Tab runs it
+  back.** Tab out of the clock focuses the project rather than the window
+  buttons, because labelling a session and setting its length is one
+  sequence and that is the order it happens in. The loop closes on itself:
+  Tab off start returns to the task and Shift+Tab off the task goes to start.
+  It has to be wired by hand at both ends, because the dial is declared
+  before the header for drag-region reasons, so the browser's reverse order
+  from the clock wrapped round to the window icons - *"shift+tab doesn't
+  bring me in the reverse order. it cycles through all the icons"*
+  (11/11/2026). In the project field Tab takes the highlighted suggestion only
+  if something was typed, then moves on; Shift+Tab never picks.
 - **The name, not the id, rides on the snapshot**, resolved to a row only when
   the session is written. That keeps the engine ignorant of the database and
   survives a project being created after the timer started.

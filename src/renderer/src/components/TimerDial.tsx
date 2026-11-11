@@ -15,6 +15,8 @@ interface TimerDialProps {
   dimmed: boolean
   /** Tab out of the clock goes to the project, not to the window buttons. */
   onTabForward?: () => void
+  /** Shift+Tab out of the clock goes back to the task, not to the window icons. */
+  onTabBack?: () => void
   /** Idle: the clock itself is the duration field, as in Hourglass. */
   editable: boolean
   draft: string
@@ -44,6 +46,7 @@ export default function TimerDial({
   onSubmit,
   onNormalize,
   onTabForward,
+  onTabBack,
   inputRef,
   controls
 }: TimerDialProps): React.JSX.Element {
@@ -67,6 +70,10 @@ export default function TimerDial({
             if (event.key === 'Tab' && !event.shiftKey && onTabForward) {
               event.preventDefault()
               onTabForward()
+            }
+            if (event.key === 'Tab' && event.shiftKey && onTabBack) {
+              event.preventDefault()
+              onTabBack()
             }
           }}
           // Empty after a session finishes. A dim zero reads as a timer at

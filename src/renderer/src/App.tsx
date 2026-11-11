@@ -107,6 +107,36 @@ export default function App(): React.JSX.Element {
   const [projectFocused, setProjectFocused] = useState(false)
   const [projectNames, setProjectNames] = useState<string[]>([])
   const projectRef = useRef<HTMLInputElement>(null)
+  /**
+   * The task field and the start / pause button, the two ends of the Tab loop.
+   *
+   * Tab runs task -> duration -> project -> start, and Shift+Tab has to run
+   * the same loop backwards. The markup cannot give that order on its own:
+   * the dial is declared before the header for drag-region reasons (see
+   * CLAUDE.md), so the browser's reverse order from the clock was "whatever
+   * comes before the dial" - nothing - and it wrapped round to the window
+   * icons at the end of the document. The user, 11/11/2026: "shift+tab
+   * doesn't bring me in the reverse order. it cycles through all the icons."
+   * So both ends are wired by hand and the loop closes on itself; the icons
+   * stay one click away, where they already are.
+   */
+  const labelRef = useRef<HTMLInputElement>(null)
+  const primaryRef = useRef<HTMLButtonElement>(null)
+
+  /** Shift+Tab off the task field wraps to the start button, or the project. */
+  function tabBackFromTask(): void {
+    const primary = primaryRef.current
+    if (primary && !primary.disabled) primary.focus()
+    else projectRef.current?.focus()
+  }
+
+  /** Tab off the start button wraps to the task field. */
+  function primaryKeyDown(event: React.KeyboardEvent<HTMLButtonElement>): void {
+    if (event.key === 'Tab' && !event.shiftKey && labelRef.current) {
+      event.preventDefault()
+      labelRef.current.focus()
+    }
+  }
   const [projectOpen, setProjectOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
   const [draft, setDraft] = useState('1:00:00')
@@ -256,25 +286,38 @@ export default function App(): React.JSX.Element {
   const dismissRef = useRef<number | null>(null)
   const clockRef = useRef<HTMLInputElement>(null)
   /**
-   * The most recent `setQuantity`, so confirming can wait for the write
-   * rather than for the keystroke that started it.
+   * The most recent `setQuantity`, so a reason can wait for the write rather
+   * than for the keystroke that started it.
    *
-   * The quantity is already stored by the time the user reaches for the
-   * checkmark - it writes as they type. That is exactly why the confirmation
-   * has to await this: a control that only closed the strip would be
-   * reporting that a key was pressed, which is not the thing being claimed.
+   * The quantity is already stored by the time the user reaches for a reason
+   * - it writes as they type. That is exactly why the reason has to await
+   * this: a button that only closed the strip would be reporting that a key
+   * was pressed, which is not the thing being claimed.
    *
    * It carries its own `catch` so a failure while typing still surfaces, and
-   * that also marks the promise handled - `confirmOutput` awaits the same
-   * promise again and handles the rejection a second time, which is fine and
-   * is what lets it keep the strip open.
+   * that also marks the promise handled - `answerStop` awaits the same promise
+   * again and handles the rejection a second time, which is fine and is what
+   * lets it keep the strip open.
    */
   const quantityWrite = useRef<Promise<void> | null>(null)
   /** What was stored, shown back on confirm. Null while nothing is saved. */
   const [savedNote, setSavedNote] = useState<string | null>(null)
   /** Second beat of the three: held, then faded, then the rows collapse. */
   const [fadingNote, setFadingNote] = useState(false)
-  const [confirming, setConfirming] = useState(false)
+  /**
+   * True from the stop button until a reason is picked, undone or replaced.
+   *
+   * The user's rule, 11/11/2026: the fields reset "when I click one of the 3
+   * buttons ... not the moment I hit stop", and "i only want the 3 buttons
+   * (done, tired, cut off) to end the session". So a stop made here holds
+   * the task, duration and project on screen until it is answered, and
+   * `completed` - which arrives on every finish - leaves them alone while
+   * this is set. A finish with no prompt (expiry without loop, auto-end, the
+   * global stop shortcut) has nobody to answer it and still clears at once.
+   */
+  const awaitingReason = useRef(false)
+  /** Enter in the unit field lands here, so the keyboard path ends on a reason. */
+  const doneRef = useRef<HTMLButtonElement>(null)
 
   // Closing the pace window means "remove this", so the fields clear with it.
   useEffect(() => {
@@ -307,6 +350,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     return window.api.timer.onRecordFailed((reason) => {
       recordFailedRef.current = true
+      awaitingReason.current = false
       setRecordError(reason)
       setStopPrompt(false)
     })
@@ -327,6 +371,9 @@ export default function App(): React.JSX.Element {
    * Except when the row could not be written. Main sends `recordFailed`
    * before `completed`, in order, and then the fields are the only record of
    * what the session was - kept so it can be entered by hand.
+   *
+   * And not while the stop prompt is waiting for a reason: then the reason
+   * button clears them (see `awaitingReason`).
    */
   useEffect(() => {
     return window.api.timer.onCompleted(() => {
@@ -334,13 +381,20 @@ export default function App(): React.JSX.Element {
         recordFailedRef.current = false
         return
       }
-      setLabel('')
-      setProject('')
-      setDraft('')
-      void window.api.timer.setTask('')
-      void window.api.timer.setProject('')
+      if (awaitingReason.current) return
+      clearFields()
     })
+    // clearFields only calls state setters and the preload API, both stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  function clearFields(): void {
+    setLabel('')
+    setProject('')
+    setDraft('')
+    void window.api.timer.setTask('')
+    void window.api.timer.setProject('')
+  }
 
   // Expiry cue: sound plus a flash, matching Hourglass - three flashes at 0.2s.
   // Both matter, because either one alone is missable: the flash if the window
@@ -433,12 +487,23 @@ export default function App(): React.JSX.Element {
             // Enter takes the highlighted suggestion when the list is open -
             // that is what makes it behave like a dropdown - and otherwise
             // just commits what was typed.
-            const pick = projectOpen ? matches[highlight] : undefined
+            //
+            // Tab takes it too, but only for something typed, and then moves
+            // on like any Tab: it used to take the suggestion and stay put,
+            // so tabbing through an empty field filled it with the top
+            // project and needed a second Tab to leave. Shift+Tab never
+            // picks - it is going back, not answering. The blur that follows
+            // commits through `projectNow`, so the pick is what gets saved.
+            const typed = projectNow.current.trim() !== ''
+            const pick =
+              projectOpen && (event.key === 'Enter' || (typed && !event.shiftKey))
+                ? matches[highlight]
+                : undefined
             if (pick) {
-              event.preventDefault()
+              if (event.key === 'Enter') event.preventDefault()
               chooseProject(pick.name)
             } else {
-              commitProject(project)
+              commitProject(projectNow.current)
             }
             if (event.key === 'Enter') event.currentTarget.blur()
           }
@@ -474,6 +539,10 @@ export default function App(): React.JSX.Element {
   function start(): void {
     if (plannedMs === null) return
     normalizeDraft()
+    // Starting again over an unanswered prompt keeps what is in the fields -
+    // the user has just chosen to run them - and the last session simply has
+    // no reason, which has always been allowed.
+    awaitingReason.current = false
     setStopPrompt(false)
     // The warning is about the run that just failed, not the one starting. It
     // persists until something replaces it precisely so it cannot be missed,
@@ -490,29 +559,22 @@ export default function App(): React.JSX.Element {
   }
 
   /**
-   * Stopping opens a short window to undo it, record what got done, or say why
-   * it ended - never a blocking one.
+   * Stopping records the run and opens the strip: undo it, record what got
+   * done, and end it with a reason. It never blocks the timer - starting
+   * again is always possible - but it no longer dismisses itself either.
+   * It used to vanish after thirty seconds; now that a reason is what ends
+   * the session and clears the fields, a strip that left on its own would
+   * leave the fields stranded with nothing to clear them.
    */
   function stop(): void {
     const task = snapshot.task
+    awaitingReason.current = true
     void window.api.timer.stop()
     setQty('')
     // Almost every session is one of a few repeated shapes, so the unit this
     // task was last measured in is nearly always the right answer.
     void window.api.timer.lastUnit(task).then((unit) => setQtyUnit(unit ?? ''))
     setStopPrompt(true)
-    dismissRef.current = window.setTimeout(() => setStopPrompt(false), 30_000)
-  }
-
-  /**
-   * The countdown to auto-dismiss stops the moment the output fields are
-   * touched. A prompt that vanishes mid-word while you are typing into it is
-   * one you stop bothering with.
-   */
-  function holdStopPrompt(): void {
-    if (dismissRef.current === null) return
-    window.clearTimeout(dismissRef.current)
-    dismissRef.current = null
   }
 
   /**
@@ -552,38 +614,13 @@ export default function App(): React.JSX.Element {
   }
 
   /**
-   * Confirms the output and closes the strip.
-   *
-   * Waits for the outstanding write before claiming anything. On a rejection
-   * it reports the failure and **leaves the strip open**, because at that
-   * moment what the user typed exists nowhere else - closing would discard
-   * the only copy while telling them it was saved.
-   */
-  async function confirmOutput(): Promise<void> {
-    if (confirming) return
-    setConfirming(true)
-    try {
-      await quantityWrite.current
-    } catch (error) {
-      setConfirming(false)
-      setRecordError(String(error))
-      return
-    }
-    setConfirming(false)
-
-    finishWithNote()
-  }
-
-  /**
    * Ends the strip, saying what was stored if anything was.
    *
    * Three beats, which is how the user described it: hold the message, fade
    * it, then let the rows collapse. A strip that vanished the instant they
    * clicked would answer a different question from the one they asked.
    *
-   * Every exit that writes goes through here, so picking a reason and
-   * pressing the checkmark cannot drift apart - the reason click is the
-   * common path and was the silent one.
+   * Every reason goes through here, so the three cannot drift apart.
    */
   function finishWithNote(): void {
     const summary = storedSummary()
@@ -605,11 +642,12 @@ export default function App(): React.JSX.Element {
   }
 
   /**
-   * Picking a reason also exits the strip, so it carries the same guarantee
-   * as the checkmark: wait for the outstanding quantity write, and if it
-   * failed, report it and stay open rather than closing over a lost number.
-   * The promise is the same one `confirmOutput` awaits - there is one write
-   * in flight, not one per exit path.
+   * A reason is what ends the session: it stores the reason, clears the
+   * task, duration and project, and closes the strip.
+   *
+   * It waits for the outstanding quantity write first, and if that failed it
+   * reports it and stays open with the fields untouched, rather than closing
+   * over a lost number.
    */
   async function answerStop(reason: string | null): Promise<void> {
     try {
@@ -624,10 +662,13 @@ export default function App(): React.JSX.Element {
       setRecordError(String(error))
       return
     }
+    awaitingReason.current = false
+    clearFields()
     finishWithNote()
   }
 
   function undoStop(): void {
+    awaitingReason.current = false
     window.api.timer
       .undoStop()
       .then((restored) => {
@@ -658,12 +699,20 @@ export default function App(): React.JSX.Element {
   const controls = (
     <div className="controls">
       {snapshot.status === 'running' ? (
-        <button className="primary" onClick={() => void window.api.timer.pause()} title="Pause">
+        <button
+          ref={primaryRef}
+          className="primary"
+          onClick={() => void window.api.timer.pause()}
+          onKeyDown={primaryKeyDown}
+          title="Pause"
+        >
           <Icon name="pause" />
         </button>
       ) : (
         <button
+          ref={primaryRef}
           className="primary"
+          onKeyDown={primaryKeyDown}
           disabled={idle && plannedMs === null}
           onClick={() => {
             if (idle) start()
@@ -723,6 +772,7 @@ export default function App(): React.JSX.Element {
         onSubmit={start}
         onNormalize={normalizeDraft}
         onTabForward={() => projectRef.current?.focus()}
+        onTabBack={() => labelRef.current?.focus()}
         inputRef={clockRef}
         controls={controls}
       />
@@ -802,11 +852,9 @@ export default function App(): React.JSX.Element {
             placeholder="340"
             inputMode="decimal"
             title="How much got done"
-            onFocus={holdStopPrompt}
             onChange={(event) => {
               // Decimals allowed: half a problem set is `0.5 question`.
               if (!/^\d{0,7}(\.\d{0,2})?$/.test(event.target.value)) return
-              holdStopPrompt()
               setQty(event.target.value)
               saveQuantity(event.target.value, qtyUnit)
             }}
@@ -820,20 +868,19 @@ export default function App(): React.JSX.Element {
             value={qtyUnit}
             placeholder="words"
             title="Measured in"
-            onFocus={holdStopPrompt}
             onChange={(event) => {
               // A digit here was always meant for the box beside it, so it is
               // dropped rather than rejected - the rest of the word still lands.
               const next = event.target.value.replace(/[0-9]/g, '')
-              holdStopPrompt()
               setQtyUnit(next)
               saveQuantity(qty, next)
             }}
             onKeyDown={(event) => {
-              // Enter walks quantity -> unit -> confirm, so a session can be
-              // stopped and its output recorded without the mouse, the same
-              // sequence the pace panel uses.
-              if (event.key === 'Enter') void confirmOutput()
+              // Enter walks quantity -> unit -> done, so a session can be
+              // stopped and its output recorded without the mouse. It lands
+              // on the button rather than pressing it: a reason ends the
+              // session, and Enter in a field should not choose one silently.
+              if (event.key === 'Enter') doneRef.current?.focus()
             }}
           />
         </div>
@@ -863,37 +910,15 @@ export default function App(): React.JSX.Element {
           <button className="stop-prompt__undo" onClick={undoStop} title="Resume the session">
             Undo
           </button>
-          <button onClick={() => answerStop('finished_early')}>done</button>
+          {/* Only these three end the session. There was a checkmark beside
+              them that closed the strip with no reason; the user, 11/11/2026:
+              "i only want the 3 buttons (done, tired, cut off) to end the
+              session". */}
+          <button ref={doneRef} onClick={() => answerStop('finished_early')}>
+            done
+          </button>
           <button onClick={() => answerStop('tired')}>tired</button>
           <button onClick={() => answerStop('interrupted')}>cut off</button>
-          {/* A checkmark, not an X, and the glyph is the whole change.
-
-              This control has always ended the strip without a reason, and
-              the quantity and unit have always written as they were typed -
-              so it has never dismissed unsaved work, because there is no
-              such thing here. Labelling it with an X said otherwise, which
-              is why the user asked to be told their output had been added:
-              the one control that finished the interaction looked like the
-              one that threw it away.
-
-              The pace panel settled this already and CLAUDE.md records it:
-              "The confirm button is a checkmark, not an X. Settings apply as
-              they are typed, so it confirms rather than dismisses." Same
-              reasoning, same strip, zero extra width.
-
-              It is the secondary path, not the primary one: the user
-              finishes on a reason button, and this is for when none of
-              them fits. So it should read quieter than the reasons beside
-              it, which is the opposite of what I first told the artist. */}
-          <button
-            className="stop-prompt__confirm"
-            onClick={() => void confirmOutput()}
-            disabled={confirming}
-            title="Save and close"
-            aria-label="Save and close"
-          >
-            &#10003;
-          </button>
         </div>
       )}
 
@@ -956,6 +981,7 @@ export default function App(): React.JSX.Element {
         </div>
 
         <input
+          ref={labelRef}
           className="label"
           value={label}
           onChange={(event) => {
@@ -973,6 +999,10 @@ export default function App(): React.JSX.Element {
             if (event.key === 'Tab' && !event.shiftKey && clockRef.current) {
               event.preventDefault()
               clockRef.current.focus()
+            }
+            if (event.key === 'Tab' && event.shiftKey) {
+              event.preventDefault()
+              tabBackFromTask()
             }
           }}
           placeholder="Working on…"
