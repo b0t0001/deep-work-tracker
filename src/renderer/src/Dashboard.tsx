@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useState } from 'react'
+import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useState } from 'react'
 import { ACCENTS, ACCENT_KEY, DEFAULT_ACCENT, isKnownAccent } from '@shared/accents'
 import { acceleratorFromEvent, describeAccelerator } from '@shared/accelerator'
 import { formatDurationInput, parseDurationMs } from '@shared/duration'
@@ -742,6 +742,19 @@ function Backups(): React.JSX.Element {
   const [status, setStatus] = useState<BackupStatus | null>(null)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<string | null>(null)
+  /*
+   * The restore waiting to be confirmed, with everything the question needs
+   * to state. Null the rest of the time, which is also what Cancel sets.
+   */
+  const [pending, setPending] = useState<{
+    file: string
+    rows: number
+    hours: number
+    firstDate: string
+    lastDate: string
+    projects: number
+    replaces: number
+  } | null>(null)
   /* Which colour the line takes. Every outcome used to be green, including
      "Backup failed", which is the one case the colour is for. */
   const [failed, setFailed] = useState(false)
@@ -786,20 +799,17 @@ function Backups(): React.JSX.Element {
       return
     }
 
-    const confirmed = await window.api.ui.confirm({
-      title: 'Restore from a backup',
-      message:
-        `Replace everything with ${preview.rows.toLocaleString()} sessions ` +
-        `(${preview.hours.toFixed(1)} h, ${preview.projects} projects)?`,
-      detail:
-        `The backup covers ${formatDateRange(preview.firstDate, preview.lastDate)}.\n\n` +
-        (preview.replaces > 0
-          ? `${preview.replaces.toLocaleString()} sessions currently in the app will be replaced. A backup of them is written first, so this is reversible.`
-          : 'There is nothing in the app to replace.'),
-      confirmLabel: 'Restore'
-    })
-    if (!confirmed) return
+    // Asked in the panel, under the button that was pressed, with the numbers
+    // in hand - how many rows are coming in against how many are going out -
+    // rather than a Windows dialog carrying a generic warning nobody reads.
+    setPending({ file, ...preview })
+  }
 
+  async function doRestore(): Promise<void> {
+    const ready = pending
+    if (ready === null) return
+    const file = ready.file
+    setPending(null)
     setBusy(true)
     try {
       const done = (await window.api.backups.restore(file)) as {
@@ -938,6 +948,25 @@ function Backups(): React.JSX.Element {
           {status.nextDue && ` · next due ${when(status.nextDue)}`}
         </span>
       </div>
+
+      {pending !== null && (
+        <div className="confirm confirm--block">
+          <span>
+            Replace everything with <strong>{pending.rows.toLocaleString()} sessions</strong> (
+            {pending.hours.toFixed(1)} h, {pending.projects} projects) covering{' '}
+            {formatDateRange(pending.firstDate, pending.lastDate)}?{' '}
+            {pending.replaces > 0
+              ? `${pending.replaces.toLocaleString()} sessions currently in the app will be replaced — a backup of them is written first, so this is reversible.`
+              : 'There is nothing in the app to replace.'}
+          </span>
+          <button className="action action--danger" autoFocus onClick={() => void doRestore()}>
+            Restore
+          </button>
+          <button className="action" onClick={() => setPending(null)}>
+            Cancel
+          </button>
+        </div>
+      )}
 
       {result && <p className={`notice notice--${failed ? 'bad' : 'good'}`}>{result}</p>}
 
@@ -2407,6 +2436,11 @@ function DataTab(): React.JSX.Element {
   const [projects, setProjects] = useState<ProjectOption[]>([])
   const [history, setHistory] = useState<HistoryState>(EMPTY_HISTORY)
   const [editing, setEditing] = useState<SessionRow | 'new' | null>(null)
+  /*
+   * Which row is asking, and how far through. `step` is 2 only for an
+   * imported row, which is asked twice - see `remove`.
+   */
+  const [confirming, setConfirming] = useState<{ id: number; step: 1 | 2 } | null>(null)
 
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -2546,35 +2580,30 @@ function DataTab(): React.JSX.Element {
     return null
   }
 
+  /**
+   * Delete, confirmed in the table rather than in a Windows dialog.
+   *
+   * *"deleting sessions still has a windows popup. this should be an in-app
+   * popup"* (11/11/2026), which settles the question CLAUDE.md had left open
+   * about whether a yes/no counts as information the app should speak for
+   * itself. It does.
+   *
+   * The confirmation is a row under the row, so the session being deleted is
+   * still on screen - with its date, project, task and hours - while the
+   * question is asked. A modal covers the table and makes the user trust a
+   * sentence instead of reading the row.
+   *
+   * **An imported row is still asked about twice**, now as two steps of the
+   * same strip rather than two dialogs. They are 3.5 years of history the app
+   * did not record and cannot reconstruct, sitting in the same table as a
+   * session from ten minutes ago with the same Delete button beside them: the
+   * one place where a misclick costs something that did not come from this
+   * app. App-recorded and manual rows keep the single step, because a second
+   * question on every delete trains the reflex that makes both meaningless.
+   */
   async function remove(row: SessionRow): Promise<void> {
-    const confirmed = await window.api.ui.confirm({
-      title: 'Delete session',
-      message: `Delete ${row.task ?? 'this unlabeled session'}?`,
-      detail: `${formatDate(row.session_date) || 'no date'} · ${hours(row.running_duration_s)} recorded.
-
-This can be undone.`,
-      confirmLabel: 'Delete'
-    })
-    if (!confirmed) return
-
-    // Imported rows are asked about twice. They are 3.5 years of history the
-    // app did not record and cannot reconstruct, sitting in the same table as
-    // a session from ten minutes ago with the same Delete button beside them.
-    // It is the one place where a misclick costs something that did not come
-    // from this app.
-    if (row.source === 'import') {
-      const again = await window.api.ui.confirm({
-        title: 'This row came from the spreadsheet',
-        message: 'Delete imported history?',
-        detail: `${formatDate(row.session_date) || 'no date'} · ${row.task ?? 'unlabeled'}
-
-Undo brings it back, and so does re-importing the CSV — but re-importing replaces every imported row, so it would discard any edits made to the others.`,
-        confirmLabel: 'Delete imported row'
-      })
-      if (!again) return
-    }
-
     const id = row.id
+    setConfirming(null)
     await window.api.sessions.remove(id)
     if (editing !== 'new' && editing?.id === id) setEditing(null)
     await refresh()
@@ -2813,70 +2842,120 @@ Undo brings it back, and so does re-importing the CSV — but re-importing repla
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr
-                key={row.id}
-                className={editing !== 'new' && editing?.id === row.id ? 'is-editing-row' : ''}
-              >
-                <td className="nowrap">{formatDate(row.session_date) || '—'}</td>
-                {/* Named, not dashed. A session with no project is a specific
+              <Fragment key={row.id}>
+                <tr className={editing !== 'new' && editing?.id === row.id ? 'is-editing-row' : ''}>
+                  <td className="nowrap">{formatDate(row.session_date) || '—'}</td>
+                  {/* Named, not dashed. A session with no project is a specific
                     thing the user can act on - the project filter has an
                     Unlabelled option and the whole point of it is that a week
                     of missed labels is one filter and a few edits rather than
                     archaeology. A bare em dash reads as "nothing here" and
                     does not connect the row to the filter that finds it.
                     Muted, because it is an absence rather than a value. */}
-                <td>{row.project_name ?? <span className="muted">Unlabeled</span>}</td>
-                <td>{row.task ?? <span className="muted">unlabeled</span>}</td>
-                {/* Planned is what the timer was set to - the goal, which
+                  <td>{row.project_name ?? <span className="muted">Unlabeled</span>}</td>
+                  <td>{row.task ?? <span className="muted">unlabeled</span>}</td>
+                  {/* Planned is what the timer was set to - the goal, which
                     for these timers is deliberately a little less than the
                     work seems to need. Laps and the total it makes sit
                     beside it rather than inside one figure, so the goal can
                     be read on its own against what it actually took. */}
-                <td className="num">{hours(row.planned_duration_s)}</td>
-                <td className="num">
-                  {row.laps > 1 ? row.laps : <span className="muted">1</span>}
-                </td>
-                <td className="num">
-                  {row.laps > 1 ? (
-                    hours(row.planned_duration_s * row.laps)
-                  ) : (
-                    <span className="muted">{hours(row.planned_duration_s)}</span>
-                  )}
-                </td>
-                <td className="num">{hours(row.running_duration_s)}</td>
-                <td className="num">
-                  {row.work_quantity == null ? '—' : `${row.work_quantity} ${row.work_unit ?? ''}`}
-                </td>
-                <td>
-                  <span className={`badge badge--${row.source}`}>
-                    {/* Shouted, in orange: the one source that means "this
+                  <td className="num">{hours(row.planned_duration_s)}</td>
+                  <td className="num">
+                    {row.laps > 1 ? row.laps : <span className="muted">1</span>}
+                  </td>
+                  <td className="num">
+                    {row.laps > 1 ? (
+                      hours(row.planned_duration_s * row.laps)
+                    ) : (
+                      <span className="muted">{hours(row.planned_duration_s)}</span>
+                    )}
+                  </td>
+                  <td className="num">{hours(row.running_duration_s)}</td>
+                  <td className="num">
+                    {row.work_quantity == null
+                      ? '—'
+                      : `${row.work_quantity} ${row.work_unit ?? ''}`}
+                  </td>
+                  <td>
+                    <span className={`badge badge--${row.source}`}>
+                      {/* Shouted, in orange: the one source that means "this
                         is not real history", and the user asked for it to
                         be impossible to miss. */}
-                    {row.source === 'test' ? 'TEST' : row.source}
-                  </span>
-                </td>
-                <td className="row-actions">
-                  {/* The words are gone but the accessible name is not: this
+                      {row.source === 'test' ? 'TEST' : row.source}
+                    </span>
+                  </td>
+                  <td className="row-actions">
+                    {/* The words are gone but the accessible name is not: this
                       column is how a mislabelled session gets fixed, and it is
                       the only place in the app that can lose a row. */}
-                  <button
-                    className="row-action"
-                    onClick={() => setEditing(row)}
-                    title="Edit"
-                    aria-label={`Edit the session on ${formatDate(row.session_date) || 'no date'}`}
-                  >
-                    <Icon name="edit" />
-                  </button>
-                  <button
-                    className="row-action row-action--danger"
-                    onClick={() => void remove(row)}
-                    title="Delete — undoable"
-                    aria-label={`Delete the session on ${formatDate(row.session_date) || 'no date'}`}
-                  >
-                    <Icon name="trash" />
-                  </button>
-                </td>
-              </tr>
+                    <button
+                      className="row-action"
+                      onClick={() => setEditing(row)}
+                      title="Edit"
+                      aria-label={`Edit the session on ${formatDate(row.session_date) || 'no date'}`}
+                    >
+                      <Icon name="edit" />
+                    </button>
+                    <button
+                      className="row-action row-action--danger"
+                      onClick={() => setConfirming({ id: row.id, step: 1 })}
+                      title="Delete — undoable"
+                      aria-label={`Delete the session on ${formatDate(row.session_date) || 'no date'}`}
+                    >
+                      <Icon name="trash" />
+                    </button>
+                  </td>
+                </tr>
+                {confirming?.id === row.id && (
+                  <tr className="confirm-row">
+                    <td colSpan={10}>
+                      <div className="confirm">
+                        {confirming.step === 1 ? (
+                          <>
+                            <span>
+                              Delete <strong>{row.task ?? 'this unlabeled session'}</strong> —{' '}
+                              {formatDate(row.session_date) || 'no date'} ·{' '}
+                              {hours(row.running_duration_s)} recorded. This can be undone.
+                            </span>
+                            <button
+                              className="action action--danger"
+                              autoFocus
+                              onClick={() =>
+                                row.source === 'import'
+                                  ? setConfirming({ id: row.id, step: 2 })
+                                  : void remove(row)
+                              }
+                            >
+                              {row.source === 'import' ? 'Delete…' : 'Delete'}
+                            </button>
+                            <button className="action" onClick={() => setConfirming(null)}>
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span>
+                              <strong>This row came from the spreadsheet.</strong> Undo brings it
+                              back, and so does re-importing the CSV — but re-importing replaces
+                              every imported row, so it would discard any edits made to the others.
+                            </span>
+                            <button
+                              className="action action--danger"
+                              autoFocus
+                              onClick={() => void remove(row)}
+                            >
+                              Delete imported row
+                            </button>
+                            <button className="action" onClick={() => setConfirming(null)}>
+                              Cancel
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -2892,6 +2971,8 @@ function ImportTab(): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<string | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
+  /* True while the replace is waiting to be confirmed, under its own button. */
+  const [asking, setAsking] = useState(false)
 
   useEffect(() => {
     void window.api.importer.existingCount().then(setExisting)
@@ -2919,21 +3000,18 @@ function ImportTab(): React.JSX.Element {
     // Only when there is something to lose. A first import adds rows and can
     // be undone by importing again; a replace deletes every imported row
     // first, which is the largest destructive action in the app and the only
-    // one that happens behind a button labelled as an import.
+    // one that happens behind a button labelled as an import. It is asked in
+    // the tab, beside the button, not in a Windows dialog.
     if (existing > 0) {
-      const confirmed = await window.api.ui.confirm({
-        title: 'Replace the imported history',
-        message:
-          `Delete ${existing.toLocaleString()} imported sessions and write ` +
-          `${preview?.importable.toLocaleString() ?? 'the'} from this file?`,
-        detail:
-          'Sessions recorded by the timer and entered by hand are not touched.\n\n' +
-          'Any edits made to imported rows are discarded \u2014 the file replaces them as it stands.',
-        confirmLabel: 'Replace'
-      })
-      if (!confirmed) return
+      setAsking(true)
+      return
     }
+    await write()
+  }
 
+  async function write(): Promise<void> {
+    if (!file) return
+    setAsking(false)
     setBusy(true)
     setFailed(null)
     try {
@@ -3009,11 +3087,28 @@ function ImportTab(): React.JSX.Element {
             <button
               className="action action--primary"
               onClick={() => void commit()}
-              disabled={busy}
+              disabled={busy || asking}
             >
               {existing > 0 ? 'Replace import' : 'Import'}
             </button>
           </div>
+
+          {asking && (
+            <div className="confirm confirm--block">
+              <span>
+                Delete <strong>{existing.toLocaleString()} imported sessions</strong> and write{' '}
+                {preview.importable.toLocaleString()} from this file? Sessions recorded by the timer
+                and entered by hand are not touched. Any edits made to imported rows are discarded
+                &mdash; the file replaces them as it stands.
+              </span>
+              <button className="action action--danger" autoFocus onClick={() => void write()}>
+                Replace
+              </button>
+              <button className="action" onClick={() => setAsking(false)}>
+                Cancel
+              </button>
+            </div>
+          )}
 
           <h3>Projects</h3>
           <table className="grid">

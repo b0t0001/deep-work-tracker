@@ -320,11 +320,25 @@ buttons; a tab that cannot load says so in place, with Try again; a save that
 fails says why beside the button that was pressed. `ui:alert` was removed
 rather than left for the next convenient use.
 
+**A yes/no counts too.** *"deleting sessions still has a windows popup. this
+should be an in-app popup"* (11/11/2026), which settles the question this
+file had left open. Every confirmation in the dashboard - delete, the second
+step for an imported row, restore, replace an import - is a strip in place,
+under the thing it is about, with the action and Cancel beside it.
+`ui:confirm` was **removed**, handler and preload entry, rather than left for
+the next convenient use, exactly as `ui:alert` was.
+
+The strip is under the thing rather than over the page on purpose: a modal
+covers the row being deleted and makes the user trust a sentence instead of
+reading it. In the table the confirmation is a row of its own spanning every
+column, so the session - its date, project, task and hours - is still on
+screen while the question is asked.
+
 The exception is a failure with no window to speak in: startup steps that
 fail before any window exists, and the damaged-database warning at launch,
-still use a native dialog, because the alternative is saying nothing.
-Confirmations of destructive actions (delete, restore, replace an import)
-are still native `ui:confirm` dialogs - see Known gaps.
+still use a native dialog, because the alternative is saying nothing. The
+file pickers stay native too - a picker is a picker, not the app failing to
+speak for itself.
 
 ### Windows
 
@@ -1969,6 +1983,51 @@ is a transitive `uuid` bounds check on v3/v5/v6 with a caller-supplied
 buffer, which nothing here reaches. `package.json`'s `allowScripts` is
 unaffected: it is pure JavaScript with no install scripts.
 
+### Confirming in place
+
+Every rule the dialogs carried is kept, as steps of the strip rather than as
+separate windows:
+
+- **An imported row is still asked twice.** The first Delete on one opens the
+  second step instead of deleting; its button says `Delete…` rather than
+  `Delete`, so the two are told apart before either is pressed. App-recorded
+  and manual rows keep the single step - a second question on every delete
+  trains the reflex that makes both meaningless.
+- **A first import is not confirmed**, a replace is. A replace deletes every
+  imported row before writing, which is the largest destructive action in the
+  app and the only one behind a button labelled as an import.
+- **Restore states what comes in against what goes out**, and that a backup of
+  what is being discarded is written first.
+
+**The CSS had to move to the end of `main.css`.** The rules lost to `.action`
+and to `.grid tbody tr:hover td`, both declared later and at least as
+specific, so the strip computed as `rgba(255,255,255,0.03)` - the ordinary
+hovered-row tint - and its action button as plain white. The hover rule is
+the one that bites, because the pointer is always on the strip: it appears
+under the button that was just clicked. The red is `--danger`, named once
+from the `#e5484d` this file already wrote literally in `notice--bad`.
+
+`scripts/confirm-check.ts` drives all four with real CDP clicks and reads the
+result out of the database, because a confirmation has exactly two jobs and
+neither is visible in the markup: **Cancel must leave the row alone** and
+**Delete must remove the one it asked about**. A strip that renders
+beautifully and deletes the wrong row looks identical in a screenshot. It
+also counts `dialog.showMessageBox` calls - zero - which matters because
+`showMessageBox` blocks the main process, so a surviving call would hang the
+run rather than fail it, and a hang reads as a broken harness.
+
+Two things that run needed. The computed background and button colour are
+compared against a real row rather than against a colour written down in the
+check, since what is being asserted is "this does not look like another row".
+And the canned import preview missed `totalHours`, which the tab reads as
+`preview.totalHours.toFixed(1)` - the renderer threw, unmounted the tree, and
+from outside that looked like the Import tab failing to open rather than a
+typo in the harness. It now prints the page's console errors.
+
+`--db <copy> --shots <dir>` photographs all four against the real-size
+history; the behavioural assertions stay on the fixture, where task names are
+unique and a count means something.
+
 ### Committed is not the same as safe: checkpoint after writing
 
 In WAL mode a committed row lives in `deepwork.db-wal` until a checkpoint
@@ -2563,10 +2622,6 @@ than no spec.
   `setBackupDirectory` and its `app_settings` key work; no picker calls them.
   The automatic default is what matters and it is correct, so this is a
   convenience, not a hole.
-- **Destructive confirmations are still Windows dialogs.** Delete, the
-  second confirm for an imported row, restore and replace-import go through
-  `ui:confirm`. "The app speaks for itself" says information belongs in the
-  app; whether a yes/no question counts has not been put to the user.
 - **`presets` is still an unused table.** Named in the schema for the settings
   toggle that would bring preset durations back. Nothing writes it.
 

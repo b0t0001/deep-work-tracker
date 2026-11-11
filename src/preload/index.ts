@@ -131,14 +131,6 @@ const api = {
     preview: (): Promise<{ takenAt: string | null; sessions: number | null } | null> =>
       ipcRenderer.invoke('app:preview')
   },
-  ui: {
-    confirm: (options: {
-      title: string
-      message: string
-      detail?: string
-      confirmLabel: string
-    }): Promise<boolean> => ipcRenderer.invoke('ui:confirm', options)
-  },
   history: {
     state: (): Promise<HistoryState> => ipcRenderer.invoke('history:state'),
     undo: (): Promise<HistoryState> => ipcRenderer.invoke('history:undo'),

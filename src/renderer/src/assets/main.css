@@ -3394,3 +3394,72 @@ select:focus-visible {
     transition: none !important;
   }
 }
+
+/* ---------- confirming in place ---------- */
+
+/* **At the end of the file on purpose.** These rules lost to `.action` and to
+   the grid's own row background, both of which are declared later and at the
+   same specificity, so the strip computed as `rgba(255,255,255,0.03)` - the
+   ordinary row tint - and its action button as plain white. Measured, not
+   guessed: `confirm-check.ts` reads the computed background and colour, since
+   a confirmation that looks like another table row is exactly the thing this
+   change exists to avoid, and it is invisible in the markup.
+
+/* The red this file already uses, named once. It was written as the literal
+   `#e5484d` in `notice--bad` and nowhere else; three new rules wanting it is
+   the point at which a second copy becomes a thing that drifts. */
+.dashboard {
+  --danger: #e5484d;
+}
+
+/* *"deleting sessions still has a windows popup. this should be an in-app
+   popup"* (11/11/2026). Every yes/no in the dashboard is now a strip under
+   the thing it is about, which is the part a modal cannot do: the row being
+   deleted, with its date and hours, stays on screen while the question is
+   asked, so the answer is read off the table rather than off a sentence. */
+.confirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.confirm strong {
+  color: var(--text);
+}
+
+/* In a panel rather than in a table cell, where the padding is the row's. */
+.confirm--block {
+  margin: 12px 0 0;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+/* The row under the row. It carries the tint rather than the cell, so the
+   colour runs the full width of the table instead of stopping at a column.
+   Written with the table in the selector to beat `.grid tbody tr:hover td`,
+   which is more specific than a bare `.confirm-row > td` and was repainting
+   the strip as an ordinary hovered row - and the pointer is always on it,
+   because it appears under the button that was just clicked. */
+.grid tbody tr.confirm-row td,
+.grid tbody tr.confirm-row:hover td {
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--danger) 13%, transparent);
+  border-top: 1px dashed color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+/* The button that does the thing, told apart from Cancel by more than
+   position - this is the one that cannot be taken back by clicking again. */
+.action--danger {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+  color: var(--danger);
+}
+
+.action--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  border-color: var(--danger);
+}
