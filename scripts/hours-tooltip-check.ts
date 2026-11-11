@@ -165,21 +165,35 @@ app.whenReady().then(async () => {
     at: number
     title: string | null
   }> =>
-    ask(`(() => {
+    ask(
+      `(() => {
+    /*
+     * The panel's own title, found by the class rather than by walking up.
+     *
+     * This used to climb to the highest ancestor holding exactly one chart
+     * and take its first heading. Once panels were grouped into sections,
+     * a section holding one chart satisfied that test too, so the walk went
+     * one level too far and returned the *section* heading - "Hours and
+     * consistency" where the panel says "Hours per day". The chart was there
+     * and drawing; the check reported it missing and every assertion after
+     * this one was skipped.
+     */
     const titleOf = (wrap) => {
-      let node = wrap.parentElement, own = null;
-      for (let i = 0; i < 6 && node; i++) {
-        if (node.querySelectorAll('.recharts-wrapper').length === 1) own = node;
-        else break;
-        node = node.parentElement
-      }
-      return [...(own ? own.querySelectorAll('h2,h3,h4') : [])].map((t) => t.textContent.trim())[0] ?? null
+      const panel = wrap.closest('.an-panel');
+      const title = panel ? panel.querySelector('.an-panel__title') : null;
+      // The title element also carries an an-panel__sub span, so the first
+      // child node is the name on its own. No backticks in this comment: it
+      // lives inside a template literal and one would end it, which is the
+      // fault CLAUDE.md already records against heatmap-size-check - and
+      // which this line caused on its first draft.
+      return title ? title.childNodes[0].textContent.trim() : null
     };
     const all = [...document.querySelectorAll('.recharts-wrapper')];
     const titles = all.map(titleOf);
     const at = titles.findIndex((t) => t !== null && /Hours per/.test(t));
     return { charts: all.length, titles, at, title: at === -1 ? null : titles[at] }
-  })()`) as Promise<{ charts: number; titles: (string | null)[]; at: number; title: string | null }>
+  })()`
+    ) as Promise<{ charts: number; titles: (string | null)[]; at: number; title: string | null }>
 
   console.log('')
   console.log('1. the chart under test is the one we think it is')
@@ -308,7 +322,7 @@ app.whenReady().then(async () => {
   console.log(`       ${daily.distinct} distinct buckets over ${SAMPLES} positions`)
 
   console.log('')
-  console.log(`4. by week: the same, on the other bucketing (${SAMPLES} positions)`)
+  console.log(`4. by month: the same, on the other bucketing (${SAMPLES} positions)`)
   // Driven through the chart's own span control, scoped to its panel - there
   // are unit selects on other charts, and a global `select` would hit one.
   const switched = await ask(`(() => {
@@ -324,8 +338,18 @@ app.whenReady().then(async () => {
   check('the span control accepted a year', switched, '1y')
   await new Promise((done) => setTimeout(done, 1800))
   const weekly = await locate()
-  check('the chart is now bucketed by week', /Hours per week/.test(weekly.title ?? ''), true)
-  if (weekly.at !== -1 && /Hours per week/.test(weekly.title ?? '')) {
+  /*
+   * A year is months, not weeks, and this assertion predates that.
+   *
+   * It was written when the chart cut daily or weekly and nothing else, so a
+   * year meant 53 weekly buckets. `grainFor` walks day, week, month, quarter
+   * and takes the first whose count fits MAX_BARS (32): 53 weeks does not
+   * fit, 12 months does. The point of the step is to hover a *second*
+   * bucketing, and months are that - what it must not do is assert a grain
+   * the chart stopped choosing.
+   */
+  check('the chart is now bucketed by month', /Hours per month/.test(weekly.title ?? ''), true)
+  if (weekly.at !== -1 && /Hours per month/.test(weekly.title ?? '')) {
     console.log(`       "${weekly.title}"`)
     const byWeek = await sweep(weekly.at)
     console.log(`       ${byWeek.shape}`)

@@ -24,6 +24,8 @@ import {
   yAxisWidth
 } from '../lib/measure'
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -353,6 +355,19 @@ const CHART_CSS = `
 /* The value drawn on a point or a bar. It is the series speaking rather than a
    caption about it, so it takes the accent - and it needs its own selector
    because the rule above wins over a fill attribute on the element. */
+/* The point a value label belongs to.
+   This is what answers the objection that put bars here: a label above a
+   smooth stretch of curve says nothing about which day it is for, and a dot
+   under it does. It needs a ring in the panel colour to read at all - at the
+   accent on an accent-coloured line it was invisible, which the first
+   screenshot showed and the element count did not. Styled here rather than
+   through the dot props because an SVG presentation attribute does not
+   reliably resolve var(). */
+.ac .ac__dot {
+  fill: var(--accent);
+  stroke: var(--surface-panel);
+  stroke-width: 1.5;
+}
 .ac .recharts-text.ac__value {
   fill: var(--accent);
   font-size: 10.5px;
@@ -644,7 +659,6 @@ export function HoursOverTime({
   const unit = GRAIN_NOUN[grain]
   /** Axis text by bucket, so the scale can be keyed on something unique. */
   const tickText = new Map(points.map((point) => [point.from, point.tick]))
-
   return (
     <Frame
       /* The grain is in the title because it changes with the range, and a
@@ -659,12 +673,37 @@ export function HoursOverTime({
       aside={control}
       note={
         points.length > 0
-          ? `Every bar carries its hours — one decimal under 100, whole above it. Running time only; paused time is never counted. Empty ${unit}s are drawn as zero rather than closed up, so a gap reads as a gap.`
+          ? `Every point carries its hours — one decimal under 100, whole above it. Running time only; paused time is never counted. Empty ${unit}s are drawn as zero rather than closed up, so a gap reads as a gap.`
           : undefined
       }
     >
-      {(tickPx) =>
-        points.length === 0 ? (
+      {(tickPx) => {
+        /*
+         * How far the first and last points are held off the plot edges.
+         *
+         * A bar sits half a band inside the plot, so its label had room on
+         * both sides for free. An area's first and last points sit *on* the
+         * edges, and a label centred there hangs half its width over the y
+         * axis at one end and off the svg at the other. Padding the axis
+         * moves the points inward rather than widening the chart, so nothing
+         * else has to shift.
+         *
+         * The widest of both kinds of text, because either can be the one
+         * that overhangs: `115.2` is wider than `Nov`, and `Nov '26` is wider
+         * than `0`. It is computed in here because `tickPx` is the live text
+         * scale, which only `Frame` knows.
+         */
+        const edgePad = Math.ceil(
+          Math.max(
+            widest(
+              points.map((point) => point.label),
+              VALUE_PX
+            ),
+            widest([...tickText.values()], tickPx)
+          ) / 2
+        )
+
+        return points.length === 0 ? (
           <Empty height={220}>No sessions recorded yet.</Empty>
         ) : (
           <ResponsiveContainer width="100%" height={220}>
@@ -674,10 +713,10 @@ export function HoursOverTime({
                 point you most want named - and the right margin carries the
                 half of the last date label that hangs past the final point.
                 `Thu 5` was cut by 12px at 1.6x text before this. */}
-            <BarChart
+            <AreaChart
               data={points}
               margin={{
-                top: topMarginFor(tickPx, 7),
+                top: topMarginFor(tickPx, 10),
                 right: rightMarginFor([...tickText.values()], tickPx, 10),
                 left: 0,
                 bottom: 0
@@ -710,6 +749,9 @@ export function HoursOverTime({
                 dataKey="from"
                 interval={0}
                 tickLine={false}
+                /* See `edgePad`: an area's end points sit on the plot edges
+                   and a bar's did not. */
+                padding={{ left: edgePad, right: edgePad }}
                 tickFormatter={(value: string): string => tickText.get(value) ?? ''}
               />
               <YAxis
@@ -734,32 +776,52 @@ export function HoursOverTime({
                   />
                 }
               />
-              {/* Bars rather than an area, at the user's request: they named
-                the Hours-by-project panel as the format they can read, and
-                the thing that makes it readable is that every bar carries
-                its number. An area has points, not slots, so there is
-                nowhere for a label to sit that is unambiguously one day's.
+              {/* An area again, and every point still carries its number.
 
-                The fill does not fade with value. A second encoding of the
-                same number would be decoration, and the height already says
-                it twice over with the label. */}
-              <Bar
+                This was bars for a while, and the reason given was that "an
+                area has points, not slots, so there is nowhere for a label to
+                sit that is unambiguously one day's". The user has asked for
+                the area back with the labels kept - "this chart should be an
+                area chart, not a bar chart. i want the numbers to remained
+                labeled" - and the objection turns out to be answerable rather
+                than fundamental. What made a bar's label unambiguous was that
+                the bar underneath it was a visible object belonging to one
+                bucket. A dot is that object: the label sits directly above its
+                own dot, and `grainFor` already guarantees there are never more
+                than `MAX_BARS` of them, which is what keeps two from reading
+                as one.
+
+                `monotone` rather than `linear` because it is shape-preserving
+                - it will not overshoot a dip into a curve that implies hours
+                nobody worked, which a plain cubic would.
+
+                The fill is flat. A vertical fade is the "subtle gradient" the
+                user had removed from this app in so many words; it would also
+                be a second encoding of a value the height and the label have
+                already given. */}
+              <Area
+                type="monotone"
                 dataKey="hours"
                 name="Hours"
                 unit=" h"
+                stroke={accent}
+                strokeWidth={2}
                 fill={accent}
-                radius={[2, 2, 0, 0]}
+                fillOpacity={0.18}
+                dot={{ r: 3, className: 'ac__dot' }}
+                activeDot={{ r: 4.5, strokeWidth: 0 }}
                 isAnimationActive={false}
               >
-                {/* The value on the bar, the way a spreadsheet does it. Accent
-                  rather than --text-dim: it is the series speaking, not a
-                  caption about it. */}
-                <LabelList dataKey="label" position="top" offset={5} className="ac__value" />
-              </Bar>
-            </BarChart>
+                {/* The value above its point, the way a spreadsheet does it.
+                  Accent rather than --text-dim: it is the series speaking, not
+                  a caption about it. The offset clears the dot as well as the
+                  line, which is why it is larger than a bar's was. */}
+                <LabelList dataKey="label" position="top" offset={8} className="ac__value" />
+              </Area>
+            </AreaChart>
           </ResponsiveContainer>
         )
-      }
+      }}
     </Frame>
   )
 }
