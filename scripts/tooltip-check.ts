@@ -183,14 +183,29 @@ app.whenReady().then(async () => {
       const p = [...document.querySelectorAll('.an-panel')]
         .find((el) => el.textContent.includes(${JSON.stringify(name)}));
       if (!p) return null;
+      // A bar if the panel has them, otherwise a point on an area. Hours per
+      // day is an area again, and a selector that only knew about bars
+      // reported "no bar found" for a chart whose tooltip was working - the
+      // harness failing, not the panel.
       const bar = p.querySelector('.recharts-bar-rectangle path, .recharts-bar-rectangle rect');
-      if (!bar) return null;
-      const r = bar.getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + Math.min(20, r.height / 2) };
+      if (bar) {
+        const r = bar.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + Math.min(20, r.height / 2) };
+      }
+      // Not the first or last dot: those sit at the ends of the plot, where
+      // Recharts resolves a pointer to the neighbouring band about as often as
+      // to the one under it.
+      const dots = [...p.querySelectorAll('.recharts-area-dot')];
+      const dot = dots[Math.floor(dots.length / 2)];
+      if (dot) {
+        const r = dot.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }
+      return null;
     })()`)) as { x: number; y: number } | null
 
     if (spot === null) {
-      check(`${name}: a bar to hover`, false, 'no bar found')
+      check(`${name}: something to hover`, false, 'no bar or area point found')
       continue
     }
     // Twice: Recharts ignores a first move that arrives with no prior
