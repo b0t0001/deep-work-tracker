@@ -1722,14 +1722,43 @@ to this panel re-runs `--live` probes and keeps them.
   travels outward through time while the cloud turns, a soft accent light
   marks the core, and 900 points of fixed dust on a far shell slide behind the
   cloud as it turns, which is what makes it read as standing in space.
-- **The turn starts after five seconds of idle** - *"enable the slow
-  rotation after like a 5 second idle timer."* Any pointer, wheel or keyboard
-  input on the panel (drag, zoom, hover, the legend, the Projects list, the
-  range dropdown) stops it and restarts the clock; `IDLE_RESUME_MS` of
-  nothing starts it again from rest, easing to full speed over `SPIN_UP_MS`
-  (1 s, smoothstep). The clock starts only once the panel has first been on
-  screen. Measured: in view to turning 5,026 ms; one pointer move stops it at
-  once and it restarts 5,013 ms later.
+- **The turn starts after three seconds of idle.** It was five - *"enable
+  the slow rotation after like a 5 second idle timer"* - until the user
+  asked on 11/11/2026 to *"increase the idle rotation speed, and decrease the
+  activation period for the idle mode from 5 to 3 seconds"*. Any pointer,
+  wheel or keyboard input on the panel (drag, zoom, hover, the legend, the
+  Projects list, the range dropdown) stops it and restarts the clock;
+  `IDLE_RESUME_MS` (3,000) of nothing starts it again from rest, easing to
+  full speed over `SPIN_UP_MS` (1 s, smoothstep). The clock starts only once
+  the panel has first been on screen. Measured: in view to turning 3,015 ms;
+  one pointer move stops it at once and it restarts 3,014 ms later.
+- **The turn is `TURN_SPEED` 0.56**, one revolution in about 107 seconds. It
+  was 0.32, a little over three minutes; 1.75x reads as turning at a glance
+  and is still slow enough to follow one arm round.
+- **The glow breathes, in both looks.** *"add a slow 'pulse' to the
+  constellation in both lidar and galaxy mode for the glow"*. A sine on the
+  wall clock, `PULSE_PERIOD_MS` 6,000 - slow enough to read as calm rather
+  than as a signal, and not a multiple of the swell's 11 seconds, so the two
+  never lock into one beat. It runs whether or not the cloud is turning, so
+  it does not jump when the turn starts or stops.
+  - **It swings around the settled brightness, never above it on average**
+    - the user had settled Galaxy's level (*"The brightness right now is
+    actually fine"*) and a breath that brightened it would undo that. A sine
+    has a mean of zero, and it is measured rather than assumed:
+    `constellationLight` renders 24 phases of one breath and reads the whole
+    canvas, with the stars hidden for a baseline so the figure is the stars'
+    own light. Galaxy: +27% at the peak, -28% at the trough, mean over the
+    breath -0.33% against rest (screen blending flattens the brightest
+    pixels a touch). LiDAR: +8% / -8%, mean -0.05%.
+  - **Galaxy swings its whole glow (`PULSE_GALAXY` 0.3); LiDAR only the
+    emission round each dot (`PULSE_LIDAR` 0.6 of the glow term)**, never the
+    dot itself, so the scan stays a scan.
+  - **The first depths were 0.14 and 0.35 and could not be seen**: peak and
+    trough screenshots were indistinguishable, and the whole-canvas reading
+    was ±0.7%, because lines, rings and dust are most of the canvas's light.
+    Measuring the stars alone is what showed the swing was real but small.
+  - `prefers-reduced-motion` turns it off, and with it every frame it would
+    cost.
 - **Interaction**: drag to orbit, hover for a `ChartTip`
   (date and project small, duration big, output below) plus a ring on the star
   and its whole sitting drawn bright, click a legend row to isolate an arm,
@@ -1754,8 +1783,15 @@ How it stays cheap:
   Import requests only `index-*.js`; opening Analytics adds the chunk.
 - **Drawn on demand.** A frame is drawn when something asks (`invalidate`):
   the controls moving, a hover, isolation, a resize, the range. The loop runs
-  on only while there is motion - the idle turn, damping settling, isolation
-  easing - and a still cloud draws **nothing**. Off screen
+  at the display's rate only while there is motion - the idle turn, damping
+  settling, isolation easing. **A still cloud draws at `PULSE_FPS` (15)**,
+  because the breath is motion: a six-second sine shows nothing at 120 frames
+  a second that it does not at 15, and the frames are timed with a
+  `setTimeout` but still drawn through `requestAnimationFrame` and
+  `invalidate`, so every rule below still refuses them. Anything else that
+  asks for a frame cancels the wait and is drawn at once. With
+  `prefers-reduced-motion` there is no breath, and a still cloud draws
+  nothing at all, as it did before. Off screen
   (IntersectionObserver), with the window hidden or minimised
   (`document.hidden`) or with another tab open (the panel is unmounted) it
   draws nothing either. A request made *during* a frame is absorbed by that
@@ -1784,23 +1820,31 @@ How it stays cheap:
   on a filtered array. `within()` makes a new array every render, and handed
   one the panel re-uploaded every buffer whenever anything on the tab changed.
 
-Measured on the real-size copy (2,478 sessions, 1,169 sitting lines), 11/06/2026:
+Measured on the real-size copy (2,478 sessions, 1,169 sitting lines), 11/06/2026,
+and re-measured 11/11/2026 with the breath (device pixel ratio 1.5 on this
+machine that day, against 1.25 before - the absolute figures moved with the
+machine, so the comparison that matters was run back to back: the followups
+build without the breath measured 0.4 / 1.0 ms and 0.8 / 2.1 ms per turning
+frame on two runs, the breath build 0.4 / 0.9 and 0.8 / 2.0):
 
 | | |
 | --- | --- |
 | `analytics()` | 41 ms median against 39 before (80 runs each), +26 KB |
-| turning, all time, 1900px (`--live`), Galaxy | 120 fps (frames 8.3 ms apart, p95 8.5); CPU per frame 0.4 ms median, 0.7 ms p95 |
-| the same, LiDAR | 120 fps (8.3 / 8.5); CPU 0.3 ms median, 0.6 ms p95 |
+| turning, all time, 1900px (`--live`), Galaxy | 120 fps (frames 8.3 ms apart, p95 8.5); CPU per frame 0.4-0.8 ms median, 0.9-2.0 ms p95, the same as without the breath |
+| the same, LiDAR | 120 fps (8.3 / 8.6); CPU 0.7-1.1 ms median, 1.6-2.4 ms p95 on 11/11 |
 | GPU-synced frame, 2248x775 device px | Galaxy 1.7-2.1 ms, LiDAR 1.4-1.9 ms across runs (5 ms with MSAA on) |
-| still, 3 s | 0 frames |
+| still, 3 s | 40-41 frames (the breath at 15 fps), 0.4-0.8 ms each: under 1% of one core |
+| still, 3 s, prefers-reduced-motion (`--reduced-motion`) | 0 frames, and no turn |
 | scrolled off screen, turning, 3 s | 0 frames |
-| 20 trips Data <-> Analytics | JS heap 20.7 MB -> 20.7 MB after GC, 9 live geometries -> 9, 1 canvas |
+| 20 trips Data <-> Analytics | JS heap 20.7 MB -> 20.7 MB after GC, 9 live geometries -> 9, 1 canvas; 22.0 -> 22.0 MB on 11/11 |
 | click Analytics -> panel built | ~500 ms (the whole tab's payload and the chunk) |
 | panel scrolled into view -> first frame | ~110-150 ms |
 
 `npx electron out/shoot/index.js --live --db <copy> --only
 probe-cst-perf,probe-cst-memory,probe-cst-timer-scripts,probe-cst-settings-scripts,probe-cst-dashboard-scripts`
-reproduces every row but the first. `--live` shows the harness window off
+reproduces every row but the first; add `--reduced-motion` for the
+reduced-motion row, and run `probe-cst-pulse` (without `--live`) for the
+light over a breath. `--live` shows the harness window off
 screen with occlusion tracking off; the normal hidden window draws about one
 frame a second, which is fine for a picture and useless for smoothness.
 
