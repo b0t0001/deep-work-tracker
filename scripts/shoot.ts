@@ -38,6 +38,7 @@ import {
   querySessions
 } from '../src/main/db/sessions'
 import { historyState } from '../src/main/db/history'
+import { listProjectsForAdmin } from '../src/main/db/projectAdmin'
 import { analytics } from '../src/main/db/analytics'
 import { backupStatus } from '../src/main/backup'
 import { TimerEngine } from '../src/main/timer'
@@ -79,6 +80,11 @@ const live = process.argv.includes('--live')
 if (live) {
   app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
   app.commandLine.appendSwitch('js-flags', '--expose-gc')
+}
+// `--reduced-motion` answers prefers-reduced-motion: reduce, for the probes
+// that check motion turns itself off.
+if (process.argv.includes('--reduced-motion')) {
+  app.commandLine.appendSwitch('force-prefers-reduced-motion')
 }
 const only = arg('only')
   ?.split(',')
@@ -280,6 +286,20 @@ const CONSTELLATION_SHOTS: Shot[] = [
     1000
   ),
   cstShot('probe-cst-hover-1150', 1150, CST_HOVER),
+  cstShot('cst-pulse-peak-1900', 1900, `stage.constellationPulse(1); await wait(500);`, 1000),
+  cstShot('cst-pulse-trough-1900', 1900, `stage.constellationPulse(-1); await wait(500);`, 1000),
+  cstShot(
+    'cst-lidar-pulse-peak-1900',
+    1900,
+    `const lidar = stage.closest('.an-panel').querySelector('.cst__shape').querySelectorAll('button')[1]; lidar.click(); await wait(700); stage.constellationPulse(1); await wait(500);`,
+    1000
+  ),
+  cstShot(
+    'cst-lidar-pulse-trough-1900',
+    1900,
+    `const lidar = stage.closest('.an-panel').querySelector('.cst__shape').querySelectorAll('button')[1]; lidar.click(); await wait(700); stage.constellationPulse(-1); await wait(500);`,
+    1000
+  ),
   cstShot(
     'cst-lidar-1900',
     1900,
@@ -517,6 +537,24 @@ document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await w
     note: 'Not a picture: frame cost per mode, and that switching rebuilds nothing.'
   },
   {
+    // The breath must swing around the settled brightness, not raise it: the
+    // light the cloud adds, at rest and averaged over one breath of 24
+    // phases, in each mode, read from the whole canvas.
+    id: 'probe-cst-pulse',
+    width: 1900,
+    height: 1000,
+    route: '/dashboard',
+    drive:
+      CST_OPEN +
+      `
+      const galaxy = stage.constellationLight(24);
+      const lidar = stage.closest('.an-panel').querySelector('.cst__shape').querySelectorAll('button')[1]; lidar.click(); await wait(700);
+      const lidarLight = stage.constellationLight(24);
+      document.title = JSON.stringify({ galaxy, lidar: lidarLight });
+    `,
+    note: 'Not a picture: light at rest against light averaged over a breath.'
+  },
+  {
     // Range switching must not leak: ten switches, then the renderer's own
     // count of live geometries and the number of canvases on the page.
     id: 'probe-cst-leak',
@@ -605,10 +643,12 @@ const CST_PERF_SHOTS: Shot[] = [
       st.closest('.an-section').scrollIntoView({ block: 'start' });
       st.constellationStill();
       await wait(1500);
+      stats(true);
       const s0 = stats().drawn;
       await wait(3000);
-      const stillFrames = stats().drawn - s0;
-      document.title = JSON.stringify({ clickToPanelMs: Math.round(mounted), inViewToFirstFrameMs: Math.round(first), inViewToTurnMs: Math.round(idleToTurn), stoppedByPointerMove: stoppedByInput, inputToTurnMs: Math.round(inputToTurn), turn5s: { frames: turnFrames, cpuMedian: turn.cpuMedian, cpuP95: turn.cpuP95, gapMedian: turn.gapMedian, gapP95: turn.gapP95, calls: turn.calls, pixelRatio: turn.pixelRatio }, stillFramesIn3s: stillFrames, offscreenFramesIn3s: offFrames });
+      const stillStats = stats();
+      const stillFrames = stillStats.drawn - s0;
+      document.title = JSON.stringify({ clickToPanelMs: Math.round(mounted), inViewToFirstFrameMs: Math.round(first), inViewToTurnMs: Math.round(idleToTurn), stoppedByPointerMove: stoppedByInput, inputToTurnMs: Math.round(inputToTurn), turn5s: { frames: turnFrames, cpuMedian: turn.cpuMedian, cpuP95: turn.cpuP95, gapMedian: turn.gapMedian, gapP95: turn.gapP95, calls: turn.calls, pixelRatio: turn.pixelRatio }, stillFramesIn3s: stillFrames, stillCpu: [stillStats.cpuMedian, stillStats.cpuP95], offscreenFramesIn3s: offFrames });
     `,
     note: 'Not a picture: frame timing turning, still and off screen.'
   },
@@ -667,10 +707,12 @@ const CST_PERF_SHOTS: Shot[] = [
       st.closest('.an-section').scrollIntoView({ block: 'start' });
       st.constellationStill();
       await wait(1500);
+      stats(true);
       const s0 = stats().drawn;
       await wait(3000);
-      const stillFrames = stats().drawn - s0;
-      document.title = JSON.stringify({ clickToPanelMs: Math.round(mounted), inViewToFirstFrameMs: Math.round(first), inViewToTurnMs: Math.round(idleToTurn), stoppedByPointerMove: stoppedByInput, inputToTurnMs: Math.round(inputToTurn), turn5s: { frames: turnFrames, cpuMedian: turn.cpuMedian, cpuP95: turn.cpuP95, gapMedian: turn.gapMedian, gapP95: turn.gapP95, calls: turn.calls, pixelRatio: turn.pixelRatio }, stillFramesIn3s: stillFrames, offscreenFramesIn3s: offFrames });
+      const stillStats = stats();
+      const stillFrames = stillStats.drawn - s0;
+      document.title = JSON.stringify({ clickToPanelMs: Math.round(mounted), inViewToFirstFrameMs: Math.round(first), inViewToTurnMs: Math.round(idleToTurn), stoppedByPointerMove: stoppedByInput, inputToTurnMs: Math.round(inputToTurn), turn5s: { frames: turnFrames, cpuMedian: turn.cpuMedian, cpuP95: turn.cpuP95, gapMedian: turn.gapMedian, gapP95: turn.gapP95, calls: turn.calls, pixelRatio: turn.pixelRatio }, stillFramesIn3s: stillFrames, stillCpu: [stillStats.cpuMedian, stillStats.cpuP95], offscreenFramesIn3s: offFrames });
     `,
     note: 'Not a picture: the same timing in LiDAR mode.'
   },
@@ -1559,6 +1601,11 @@ function registerHandlers(): void {
       newTimer: 'CommandOrControl+Shift+N'
     }),
     'window:isFullScreen': () => false,
+    // The Settings tab's project list (followups 98165c8). Without it the
+    // dashboard rendered a blank page here, which every dashboard shot
+    // then photographed.
+    'projects:list': () => listProjectsForAdmin(),
+    'log:location': () => join(profile, 'logs', 'errors.log'),
     'app:preview': () =>
       asPreview
         ? {
@@ -1671,6 +1718,18 @@ function surface(): BrowserWindow {
       backgroundThrottling: !live
     }
   })
+  // `--console` prints the page's errors and warnings: a dashboard that
+  // fails to render is a blank page in every shot, and says why only here.
+  if (process.argv.includes('--console')) {
+    canvas.webContents.on('console-message', (event) => {
+      const level = (event as unknown as { level?: string }).level
+      if (level === 'error' || level === 'warning') {
+        console.log(
+          `    [${level}] ${(event as unknown as { message: string }).message.slice(0, 400)}`
+        )
+      }
+    })
+  }
   return canvas
 }
 

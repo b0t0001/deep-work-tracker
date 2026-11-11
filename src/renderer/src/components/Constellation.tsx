@@ -97,11 +97,38 @@ const TARGET_Y = HEIGHT * 0.32
  * input on the panel - and after this long on first view. *"enable the slow
  * rotation after like a 5 second idle timer."*
  */
-const IDLE_RESUME_MS = 5000
+const IDLE_RESUME_MS = 3000
 /** How long the turn takes to reach full speed, so it eases in rather than jumping. */
 const SPIN_UP_MS = 1000
-/** OrbitControls units: 0.32 is one turn in a little over three minutes. */
-const TURN_SPEED = 0.32
+/**
+ * OrbitControls units: 0.56 is one turn in about 107 seconds. It was 0.32,
+ * a little over three minutes, until the user asked for it faster
+ * (11/11/2026); 1.75x is quick enough to read as turning at a glance and
+ * still slow enough to follow one arm round.
+ */
+const TURN_SPEED = 0.56
+/**
+ * The glow breathes: *"add a slow 'pulse' to the constellation in both lidar
+ * and galaxy mode for the glow"*. Six seconds a breath - slow enough to read
+ * as calm rather than as a signal, and not a multiple of the 11-second swell,
+ * so the two never lock into one beat.
+ */
+const PULSE_PERIOD_MS = 6000
+/**
+ * How far each breath swings, around the level the user settled - never
+ * above it on average. A sine has a mean of zero over a cycle, so the light
+ * averaged over a breath is the light without one; measured, not assumed
+ * (see CLAUDE.md). Galaxy swings its whole glow, LiDAR only the faint
+ * emission around each dot, so the scan stays a scan.
+ */
+const PULSE_GALAXY = 0.3
+const PULSE_LIDAR = 0.6
+/**
+ * Frames a second while nothing but the pulse is moving. A 6-second sine
+ * changes too slowly for 120 frames a second to show anything 15 do not, and
+ * this is the cost the timer pays for a still cloud that breathes.
+ */
+const PULSE_FPS = 15
 
 const CSS = `
 .cst__stage {
@@ -468,6 +495,8 @@ uniform float uFogFar;
 uniform float uTime;
 uniform float uWave;
 uniform float uIntensity;
+uniform float uPulse;
+uniform float uPulseGalaxy;
 varying vec3 vColor;
 varying float vAlpha;
 varying float vHot;
@@ -486,6 +515,8 @@ void main() {
   // uIntensity scales the whole glow. 0.66 is the user's "tone down the
   // brightness, the intensity just a little" - the same look, a third dimmer.
   vAlpha = (0.2 + 0.8 * bright + 0.75 * wave) * fog * dim * twinkle * uIntensity;
+  // The breath: a swing around the settled level, mean zero over a cycle.
+  vAlpha *= 1.0 + uPulseGalaxy * uPulse;
   gl_PointSize = clamp(size * (1.0 + 0.45 * wave) * uScale / depth, 1.6, 72.0) * uPixelRatio;
   gl_Position = projectionMatrix * mv;
 }
@@ -565,6 +596,8 @@ void main() {
 `
 
 const LIDAR_FRAG = `
+uniform float uPulse;
+uniform float uPulseLidar;
 varying vec3 vColor;
 varying float vFade;
 void main() {
@@ -575,6 +608,8 @@ void main() {
   float core = 1.0 - smoothstep(0.3, 0.38, r);
   // The light it gives off: a little, tight, gone by the sprite's edge.
   float glow = exp(-r * r * 5.0) * 0.42 * (1.0 - r);
+  // The breath moves only the light the dot gives off, never the dot.
+  glow *= 1.0 + uPulseLidar * uPulse;
   float a = clamp(core + glow * (1.0 - core), 0.0, 1.0) * vFade;
   // A faintly hotter centre, which is what makes a dot read as a source of
   // light rather than as paint.
@@ -1225,6 +1260,9 @@ export default function Constellation({
         uPixelRatio: { value: pixelRatio },
         uTime: { value: 0 },
         uWave: { value: -5 },
+        uPulse: { value: 0 },
+        uPulseGalaxy: { value: PULSE_GALAXY },
+        uPulseLidar: { value: PULSE_LIDAR },
         uIntensity: { value: GLOW_INTENSITY },
         uStage: { value: rawColour(STAGE_BG) }
       },
@@ -1388,6 +1426,13 @@ export default function Constellation({
     // below already does.
     let visible = false
     let frame = 0
+    // The pulse's own slow schedule, used only while nothing else moves.
+    // Up here with the others: invalidate() reads it, and the first resize
+    // calls invalidate() long before the loop below is reached. Declared
+    // lower, it threw on mount - and an exception in this effect takes the
+    // whole dashboard down, not just the panel.
+    let pulseTimer = 0
+    let pulseOverride: number | null = null
 
     /* size and framing */
     let interacted = false
@@ -1629,6 +1674,11 @@ export default function Constellation({
     const costs: number[] = []
     const gaps: number[] = []
     function invalidate(): void {
+      // Anything that asks for a frame is drawn now, not at the pulse's pace.
+      if (pulseTimer !== 0) {
+        window.clearTimeout(pulseTimer)
+        pulseTimer = 0
+      }
       if (frame === 0 && visible && !document.hidden) {
         frame = requestAnimationFrame(tick)
       }
@@ -1663,6 +1713,11 @@ export default function Constellation({
       // The swell runs every eleven seconds while the cloud turns, and is
       // simply absent from a still frame.
       starMat.uniforms.uWave.value = turning ? ((clock / 11) % 1) * 1.5 - 0.25 : -5
+      // The breath runs on the wall clock, turning or not, so it does not
+      // jump when the turn stops or starts. Reduced motion: no breath.
+      starMat.uniforms.uPulse.value =
+        pulseOverride ??
+        (reduced ? 0 : Math.sin((2 * Math.PI * performance.now()) / PULSE_PERIOD_MS))
 
       // Isolation eases in and out rather than snapping, unless motion is reduced.
       const target = state.isolate >= 0 ? 1 : 0
@@ -1690,6 +1745,19 @@ export default function Constellation({
       } else {
         frame = 0
         last = 0
+        /*
+         * Still, but breathing: the next frame comes at PULSE_FPS rather
+         * than the display's rate. It still goes through requestAnimationFrame
+         * and invalidate, so it is still refused off screen, hidden, or
+         * unmounted - and with reduced motion there is no breath and nothing
+         * is scheduled at all.
+         */
+        if (!reduced && pulseOverride === null) {
+          pulseTimer = window.setTimeout(() => {
+            pulseTimer = 0
+            invalidate()
+          }, 1000 / PULSE_FPS)
+        }
       }
     }
 
@@ -1770,6 +1838,59 @@ export default function Constellation({
         invalidate()
       }
     })
+    /*
+     * For the checks: hold the breath at a phase (-1 trough, 1 peak, null to
+     * let it run), and measure the light the cloud adds, at rest and averaged
+     * over one breath, by rendering each phase and reading the whole canvas.
+     */
+    Object.defineProperty(stage, 'constellationPulse', {
+      configurable: true,
+      value: (v: number | null) => {
+        pulseOverride = v
+        invalidate()
+      }
+    })
+    Object.defineProperty(stage, 'constellationLight', {
+      configurable: true,
+      value: (samples: number) => {
+        const gl = renderer.getContext()
+        const w = gl.drawingBufferWidth
+        const h = gl.drawingBufferHeight
+        const px = new Uint8Array(w * h * 4)
+        const light = (v: number): number => {
+          starMat.uniforms.uPulse.value = v
+          renderer.render(scene, camera)
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px)
+          let sum = 0
+          for (let i = 0; i < px.length; i += 4) {
+            sum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]
+          }
+          return sum / (w * h)
+        }
+        // The stars' own light: everything else on the canvas - stage,
+        // lines, rings, dust, the core light - measured with the stars
+        // hidden and taken off, so the swing is a swing of the stars.
+        const points = state.points
+        if (points !== null) points.visible = false
+        const stageLight = light(0)
+        if (points !== null) points.visible = true
+        const rest = light(0) - stageLight
+        const cycle: number[] = []
+        for (let k = 0; k < samples; k += 1) {
+          cycle.push(light(Math.sin((2 * Math.PI * k) / samples)) - stageLight)
+        }
+        const mean = cycle.reduce((a, b) => a + b, 0) / cycle.length
+        invalidate()
+        return {
+          rest: Number(rest.toFixed(3)),
+          cycleMean: Number(mean.toFixed(3)),
+          peak: Number(Math.max(...cycle).toFixed(3)),
+          trough: Number(Math.min(...cycle).toFixed(3)),
+          meanVsRest: `${((mean / rest - 1) * 100).toFixed(2)}%`,
+          swing: `${((Math.max(...cycle) / rest - 1) * 100).toFixed(1)}% / ${((Math.min(...cycle) / rest - 1) * 100).toFixed(1)}%`
+        }
+      }
+    })
     Object.defineProperty(stage, 'constellationStats', {
       configurable: true,
       value: (reset?: boolean) => {
@@ -1827,6 +1948,8 @@ export default function Constellation({
     state.dispose = () => {
       if (frame > 0) cancelAnimationFrame(frame)
       frame = -1
+      window.clearTimeout(pulseTimer)
+      pulseTimer = 0
       for (const type of inputs) panel?.removeEventListener(type, rest)
       window.clearTimeout(resumeTimer)
       window.clearTimeout(hintTimer)
