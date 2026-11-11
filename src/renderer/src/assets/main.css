@@ -3,6 +3,9 @@
 :root {
   /* Accent is a single variable so the settings colour picker has one thing to set. */
   --accent: #5eead4;
+  /* Text on a solid accent fill: white or near-black, whichever reads on the
+     current accent. Set beside --accent by useAccentSync; see onAccent. */
+  --on-accent: #0b0d10;
   --surface: #14161a;
   --surface-raised: #23262d;
   --border: #ffffff14;
@@ -144,7 +147,7 @@ input {
 /* The highlighted row is the one Enter takes, so it has to be unmistakable. */
 .project-menu button.is-active {
   background: var(--accent);
-  color: #0b0d10;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -321,7 +324,7 @@ input {
 }
 
 .chip.is-active {
-  color: var(--surface);
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
   font-weight: 600;
@@ -350,7 +353,7 @@ input {
   border: none;
   border-radius: 9px;
   background: var(--accent);
-  color: var(--surface);
+  color: var(--on-accent);
   font-size: var(--control);
   font-weight: 600;
   cursor: pointer;
@@ -1457,7 +1460,7 @@ input {
    selected label is dark against it rather than taking --text. */
 .segmented button.is-active {
   background: var(--accent);
-  color: #0b0d10;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -1689,7 +1692,7 @@ input {
 .action--primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #0b0d10;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -1912,34 +1915,37 @@ input {
   flex: 1 1 auto;
 }
 
-/* The three reasons are what end a session, so they carry the accent - the
-   same treatment as the start button, a tone lighter, since three of them
-   side by side at full strength would shout. Hover and keyboard focus fill
-   them, which is also where Enter from the unit field lands. */
+/* The three reasons are what end a session, so they are solid accent with
+   --on-accent text, the start button's treatment. They were accent text on an
+   accent tint, which on Ruby is red on red: "i don't want red text on a red
+   background... this needs to generalize for all the accent colors and still
+   be readable." --on-accent is white or near-black per accent, held to 4.5:1
+   on every one by accents-check. Hover lifts them; keyboard focus, which is
+   where Enter from the unit field lands, rings them in the text colour. */
 .stop-prompt button {
   flex: 1 1 0;
   min-width: 0;
   padding: clamp(2px, 1.2vmin, 9px) 2px;
   border: none;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
   font-family: inherit;
   font-size: clamp(10px, 5.4vmin, 20px);
   font-weight: 500;
   letter-spacing: -0.01em;
   white-space: nowrap;
   cursor: pointer;
-  transition:
-    background 120ms ease,
-    color 120ms ease;
+  transition: filter 120ms ease;
 }
 
-.stop-prompt button:hover,
+.stop-prompt button:hover {
+  filter: brightness(1.12);
+}
+
 .stop-prompt button:focus-visible {
-  background: var(--accent);
-  color: var(--surface);
-  outline: none;
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
 }
 
 /* Undo is the way back, not an answer, so it is the quiet one: plain text,
@@ -1956,6 +1962,7 @@ input {
 .stop-prompt .stop-prompt__undo:focus-visible {
   background: transparent;
   color: var(--text);
+  filter: none;
 }
 
 /* The "Saved · 340 words" note that replaces the reasons for a beat. */

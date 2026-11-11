@@ -21,7 +21,11 @@ import {
   ACCENTS,
   COMPLEMENT_MIN_LIGHTNESS,
   NEUTRAL_COMPLEMENT,
+  ON_ACCENT_DARK,
+  ON_ACCENT_LIGHT,
   complementAccent,
+  contrastRatio,
+  onAccent,
   toHsl
 } from '../src/shared/accents'
 
@@ -175,6 +179,22 @@ check(
   ACCENTS.every((a) => /^#[0-9a-f]{6}$/.test(complementAccent(a.value))),
   'one of the accents produced something that is not a hex colour'
 )
+
+// ------------------------------------------- text on a solid accent fill --
+
+section('--- text on a solid accent fill reads on every accent ---')
+
+for (const accent of ACCENTS) {
+  const text = onAccent(accent.value)
+  const ratio = contrastRatio(text, accent.value)
+  check(
+    `${accent.name}: ${text} on ${accent.value} is at least 4.5:1`,
+    ratio >= 4.5,
+    `only ${ratio.toFixed(2)}:1`
+  )
+}
+eq('white on Ruby, as the user asked', onAccent('#d92b4b'), ON_ACCENT_LIGHT)
+eq('near-black on Amber, where white would not read', onAccent('#f28c28'), ON_ACCENT_DARK)
 
 // ---------------------------------------------------------------- report ---
 

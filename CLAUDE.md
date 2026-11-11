@@ -372,6 +372,19 @@ app's text white, as the user asked. `useAccentSync` sets `--accent` and
 the `manual` source badge uses it. `scripts/accents-check.ts` asserts the
 relationship.
 
+**Text on a solid accent is computed too: `--on-accent`.** *"i don't want red
+text on a red background. i would want white text on a red background is ok.
+... this needs to generalize for all the accent colors and still be
+readable"* (11/11/2026, of the stop strip on Ruby). White reads at about 5:1
+on Ruby and Sapphire and about 2.5:1 on Turquoise, Jade, Amber and Moonstone,
+so `onAccent` in `shared/accents.ts` takes whichever of white and the app's
+near-black reads better, and `useAccentSync` sets it beside `--accent`. Every
+solid accent fill with text on it uses it - the start button, the stop
+strip's reasons, chips, segmented and primary actions, the active project
+suggestion - and `scripts/accents-check.ts` holds all seven accents to 4.5:1.
+**Never put accent text on an accent tint**; that is the red-on-red the user
+rejected.
+
 **Scrollbars are a thin, quiet pill, styled with `::-webkit-scrollbar`.** The
 user asked for one like the Claude app's: *"a scroll bar with just a very
 subtle gray slider... not at all intrusive, and it fits seamlessly within the

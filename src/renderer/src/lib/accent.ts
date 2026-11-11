@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { ACCENT_KEY, DEFAULT_ACCENT, complementAccent, isKnownAccent } from '@shared/accents'
+import {
+  ACCENT_KEY,
+  DEFAULT_ACCENT,
+  complementAccent,
+  isKnownAccent,
+  onAccent
+} from '@shared/accents'
 
 /**
  * Keeps a window's accent in step with the rest of the app.
@@ -25,6 +31,9 @@ export function useAccentSync(): string {
       // the accent itself is: one place sets it, every window reads the same
       // value, and a colour added to ACCENTS cannot arrive without one.
       document.documentElement.style.setProperty('--accent-complement', complementAccent(next))
+      // The text colour for a solid accent fill: white or near-black,
+      // whichever reads better on this accent (see `onAccent`).
+      document.documentElement.style.setProperty('--on-accent', onAccent(next))
       setAccent(next)
     }
 

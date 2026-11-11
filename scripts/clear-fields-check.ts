@@ -30,6 +30,7 @@ import { join } from 'node:path'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { TimerEngine } from '../src/main/timer'
 import type { TimerSnapshot } from '../src/shared/timer'
+import { ACCENTS, onAccent } from '../src/shared/accents'
 
 // Without these, capturePage on an off-screen window fails with UnknownVizError.
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
@@ -238,6 +239,16 @@ app.whenReady().then(async () => {
   await ask(`document.querySelector('.dial__project')?.blur()`)
   await wait(200)
   await shoot('2-stop-prompt')
+  // The strip in every accent: "this needs to generalize for all the accent
+  // colors and still be readable". Set the way useAccentSync sets them.
+  if (shots) {
+    for (const accent of ACCENTS) {
+      await ask(`(() => { const r = document.documentElement.style;
+        r.setProperty('--accent', '${accent.value}');
+        r.setProperty('--on-accent', '${onAccent(accent.value)}') })()`)
+      await shoot(`accent-${accent.name}`)
+    }
+  }
   check('pick "tired"', await ask(clickReason('tired')), 'clicked')
   await wait(500)
   check('the reason was stored', reasons[reasons.length - 1], 'tired')

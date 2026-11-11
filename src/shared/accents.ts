@@ -132,3 +132,50 @@ export function complementAccent(hex: string): string {
   if (hsl.s < MIN_SATURATION) return NEUTRAL_COMPLEMENT
   return fromHsl((hsl.h + 0.5) % 1, hsl.s, Math.max(hsl.l, COMPLEMENT_MIN_LIGHTNESS))
 }
+
+/** White, for text on an accent dark enough to carry it. */
+export const ON_ACCENT_LIGHT = '#ffffff'
+/** The app's near-black, for text on an accent too light for white. */
+export const ON_ACCENT_DARK = '#0b0d10'
+
+/** WCAG relative luminance of a `#rrggbb` colour; null if it does not parse. */
+function relativeLuminance(hex: string): number | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (m === null) return null
+  const n = parseInt(m[1], 16)
+  const channel = (v: number): number => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  return (
+    0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255)
+  )
+}
+
+/** WCAG contrast ratio between two `#rrggbb` colours, 1 to 21. */
+export function contrastRatio(a: string, b: string): number {
+  const la = relativeLuminance(a)
+  const lb = relativeLuminance(b)
+  if (la === null || lb === null) return 1
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+}
+
+/**
+ * The text colour for anything drawn on a solid accent fill.
+ *
+ * The user, 11/11/2026, of the stop strip on Ruby: "i don't want red text on a
+ * red background. i would want white text on a red background is ok ... this
+ * needs to generalize for all the accent colors and still be readable." White
+ * cannot be the answer everywhere: it reads at about 5:1 on Ruby and Sapphire
+ * and at about 2.5:1 on Turquoise, Jade, Amber and Moonstone. So each accent
+ * takes whichever of white and the app's near-black reads better on it - white
+ * on the dark ones, as asked, and near-black on the light ones, which is what
+ * the start button already did. `--on-accent` carries it, set beside
+ * `--accent` by `useAccentSync`, and `scripts/accents-check.ts` holds every
+ * accent to 4.5:1.
+ */
+export function onAccent(hex: string): string {
+  return contrastRatio(ON_ACCENT_LIGHT, hex) >= contrastRatio(ON_ACCENT_DARK, hex)
+    ? ON_ACCENT_LIGHT
+    : ON_ACCENT_DARK
+}
