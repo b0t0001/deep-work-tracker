@@ -440,6 +440,8 @@ export interface BackupOutcome {
   reason?: string
   /** Set when a scheduled backup was refused because the history shrank. */
   blocked?: boolean
+  /** Set when there was nothing to back up: the database has no sessions. */
+  empty?: boolean
 }
 
 /**
@@ -470,7 +472,8 @@ export interface BackupOutcome {
  */
 export async function runBackup(options: { force?: boolean } = {}): Promise<BackupOutcome> {
   const rows = sessionCount()
-  if (rows === 0) return { written: false, reason: 'there are no sessions to back up yet' }
+  if (rows === 0)
+    return { written: false, reason: 'there are no sessions to back up yet', empty: true }
 
   const refusal = options.force ? null : backupBlockedReason(rows)
   if (refusal !== null) return { written: false, reason: refusal, blocked: true }

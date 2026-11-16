@@ -2352,7 +2352,14 @@ the loss above survivable rather than merely detectable.
 - **It replaces, never merges.** A backup is a whole-history snapshot; half of
   one grafted onto a different half is worse than either.
 - **It takes a backup of what it is about to discard, first.** Restoring the
-  wrong file is then an inconvenience rather than a second loss.
+  wrong file is then an inconvenience rather than a second loss. **That
+  backup is forced**, and if it cannot be written nothing is restored. Until
+  11/16/2026 it went through the ordinary guard, which refuses a snapshot
+  smaller than the largest backup kept - so after deleting a few sessions a
+  restore discarded the current data with no copy, and the preview round
+  trip showed `safetyBackup: null`. The guard is not needed here: pruning
+  never evicts the largest backup. The one exception is an empty database,
+  which has nothing to lose and must stay restorable.
 - **It keeps the original ids**, so a restored database is the same database
   rather than a renumbered copy.
 - **It validates the header before touching anything** and names the missing

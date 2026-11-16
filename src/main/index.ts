@@ -915,7 +915,23 @@ function registerIpc(): void {
    */
   ipcMain.handle('backup:restore', async (_event, filePath: string) => {
     const csv = readFileSync(filePath, 'utf8')
-    const safety = await runBackup()
+    // Forced. The ordinary guard refuses a snapshot smaller than the largest
+    // backup kept, so after deleting a few sessions a restore used to discard
+    // the current data with no copy at all - found 11/16/2026 by the preview
+    // round trip, where the safety backup came back null. The guard exists so
+    // a small snapshot cannot push real history out of the eight slots, and
+    // that is already covered: pruning never evicts the largest backup. What
+    // a restore throws away must always be written first.
+    const safety = await runBackup({ force: true })
+    // The one refusal a forced backup still gives is an empty database, and
+    // there is nothing to lose then - restoring onto an empty file after a
+    // loss is the case restore exists for. Anything else that stops the copy
+    // stops the restore.
+    if (!safety.written && !safety.empty) {
+      throw new Error(
+        `Nothing was restored: the current data could not be backed up first (${safety.reason}).`
+      )
+    }
     const result = restoreFromCsv(csv)
     return { ...result, safetyBackup: safety.written ? safety.file : null }
   })
