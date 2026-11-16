@@ -31,7 +31,15 @@ import {
 } from './db/sessions'
 import { importRows, importedSessionCount } from './db/import'
 import { analytics } from './db/analytics'
-import { createSession, historyState, redo, removeSession, undo, updateSession } from './db/history'
+import {
+  clearHistory,
+  createSession,
+  historyState,
+  redo,
+  removeSession,
+  undo,
+  updateSession
+} from './db/history'
 import type { FormPatch, SessionQuery } from './db/sessions'
 
 import { readImportRows, summarize } from './import/csv'
@@ -814,7 +822,11 @@ function registerIpc(): void {
   )
   ipcMain.handle('import:commit', (_event, filePath: string) => {
     const { rows } = readImportRows(readFileSync(filePath, 'utf8'))
-    return importRows(rows)
+    const result = importRows(rows)
+    // The imported rows were replaced, so undo steps about them are stale.
+    clearHistory()
+    projectsChanged()
+    return result
   })
   ipcMain.handle('import:existingCount', () => importedSessionCount())
 
@@ -933,6 +945,10 @@ function registerIpc(): void {
       )
     }
     const result = restoreFromCsv(csv)
+    // Every row was replaced: undo steps describe a database that is gone, and
+    // open timers are offering the old project list.
+    clearHistory()
+    projectsChanged()
     return { ...result, safetyBackup: safety.written ? safety.file : null }
   })
 }

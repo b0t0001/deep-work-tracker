@@ -16,6 +16,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { readFileSync } from 'node:fs'
 import { previewRestore, restoreFromCsv } from '../src/main/restore'
 import { databasePath, closeDatabase } from '../src/main/db'
+import { parseCsv } from '../src/main/import/csv'
 
 const file = process.argv[2]
 if (!file) throw new Error('pass a backup CSV')
@@ -59,10 +60,19 @@ check(
 )
 check('preview and restore agree on projects', result.projects, preview.projects)
 check('quick_check', one('PRAGMA quick_check').quick_check, 'ok')
+// Against the ids the backup carries, not the row count: a history with a
+// deleted session has a gap, and max id = count was only ever true of a
+// database nothing had been deleted from.
+const backupIds = parseCsv(csv)
+  .slice(1)
+  .map((row) => Number(row[0]))
+  .filter((id) => Number.isInteger(id) && id > 0)
 check(
   'ids are preserved, not renumbered',
-  one('SELECT MIN(id) lo, MAX(id) hi FROM sessions').hi,
-  result.sessions
+  (db.prepare('SELECT id FROM sessions ORDER BY id').all() as Array<{ id: number }>).map((r) =>
+    Number(r.id)
+  ),
+  backupIds.sort((a, b) => a - b)
 )
 check(
   'no project row is a leftover drifted spelling',

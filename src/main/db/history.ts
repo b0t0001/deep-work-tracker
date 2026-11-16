@@ -37,6 +37,19 @@ const LIMIT = 50
 const undoStack: Operation[] = []
 const redoStack: Operation[] = []
 
+/**
+ * Forgets every undo and redo step.
+ *
+ * Called after a restore or an import replaces the sessions table. The steps
+ * describe rows as they were before it, so replaying one afterwards re-deleted
+ * or re-inserted against a different database - an undo could remove a
+ * restored session, or fail on an id the restore had already put back.
+ */
+export function clearHistory(): void {
+  undoStack.length = 0
+  redoStack.length = 0
+}
+
 export function historyState(): HistoryState {
   return {
     canUndo: undoStack.length > 0,

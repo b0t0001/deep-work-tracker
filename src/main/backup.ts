@@ -1,5 +1,14 @@
 import { app, shell } from 'electron'
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { openDatabase } from './db'
 import { clearSetting, getSetting, setSetting } from './db/settings'
@@ -242,6 +251,31 @@ export function buildCsv(): { csv: string; rows: number } {
     )
   }
 
+  // The projects table and the app's settings, after the sessions, each under
+  // a `#` marker row. A session row starts with its numeric id, so a line
+  // starting with `#` can only be a marker.
+  //
+  // Projects because a session carries only its project's *name*: a project
+  // hidden in Settings came back unhidden, and one with no sessions came back
+  // not at all. Settings because the analytics layout, the constellation's
+  // projects and the saved-timers list lived nowhere else. The backup folder
+  // is left out - it names a place on this machine, and restoring it onto
+  // another would send the next backup somewhere that may not exist.
+  lines.push('#projects', 'name,archived,color')
+  const projects = db
+    .prepare('SELECT name, archived, color FROM projects ORDER BY id')
+    .all() as unknown as Array<{ name: string; archived: number; color: string | null }>
+  for (const project of projects) {
+    lines.push([project.name, project.archived, project.color].map(field).join(','))
+  }
+  lines.push('#settings', 'key,value')
+  const settings = db
+    .prepare('SELECT key, value FROM app_settings WHERE key <> ? ORDER BY key')
+    .all(DIRECTORY_KEY) as unknown as Array<{ key: string; value: string }>
+  for (const setting of settings) {
+    lines.push([setting.key, setting.value].map(field).join(','))
+  }
+
   // A trailing newline, so appending or concatenating cannot join two rows.
   return { csv: lines.join('\r\n') + '\r\n', rows: rows.length }
 }
@@ -269,19 +303,33 @@ function stamp(date = new Date()): string {
  * second and tries again, so names stay in the order the backups were taken.
  */
 function writeUnique(directory: string, csv: string, now = new Date()): string {
-  for (let step = 0; step < 120; step += 1) {
-    const file = join(
-      directory,
-      `deep-work-backup-${stamp(new Date(now.getTime() + step * 1000))}.csv`
-    )
+  // Written whole under a name nothing lists, then given its real name in one
+  // step. Written in place, a backup cut short by a crash or a power cut was a
+  // truncated file with a perfectly good backup name, offered for restore
+  // beside the real ones. `linkSync` is the rename: it is atomic and, unlike
+  // `renameSync`, fails rather than replaces when the name is taken.
+  const partial = join(directory, `.deep-work-backup-${process.pid}-${Date.now()}.partial`)
+  writeFileSync(partial, csv, 'utf8')
+  try {
+    for (let step = 0; step < 120; step += 1) {
+      const name = `deep-work-backup-${stamp(new Date(now.getTime() + step * 1000))}.csv`
+      const file = join(directory, name)
+      if (existsSync(file)) continue
+      try {
+        linkSync(partial, file)
+        return file
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      }
+    }
+    throw new Error('could not find a free backup file name')
+  } finally {
     try {
-      writeFileSync(file, csv, { encoding: 'utf8', flag: 'wx' })
-      return file
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      unlinkSync(partial)
+    } catch {
+      /* Already gone; nothing lists a .partial file either way. */
     }
   }
-  throw new Error('could not find a free backup file name')
 }
 
 export function listBackups(): BackupFile[] {
@@ -370,9 +418,14 @@ function sessionCount(): number {
 const DOUBLE_QUOTE = 34
 const LINE_FEED = 10
 const CARRIAGE_RETURN = 13
+const HASH = 35
 
 export function countRows(csv: string): number {
   let lines = 0
+  // A `#` at the start of a line is the projects / settings marker: those rows
+  // are not sessions, and counting them would let a backup pass the size guard
+  // on the strength of its settings.
+  let atLineStart = true
   // Whether anything has been seen since the last line break. It is what makes
   // a file with no trailing newline count its final row, and what keeps a
   // blank line from counting as one.
@@ -389,14 +442,18 @@ export function countRows(csv: string): number {
       }
       continue
     }
+    if (atLineStart && code === HASH) break
     if (code === DOUBLE_QUOTE) {
       quoted = true
       pending = true
+      atLineStart = false
     } else if (code === LINE_FEED) {
       if (pending) lines += 1
       pending = false
+      atLineStart = true
     } else if (code !== CARRIAGE_RETURN) {
       pending = true
+      atLineStart = false
     }
   }
   if (pending) lines += 1

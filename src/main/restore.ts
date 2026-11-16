@@ -50,6 +50,19 @@ const text = (value: string | undefined): string | null => {
   return trimmed === '' ? null : trimmed
 }
 
+/**
+ * Free text as it was written, not trimmed.
+ *
+ * `field()` in backup.ts quotes any value with a leading or trailing space so
+ * that the space survives the file; trimming it again here threw that away,
+ * so a restore was not the identity on a task typed with a trailing space.
+ * Blank still reads as null, since a backup writes null and empty alike.
+ */
+const exact = (value: string | undefined): string | null => {
+  const raw = value ?? ''
+  return raw.trim() === '' ? null : raw
+}
+
 const num = (value: string | undefined): number | null => {
   const trimmed = (value ?? '').trim()
   if (trimmed === '') return null
@@ -57,9 +70,19 @@ const num = (value: string | undefined): number | null => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+interface Section {
+  header: string[]
+  rows: string[][]
+}
+
 interface Parsed {
   header: string[]
   body: string[][]
+  /**
+   * The `#projects` and `#settings` sections written after the sessions since
+   * 11/16/2026. Absent in older backups, which restore as they always did.
+   */
+  sections: Map<string, Section>
 }
 
 function read(csv: string): { parsed: Parsed | null; problem: string | null } {
@@ -73,7 +96,29 @@ function read(csv: string): { parsed: Parsed | null; problem: string | null } {
       problem: `this does not look like a Deep Work backup - it is missing ${missing.slice(0, 3).join(', ')}`
     }
   }
-  return { parsed: { header, body: table.slice(1) }, problem: null }
+
+  // Sessions run until the first `#` marker row; a session row starts with its
+  // numeric id, so only a marker can start with `#`. Each marker is followed by
+  // that section's own header row.
+  const rest = table.slice(1)
+  const firstMarker = rest.findIndex((row) => (row[0] ?? '').startsWith('#'))
+  const body = firstMarker === -1 ? rest : rest.slice(0, firstMarker)
+  const sections = new Map<string, Section>()
+  if (firstMarker !== -1) {
+    let current: Section | null = null
+    for (const row of rest.slice(firstMarker)) {
+      const first = row[0] ?? ''
+      if (first.startsWith('#')) {
+        current = { header: [], rows: [] }
+        sections.set(first.slice(1).trim(), current)
+      } else if (current !== null && current.header.length === 0) {
+        current.header = row.map((h) => h.trim())
+      } else if (current !== null) {
+        current.rows.push(row)
+      }
+    }
+  }
+  return { parsed: { header, body, sections }, problem: null }
 }
 
 function currentSessionCount(): number {
@@ -194,8 +239,38 @@ export function restoreFromCsv(csv: string): RestoreResult {
     const projectIds = new Map<string, number>()
     let pauseCount = 0
 
+    // A backup with a projects section carries every project as it stood -
+    // exact name, hidden or not, colour - including projects with no
+    // sessions. Its names are then taken exactly as written. Before this a
+    // restore ran each name through the import's clean-up, which is right
+    // for a backup older than the 9/23 consolidation and wrong for anything
+    // since: it stripped a trailing number ("Gen 2" became "Gen") and merged
+    // the spreadsheet's aliases ("Tutor" became "Job"), so a project named in
+    // the Projects section could be renamed or merged by a restore. Older
+    // backups have no section and keep the clean-up they were restored with.
+    const projectSection = parsed.sections.get('projects')
+    const exactNames = projectSection !== undefined
+    if (projectSection) {
+      const column = (row: string[], name: string): string | undefined =>
+        row[projectSection.header.indexOf(name)]
+      const addFullProject = db.prepare(
+        'INSERT INTO projects (name, archived, color) VALUES (?, ?, ?)'
+      )
+      for (const row of projectSection.rows) {
+        const name = exact(column(row, 'name'))
+        if (name === null || projectIds.has(name)) continue
+        const id = Number(
+          addFullProject.run(name, num(column(row, 'archived')) ? 1 : 0, text(column(row, 'color')))
+            .lastInsertRowid
+        )
+        projectIds.set(name, id)
+      }
+    }
+
     for (const row of parsed.body) {
-      const projectName = canonicalProject(text(at(row, 'project')))
+      const projectName = exactNames
+        ? exact(at(row, 'project'))
+        : canonicalProject(text(at(row, 'project')))
       let projectId: number | null = null
       if (projectName) {
         const cached = projectIds.get(projectName)
@@ -209,7 +284,7 @@ export function restoreFromCsv(csv: string): RestoreResult {
         }
       }
 
-      const tagName = text(at(row, 'tag'))
+      const tagName = exact(at(row, 'tag'))
       let tagId: number | null = null
       if (tagName) {
         const existing = findTag.get(tagName, projectId) as { id: number } | undefined
@@ -225,18 +300,18 @@ export function restoreFromCsv(csv: string): RestoreResult {
         id,
         projectId,
         tagId,
-        text(at(row, 'task')),
+        exact(at(row, 'task')),
         text(at(row, 'session_date')),
         text(at(row, 'started_at')),
         text(at(row, 'ended_at')),
         num(at(row, 'planned_duration_s')) ?? 0,
         num(at(row, 'running_duration_s')) ?? 0,
         text(at(row, 'stop_reason')),
-        text(at(row, 'stop_reason_note')),
+        exact(at(row, 'stop_reason_note')),
         num(at(row, 'work_quantity')),
-        text(at(row, 'work_unit')),
+        exact(at(row, 'work_unit')),
         num(at(row, 'unquantifiable')) ?? 0,
-        text(at(row, 'notes')),
+        exact(at(row, 'notes')),
         num(at(row, 'pace_target_qty')),
         num(at(row, 'pace_target_interval_s')),
         text(at(row, 'source')) ?? 'import',
@@ -259,6 +334,23 @@ export function restoreFromCsv(csv: string): RestoreResult {
           )
           pauseCount += 1
         }
+      }
+    }
+
+    // The app's settings - analytics layout, the constellation's projects, the
+    // saved-timers list - replace the current ones key by key. The backup
+    // folder is never in a backup (it names a place on one machine), so the
+    // current choice is kept.
+    const settingsSection = parsed.sections.get('settings')
+    if (settingsSection) {
+      const column = (row: string[], name: string): string | undefined =>
+        row[settingsSection.header.indexOf(name)]
+      db.prepare("DELETE FROM app_settings WHERE key <> 'backup.directory'").run()
+      const put = db.prepare('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)')
+      for (const row of settingsSection.rows) {
+        const key = text(column(row, 'key'))
+        if (key === null || key === 'backup.directory') continue
+        put.run(key, column(row, 'value') ?? '')
       }
     }
 

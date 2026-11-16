@@ -1939,6 +1939,26 @@ the folder, the schedule and what is currently kept.
   them, and pauses are packed into one column as `paused|resumed` pairs
   separated by semicolons. A backup needing three files is a backup with three
   ways to go missing.
+- **After the sessions, a `#projects` and a `#settings` section** (since
+  11/16/2026). A session row starts with its numeric id, so a line starting
+  with `#` can only be a marker, and `countRows` stops at the first one so the
+  size guard counts sessions only. `#projects` carries every project with its
+  exact name, hidden flag and colour - including projects with no sessions,
+  which a name on a session row cannot. `#settings` carries `app_settings`
+  (layout, the constellation's projects, saved timers) **except the backup
+  folder**, which names a place on one machine and is kept as it is.
+- **A backup is written whole, then named.** It goes to a `.partial` file
+  nothing lists and is linked to its real name in one step (`linkSync`, which
+  fails rather than replaces), so a crash mid-write cannot leave a truncated
+  file under a real backup's name.
+- **A backup and a restore are the identity.** Found 11/16/2026, after a
+  preview round trip passed on analytics while six ways to alter data were
+  still open: a restore renamed and merged projects (`Gen 2` -> `Gen`,
+  `Tutor` -> `Job`), unhid hidden ones, dropped empty ones, trimmed spaces off
+  free text, left Undo pointing at a database that was gone, and carried no
+  settings. `scripts/backup-fidelity-check.ts` (16) asserts each one is
+  closed. **Analytics cannot see any of these**; a round trip that compares
+  only analytics proves very little.
 - **Eight are kept, and the rest go to the Recycle Bin.** `shell.trashItem`,
   not `unlink` — deleting outright means a bug in the retention rule destroys
   data silently, while the bin holds them for 30 days. Only files matching
@@ -2366,7 +2386,16 @@ the loss above survivable rather than merely detectable.
   columns, so pointing it at the *source spreadsheet* by mistake is refused
   rather than half-applied.
 - **Projects and tags are rebuilt from their names**, which is why the backup
-  writes names rather than ids.
+  writes names rather than ids. A backup with a `#projects` section is
+  restored with names exactly as written. One without - anything older than
+  11/16/2026 - is still run through the import's clean-up (ordinal stripped,
+  spreadsheet aliases merged), which is right for a backup that predates the
+  9/23 consolidation and the reason that clean-up was there at all.
+- **Free text comes back exactly**: task, notes, unit, project, tag and the
+  stop-reason note are not trimmed. Blank still reads as null.
+- **Undo and Redo are cleared** after a restore and after an import, and open
+  windows are told the project list changed. The steps describe rows in a
+  database that has just been replaced.
 
 ### Where labels are asked for, and why there
 
