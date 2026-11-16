@@ -16,7 +16,12 @@ export const BACKUPS_KEPT = 8
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const CHECK_EVERY_MS = 6 * 60 * 60 * 1000
-const FILE_PATTERN = /^deep-work-backup-\d{4}-\d{2}-\d{2}-\d{4}\.csv$/
+/**
+ * `HHMM` for every backup written before 11/16/2026, `HHMMSS` since. Both are
+ * listed, sorted and pruned together: a seconds stamp sorts after the minute
+ * stamp of the same minute, which is the order they were taken in.
+ */
+const FILE_PATTERN = /^deep-work-backup-\d{4}-\d{2}-\d{2}-\d{4}(\d{2})?\.csv$/
 
 export interface BackupFile {
   name: string
@@ -245,8 +250,38 @@ function stamp(date = new Date()): string {
   const pad = (n: number): string => String(n).padStart(2, '0')
   return (
     `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
-    `-${pad(date.getHours())}${pad(date.getMinutes())}`
+    `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
   )
+}
+
+/**
+ * Writes a backup under a name no other backup has, and returns its path.
+ *
+ * Names used to stop at the minute, so two backups in one minute shared a
+ * name and the second silently replaced the first. That is not a corner case:
+ * a restore writes a safety backup of what it is about to discard, and a
+ * "Back up now" pressed in the same minute wrote over it - the one copy of the
+ * history being thrown away, gone without a word. Found on 11/16/2026 by a
+ * restore / back up / restore round trip in the preview.
+ *
+ * The stamp now carries seconds, and the file is opened with `wx`, which
+ * fails rather than overwrites. If the name is taken the stamp moves forward a
+ * second and tries again, so names stay in the order the backups were taken.
+ */
+function writeUnique(directory: string, csv: string, now = new Date()): string {
+  for (let step = 0; step < 120; step += 1) {
+    const file = join(
+      directory,
+      `deep-work-backup-${stamp(new Date(now.getTime() + step * 1000))}.csv`
+    )
+    try {
+      writeFileSync(file, csv, { encoding: 'utf8', flag: 'wx' })
+      return file
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
+  }
+  throw new Error('could not find a free backup file name')
 }
 
 export function listBackups(): BackupFile[] {
@@ -444,8 +479,7 @@ export async function runBackup(options: { force?: boolean } = {}): Promise<Back
   mkdirSync(directory, { recursive: true })
 
   const { csv } = buildCsv()
-  const file = join(directory, `deep-work-backup-${stamp()}.csv`)
-  writeFileSync(file, csv, 'utf8')
+  const file = writeUnique(directory, csv)
   await prune()
   return { written: true, file, rows }
 }

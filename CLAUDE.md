@@ -1942,8 +1942,16 @@ the folder, the schedule and what is currently kept.
 - **Eight are kept, and the rest go to the Recycle Bin.** `shell.trashItem`,
   not `unlink` — deleting outright means a bug in the retention rule destroys
   data silently, while the bin holds them for 30 days. Only files matching
-  `deep-work-backup-YYYY-MM-DD-HHMM.csv` are ever listed or pruned, so anything
-  else in that folder is left alone.
+  `deep-work-backup-YYYY-MM-DD-HHMM[SS].csv` are ever listed or pruned, so
+  anything else in that folder is left alone.
+- **No backup ever overwrites another.** Names stopped at the minute until
+  11/16/2026, so two backups in one minute shared a name and the second
+  replaced the first - and a restore writes a safety backup of what it
+  discards, which a "Back up now" in the same minute then wrote over. Found by
+  a restore / back up / restore round trip in the preview. Names now carry
+  seconds, the file is opened with `wx` (fail, never overwrite), and a taken
+  name moves the stamp on a second. Old `HHMM` files still list and sort in
+  order beside new ones.
 - **An empty database is not backed up.** Eight slots at 3.5 days is a month of
   history; filling one with a snapshot of nothing pushes a real one out.
 
