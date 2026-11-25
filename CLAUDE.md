@@ -623,8 +623,15 @@ Work's tasks are a valedictorian speech and thank-you cards rather than a job.
 Stripping the number leaves 68 categories across the full history, but 2026 use
 is concentrated: HW (153), College Apps (75), Startup (70), Entrepreneurship
 (49), Job (38), College (29), Scioly (20), Scholarships (20), Sprocket (17).
-Note the drift — `College Apps` / `College Applications` / `College` /
-`Applications` are one thing, as are `Study for APs` / `Study AP` and
+Note the drift — `College Apps` / `College Applications` / `Applications`
+are one thing, and so is a bare `College` **through 5/11/2026 only**: after
+that date it means college itself (Penn logistics, placement tests, club
+applications), its own project `College`. The 9/23 consolidation folded every
+`College` into College Apps; the user caught it on 11/25/2026 (*"why did you
+merge my imported 'college' project into college apps? everything after
+5/11/2026 should be put into a new project called College"*). 31 sessions
+were moved and `collegeAfterAdmission` in the importer keeps a re-import from
+redoing it. A label's meaning can change with the date, as a unit's can. As are `Study for APs` / `Study AP` and
 `Internship` / `Internships`. Free-text labels degraded over 3.5 years, which is
 the argument for projects being real rows rather than strings.
 

@@ -207,6 +207,29 @@ function parseWorkDone(raw: string): {
   return { quantity, unit: normalizeUnit(match[2]), unquantifiable: false }
 }
 
+/**
+ * A bare `College` block means applications until 5/11/2026 and college itself
+ * after it. The alias above folded every `College` into College Apps, which
+ * filed a summer of Penn logistics, placement tests and club applications as
+ * applications - the user, 11/25/2026: "everything after 5/11/2026 should be
+ * put into a new project called College". Only the bare label moves; `College
+ * Apps` / `College Applications` stay applications whatever their date.
+ */
+const COLLEGE_FROM = '2026-05-12'
+function collegeAfterAdmission(
+  raw: string,
+  date: string | null,
+  project: string | null
+): string | null {
+  const bare =
+    raw
+      .trim()
+      .replace(/\s+\d+$/, '')
+      .trim()
+      .toLowerCase() === 'college'
+  return bare && date !== null && date >= COLLEGE_FROM ? 'College' : project
+}
+
 export function readImportRows(text: string): {
   rows: ImportRow[]
   totalRows: number
@@ -235,7 +258,7 @@ export function readImportRows(text: string): {
   for (const raw of table.slice(1)) {
     const cell = (index: number): string => (index >= 0 ? (raw[index] ?? '') : '')
     const date = toIsoDate(cell(iDate))
-    const project = normalizeProject(cell(iBlock))
+    const project = collegeAfterAdmission(cell(iBlock), date, normalizeProject(cell(iBlock)))
     const start = hmsToSeconds(cell(iStart))
     const end = hmsToSeconds(cell(iEnd))
 
