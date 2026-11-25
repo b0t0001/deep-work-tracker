@@ -782,9 +782,9 @@ Filters, all applied in SQL rather than by slicing an array in the renderer:
   two are used interchangeably when looking for something: "the essay" is a
   task, "College Apps" is a project, and nobody remembers which one a given
   label ended up in. `%` and `_` in the box are escaped so they stay literal.
-- **Project**, listed most-used first and only for projects that have sessions.
-  The import leaves 66, most of them a handful of rows from years ago;
-  alphabetical would bury the nine that carry the recent history.
+- **Project**, listed alphabetically and only for projects that have sessions.
+  It was most-used first, to keep the busy few on top of 66; the user asked
+  for alphabetical on 11/25/2026, once the list was down to 37.
 - **Source** — Any / Timed / Manual / Imported. `source` already drives which
   rows analytics may use, so being able to see each set is how that gets
   checked.

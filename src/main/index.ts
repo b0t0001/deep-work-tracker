@@ -448,7 +448,14 @@ function createTimerWindow(): BrowserWindow {
     send(instance, 'timer:expired', snapshot)
     // Flashing the taskbar button is the only cue that lands when the window is
     // behind a full-screen document.
-    if (!window.isDestroyed() && !window.isFocused()) window.flashFrame(true)
+    if (!window.isDestroyed() && !window.isFocused()) {
+      window.flashFrame(true)
+      // Windows keeps the button lit orange until the window is focused; Hourglass
+      // flashes a few times and stops, so this stops it too.
+      setTimeout(() => {
+        if (!window.isDestroyed()) window.flashFrame(false)
+      }, 3000)
+    }
   })
 
   window.on('ready-to-show', () => {

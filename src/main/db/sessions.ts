@@ -422,7 +422,7 @@ export function listProjects(): ProjectOption[] {
          FROM projects p
          JOIN sessions s ON s.project_id = p.id
         GROUP BY p.id, p.name
-        ORDER BY sessions DESC, p.name ASC`
+        ORDER BY p.name COLLATE NOCASE`
     )
     .all() as unknown as ProjectOption[]
 }
